@@ -170,7 +170,10 @@ cbuffer AlphaTestRefCB : register(b11)
 
 #	if defined(CLOUD_SHADOWS)
 #		if defined(CLOUDS)
-#			define CLOUD_SELF_SHADOW
+// Cloud self shadowing is an extension of the fork's own Cloud Shadows -- its settings field, its
+// GetCloudSelfShadow and the per-deck t26 binding all live there, and none of that is in this
+// build. Never defining CLOUD_SELF_SHADOW compiles the path out; Physical Sky's own use of the
+// occlusion cubemap sits under a different guard and is unaffected.
 #		endif
 #		include "CloudShadows/CloudShadows.hlsli"
 #	endif

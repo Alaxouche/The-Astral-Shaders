@@ -5,6 +5,18 @@
 
 namespace MotionBlur
 {
+	// Camera-only motion for a static world point: the same maths as GetSSMotionVector with the
+	// previous position derived from how far the camera itself moved.
+	float2 GetSSMotionVector2(float4 a_wsPosition, uint a_eyeIndex = 0)
+	{
+		float4 cameraMovement = FrameBuffer::CameraPosAdjust - FrameBuffer::CameraPreviousPosAdjust;
+		float4 screenPosition = mul(FrameBuffer::CameraViewProjUnjittered, a_wsPosition);
+		float4 previousScreenPosition = mul(FrameBuffer::CameraPreviousViewProjUnjittered, a_wsPosition + cameraMovement);
+		screenPosition.xy = screenPosition.xy / screenPosition.ww;
+		previousScreenPosition.xy = previousScreenPosition.xy / previousScreenPosition.ww;
+		return float2(-0.5, 0.5) * (screenPosition.xy - previousScreenPosition.xy);
+	}
+
 	float2 GetSSMotionVector(float4 a_wsPosition, float4 a_previousWSPosition)
 	{
 		float4 screenPosition = mul(FrameBuffer::CameraViewProjUnjittered, a_wsPosition);

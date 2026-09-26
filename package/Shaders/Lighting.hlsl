@@ -862,9 +862,9 @@ float GetSnowParameterY(float texProjTmp, float alpha)
 #		undef WETNESS_EFFECTS
 #	endif
 
-#	if defined(WETNESS_EFFECTS) && !defined(HAIR) && !defined(EYE) && !defined(LANDSCAPE)
-#		define CHARACTER_RAIN_SURFACE
-#	endif
+// Character rain surfaces are not part of this build: the feature and its two includes were left
+// behind on the Bottle base, and every use below sits under this define, so never setting it
+// compiles the whole path out.
 
 #	if defined(WETNESS_EFFECTS)
 #		include "WetnessEffects/WetnessEffects.hlsli"
@@ -2368,10 +2368,10 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float rainWetness = SharedData::wetnessEffectsSettings.Wetness * minWetnessAngle * SharedData::wetnessEffectsSettings.MaxRainWetness;
 	rainWetness = max(rainWetness, raindropInfo.w);
 
-#		if defined(HAIR)
-	rainWetness = SharedData::wetnessEffectsSettings.HairWetness * SharedData::wetnessEffectsSettings.Wetness;
-#		elif defined(SKIN)
-	rainWetness = 0.0f;
+	// Back to Bottle's shared skin-and-hair path: the fork split the two and zeroed skin because
+	// character rain spots wet it instead, and that feature is not in this build.
+#		if defined(SKIN) || defined(HAIR)
+	rainWetness = SharedData::wetnessEffectsSettings.SkinWetness * SharedData::wetnessEffectsSettings.Wetness;
 #		endif
 #		if defined(CHARACTER_RAIN_SURFACE)
 	if (characterRainSurface)
