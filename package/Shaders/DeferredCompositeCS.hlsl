@@ -86,6 +86,14 @@ void SampleSSGISpecular(uint2 pixCoord, sh2 lobe, inout float ao, out float3 il,
 #	endif
 #endif
 
+#if defined(PHYSICAL_SKY)
+#	define PS_DEFERRED_RSRCS
+#	define PS_DEFERRED_SAMPLERS
+#	include "PhysicalSky/Common.hlsli"
+// Texture3D<float4> TexApLut : register(t15);
+// SamplerState SampSv : register(s2);
+#endif
+
 [numthreads(8, 8, 1)] void main(uint3 dispatchID : SV_DispatchThreadID) {
 	// Early exit if dispatch thread is outside screen bounds
 	if (any(dispatchID.xy >= uint2(SharedData::BufferDim.xy)))
@@ -296,6 +304,12 @@ void SampleSSGISpecular(uint2 pixCoord, sh2 lobe, inout float ao, out float3 il,
 #endif
 
 	color = Color::IrradianceToGamma(color);
+
+#if defined(PHYSICAL_SKY)
+	if (SharedData::physSkyData.enabled && depth < 1 - 1e-6) {
+		color.xyz = PhysSky::CompositeAerialPerspective(color.xyz, normalize(positionWS.xyz), dispatchID.xy, length(positionWS.xyz), PhysSky::SampSv);
+	}
+#endif
 
 #if defined(DEBUG)
 

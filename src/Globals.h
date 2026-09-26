@@ -4,6 +4,7 @@
 
 struct CloudShadows;
 struct ProceduralSun;
+struct NightSky;
 struct DynamicCubemaps;
 struct VolumetricShadows;
 struct ExtendedMaterials;
@@ -19,6 +20,8 @@ struct LinearLighting;
 struct LODBlending;
 struct InteriorSun;
 struct InverseSquareLighting;
+struct LivingWindows;
+struct PhysicalSky;
 struct ScreenSpaceGI;
 struct ScreenSpaceShadows;
 struct Skylighting;
@@ -101,6 +104,7 @@ namespace globals
 	{
 		extern CloudShadows cloudShadows;
 		extern ProceduralSun proceduralSun;
+		extern NightSky nightSky;
 		extern DynamicCubemaps dynamicCubemaps;
 		extern VolumetricShadows volumetricShadows;
 		extern ExtendedMaterials extendedMaterials;
@@ -116,6 +120,8 @@ namespace globals
 		extern LODBlending lodBlending;
 		extern InteriorSun interiorSun;
 		extern InverseSquareLighting inverseSquareLighting;
+		extern LivingWindows livingWindows;
+		extern PhysicalSky physicalSky;
 		extern ScreenSpaceGI screenSpaceGI;
 		extern ScreenSpaceShadows screenSpaceShadows;
 		extern Skylighting skylighting;

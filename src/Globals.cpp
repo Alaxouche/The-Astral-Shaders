@@ -24,6 +24,9 @@
 #include "Features/LinearLighting.h"
 #include "Features/PerformanceOverlay.h"
 #include "Features/PostProcessing.h"
+#include "Features/LivingWindows.h"
+#include "Features/PhysicalSky.h"
+#include "Features/NightSky.h"
 #include "Features/ProceduralSun.h"
 #include "Features/RemoteControl.h"
 #include "Features/RenderDoc.h"
@@ -68,6 +71,7 @@ namespace globals
 	{
 		CloudShadows cloudShadows{};
 		ProceduralSun proceduralSun{};
+		NightSky nightSky{};
 		DynamicCubemaps dynamicCubemaps{};
 		VolumetricShadows volumetricShadows{};
 		ExtendedMaterials extendedMaterials{};
@@ -83,6 +87,8 @@ namespace globals
 		HorizonFix horizonFix{};
 		InteriorSun interiorSun{};
 		InverseSquareLighting inverseSquareLighting{};
+		LivingWindows livingWindows{};
+		PhysicalSky physicalSky{};
 		ScreenSpaceGI screenSpaceGI{};
 		ScreenSpaceShadows screenSpaceShadows{};
 		Skylighting skylighting{};

@@ -317,6 +317,11 @@ struct PS_OUTPUT
 	float4 Diffuse: SV_Target0;
 	float4 MotionVectors: SV_Target1;
 	float4 NormalGlossiness: SV_Target2;
+#	if defined(OIT) && OIT == 3
+	float4 OITFrontAccumalation: SV_Target3;
+	float4 OITAccumalation: SV_Target4;
+	float4 OITRevealage: SV_Target5;
+#	endif
 };
 #endif
 
@@ -852,12 +857,20 @@ float GetSnowParameterY(float texProjTmp, float alpha)
 #		include "InverseSquareLighting/InverseSquareLighting.hlsli"
 #	endif
 
-#	if defined(TREE_ANIM)
+#	if defined(TREE_ANIM) && defined(WETNESS_EFFECTS)
+#		define SIMPLE_TREE_WETNESS
 #		undef WETNESS_EFFECTS
+#	endif
+
+#	if defined(WETNESS_EFFECTS) && !defined(HAIR) && !defined(EYE) && !defined(LANDSCAPE)
+#		define CHARACTER_RAIN_SURFACE
 #	endif
 
 #	if defined(WETNESS_EFFECTS)
 #		include "WetnessEffects/WetnessEffects.hlsli"
+#		if defined(CHARACTER_RAIN_SURFACE)
+#			include "WetnessEffects/CharacterRainSpots.hlsli"
+#		endif
 #	endif
 
 #	if defined(TERRAIN_BLENDING)
@@ -902,6 +915,10 @@ float GetSnowParameterY(float texProjTmp, float alpha)
 #		include "Skin/Skin.hlsli"
 #	endif
 
+#	if defined(PHYSICAL_SKY)
+#		include "PhysicalSky/Common.hlsli"
+#	endif
+
 #	define LinearSampler SampColorSampler
 
 #	include "Common/ShadowSampling.hlsli"
@@ -914,9 +931,33 @@ float GetSnowParameterY(float texProjTmp, float alpha)
 #		include "ExponentialHeightFog/ExponentialHeightFog.hlsli"
 #	endif
 
-#	include "Common/LightingEval.hlsli"
+#	if defined(OIT)
+#		define OIT_WRITE_DEPTH 1
+#		include "OIT/OITCapture.hlsli"
+#	endif
 
+#	if defined(PHYSICAL_SKY) || defined(EXP_HEIGHT_FOG)
+#		include "Common/ViewMedium.hlsli"
+#	endif
+
+// Living Windows only ever runs on static architecture permutations.
+#	if defined(LIVING_WINDOWS) && !defined(LANDSCAPE) && !defined(LODLANDSCAPE) && !defined(LOD) && !defined(SKINNED) && \
+		!defined(HAIR) && !defined(EYE) && !defined(TREE_ANIM) && !defined(WORLD_MAP) && !defined(FACEGEN)
+#		define LIVING_WINDOWS_ACTIVE
+#		include "LivingWindows/LivingWindows.hlsli"
+#	endif
+
+#	include "Common/LightingEval.hlsli"
+#	if defined(CHARACTER_RAIN_SURFACE)
+#		include "WetnessEffects/CharacterRainLighting.hlsli"
+#	endif
+
+#	if defined(OIT)
+[earlydepthstencil]
 PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
+#else
+PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
+#endif
 {
 	PS_OUTPUT psout;
 
@@ -926,7 +967,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float2 screenUV = FrameBuffer::ViewToUV(viewPosition);
 	float screenNoise = Random::InterleavedGradientNoise(input.Position.xy, SharedData::FrameCount);
 
-#	if defined(DEFERRED)
+#if defined(DEFERRED)
 	const bool inWorld = true;
 #	else
 	const bool inWorld = (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InWorld);
@@ -1398,6 +1439,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		if defined(TRUE_PBR)
 	rawRMAOS = blendedRMAOS;
 #		endif
+
 #	else  // Non-landscape code
 	float4 rawBaseColor;
 	MESH_TV_SAMPLE_BIAS(rawBaseColor, TexColorSampler, SampColorSampler, diffuseUv);
@@ -1771,6 +1813,43 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 #	if defined(MODELSPACENORMALS)
 	float3 vertexNormal = worldNormal;
+#	endif
+
+#	if defined(LIVING_WINDOWS_ACTIVE)
+	// Screen-space derivatives stay at function scope; the pane sources below are evaluated in branches.
+	float2 livingWindowUvDx = ddx(uv);
+	float2 livingWindowUvDy = ddy(uv);
+	float3 livingWindowPosDx = ddx(input.WorldPosition.xyz);
+	float3 livingWindowPosDy = ddy(input.WorldPosition.xyz);
+	// The pane mask reads normal-map continuity; taken here, at function scope, because the
+	// surface evaluation below runs inside dynamic branches.
+	float2 livingWindowNormalDx = ddx_coarse(normalColor.xy);
+	float2 livingWindowNormalDy = ddy_coarse(normalColor.xy);
+	uint livingWindowPaneSource = ((0x3F & (Permutation::PixelShaderDescriptor >> 24)) == Permutation::LightingTechnique::Glowmap) ? LivingWindows::kPaneGlow : LivingWindows::kPaneNone;
+#		if defined(TRUE_PBR)
+	// TruePBR materials carry their glow in the emissive map, bound in the same slot.
+	if ((PBRFlags & PBR::Flags::HasEmissive) != 0)
+		livingWindowPaneSource = LivingWindows::kPaneGlow;
+#		endif
+#		if defined(MULTI_LAYER_PARALLAX)
+	if (livingWindowPaneSource == LivingWindows::kPaneNone)
+		livingWindowPaneSource = LivingWindows::kPaneLayerAlpha;
+#		endif
+	LivingWindows::Surface livingWindowSurface = LivingWindows::InitSurface();
+	[branch] if (livingWindowPaneSource == LivingWindows::kPaneLayerAlpha)
+	{
+		LivingWindows::EvaluateSurfaceInto(livingWindowSurface, input.WorldPosition.xyz, viewDirection, vertexNormal, normalColor, uv, viewPosition.z,
+			TexColorSampler, SampColorSampler, livingWindowPaneSource, livingWindowUvDx, livingWindowUvDy, livingWindowPosDx, livingWindowPosDy,
+			livingWindowNormalDx, livingWindowNormalDy);
+	}
+	else
+	{
+		LivingWindows::EvaluateSurfaceInto(livingWindowSurface, input.WorldPosition.xyz, viewDirection, vertexNormal, normalColor, uv, viewPosition.z,
+			TexGlowSampler, SampGlowSampler, livingWindowPaneSource, livingWindowUvDx, livingWindowUvDy, livingWindowPosDx, livingWindowPosDy,
+			livingWindowNormalDx, livingWindowNormalDy);
+	}
+	// Glass is flat and gently wavy; the frame keeps its authored normals.
+	worldNormal = normalize(lerp(worldNormal, livingWindowSurface.glassNormal + 1e-5, livingWindowSurface.glassWeight));
 #	endif
 
 	float3 screenSpaceNormal = normalize(FrameBuffer::WorldToView(worldNormal, false));
@@ -2244,12 +2323,35 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float wetnessOcclusion = inWorld;
 #		endif
 	float flatnessAmount = smoothstep(SharedData::wetnessEffectsSettings.PuddleMaxAngle, 1.0, minWetnessAngle);
+#		if defined(CHARACTER_RAIN_SURFACE)
+	const bool characterRainSurface =
+		(Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::IsCharacterRainSurface) != 0 &&
+		(Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::IsEye) == 0;
+	const bool heldWeapon =
+		(Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::IsHeldWeapon) != 0;
+	float3 characterDrop = 0.0f;
+	float characterRainSkyVisibility = SharedData::InInterior ? 0.0f : wetnessOcclusion;
+	const bool evaluateCharacterDrops = characterRainSurface && inWorld && !SharedData::HideSky &&
+	                                    max(SharedData::wetnessEffectsSettings.CharacterImpactIntensity,
+											SharedData::wetnessEffectsSettings.CharacterRetainedWetness) > 0.0f &&
+	                                    (!heldWeapon || SharedData::wetnessEffectsSettings.EnableWeaponRainDrops);
+	[branch] if (evaluateCharacterDrops)
+	{
+		characterDrop = CharacterRainSpots::Evaluate(input.ModelPosition.xyz,
+			input.WorldPosition.xyz, vertexNormal.xyz, characterRainSkyVisibility, heldWeapon);
+	}
+	float characterSpotMask = characterDrop.x;
+#		endif
 	// Calculate raindrop effects
 	float4 raindropInfo = float4(0, 0, 1, 0);
 	bool shouldCalculateRaindrops = (worldNormal.z > 0.0) &&
 	                                (SharedData::wetnessEffectsSettings.Raining > 0.0) &&
 	                                (SharedData::wetnessEffectsSettings.EnableRaindropFx) &&
 	                                (wetnessOcclusion > 0.5);
+#		if defined(CHARACTER_RAIN_SURFACE)
+	shouldCalculateRaindrops = shouldCalculateRaindrops &&
+	                           !(characterRainSurface && SharedData::wetnessEffectsSettings.EnableCharacterRainSpots);
+#		endif
 
 	if (shouldCalculateRaindrops) {
 #		if defined(SKINNED)
@@ -2266,8 +2368,14 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float rainWetness = SharedData::wetnessEffectsSettings.Wetness * minWetnessAngle * SharedData::wetnessEffectsSettings.MaxRainWetness;
 	rainWetness = max(rainWetness, raindropInfo.w);
 
-#		if defined(SKIN) || defined(HAIR)
-	rainWetness = SharedData::wetnessEffectsSettings.SkinWetness * SharedData::wetnessEffectsSettings.Wetness;
+#		if defined(HAIR)
+	rainWetness = SharedData::wetnessEffectsSettings.HairWetness * SharedData::wetnessEffectsSettings.Wetness;
+#		elif defined(SKIN)
+	rainWetness = 0.0f;
+#		endif
+#		if defined(CHARACTER_RAIN_SURFACE)
+	if (characterRainSurface)
+		rainWetness = 0.0f;
 #		endif
 
 #		if defined(CS_SKIN) && !defined(SKIN)
@@ -2332,6 +2440,79 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	// sharply without this floor.
 	static const float wetnessMinPuddleRoughness = 0.05;
 	waterRoughnessSpecular = max(saturate(1.0 - wetnessGlossinessSpecular), wetnessMinPuddleRoughness);
+#		if defined(CHARACTER_RAIN_SURFACE)
+	float3 characterSpotSurfaceNormal = worldNormal.xyz;
+	float characterSpotRoughness = 1.0f;
+	float characterCoatIntensity = 0.0f;
+	float characterCoatMask = 0.0f;
+	float3 characterDropNormal = worldNormal.xyz;
+	[branch] if (characterRainSurface)
+	{
+		// Keep derivative-based drop normals outside the per-pixel coverage branch.
+		float3 characterDropBaseNormal = normalize(lerp(worldNormal.xyz, vertexNormal.xyz,
+			CharacterRainSpots::CharacterNormalVertexBlend));
+		float configuredRadius = SharedData::wetnessEffectsSettings.CharacterSpotRadius *
+		                         (heldWeapon ? CharacterRainSpots::WeaponRadiusScale : 1.0f);
+		float characterDropHeight = characterDrop.y * configuredRadius * CharacterRainSpots::DropHeightScale *
+		                            SharedData::wetnessEffectsSettings.CharacterSpotNormalStrength;
+		characterDropNormal = CharacterRainSpots::CalculateWorldNormalFromHeight(characterDropHeight,
+			input.WorldPosition.xyz, characterDropBaseNormal);
+		characterSpotRoughness = SharedData::wetnessEffectsSettings.CharacterSpotRoughness;
+		characterSpotRoughness = clamp(characterSpotRoughness,
+			CharacterRainSpots::MinimumWaterRoughness, CharacterRainSpots::MaximumWaterRoughness);
+		characterCoatIntensity = SharedData::wetnessEffectsSettings.CharacterCoatIntensity *
+		                         (heldWeapon ? CharacterRainSpots::WeaponCoatIntensityScale : 1.0f);
+		float characterRetainedWetness = SharedData::wetnessEffectsSettings.CharacterRetainedWetness;
+		float characterSheenMask = heldWeapon && !SharedData::wetnessEffectsSettings.EnableWeaponRainDrops ?
+		                               0.0f :
+		                               saturate(characterRetainedWetness * SharedData::wetnessEffectsSettings.CharacterWetSheen);
+		characterCoatMask = max(characterSpotMask, characterSheenMask);
+	}
+	// The thin surface film supplies broad gloss while localized drops retain their own normal and absorption.
+	[branch] if (characterRainSurface && characterCoatMask > 0.0f && inWorld)
+	{
+		if (characterSpotMask > 0.0f)
+			characterSpotSurfaceNormal = characterDropNormal;
+		float spotAbsorption = CharacterRainSpots::SpotAbsorptionStrength *
+		                       saturate(max(characterDrop.z,
+								   characterDrop.x * CharacterRainSpots::CoverageAbsorptionWeight +
+									   characterDrop.y * CharacterRainSpots::HeightAbsorptionWeight));
+#			if defined(SKIN)
+		spotAbsorption *= CharacterRainSpots::SkinAbsorptionScale;
+#			endif
+		material.BaseColor *= 1.0f - spotAbsorption;
+	}
+#		endif
+#	endif
+
+#	if defined(SIMPLE_TREE_WETNESS)
+	static const float treeWetRoughnessScale = 0.85;
+	static const float treeWetMinRoughness = 0.04;
+	static const float treeWetAlbedoScale = 0.90;
+	const float treeWetness = (inWorld || inReflection) ?
+	                              saturate(SharedData::wetnessEffectsSettings.Wetness * SharedData::wetnessEffectsSettings.MaxRainWetness) :
+	                              0.0;
+	material.Roughness = lerp(material.Roughness, max(material.Roughness * treeWetRoughnessScale, treeWetMinRoughness), treeWetness);
+	material.BaseColor *= lerp(1.0, treeWetAlbedoScale, treeWetness);
+#		if !defined(TRUE_PBR) && defined(SPECULAR)
+	static const float treeWetGlossinessIncrease = 0.05;
+	static const float treeWetShininessScale = 1.10;
+	material.Glossiness = saturate(material.Glossiness + treeWetGlossinessIncrease * treeWetness);
+	material.Shininess *= lerp(1.0, treeWetShininessScale, treeWetness);
+#		endif
+#	endif
+
+#	if defined(LIVING_WINDOWS_ACTIVE)
+	[branch] if (livingWindowSurface.glassWeight > 1e-4)
+	{
+		float livingWindowGlass = livingWindowSurface.glassWeight;
+		material.Roughness = lerp(material.Roughness, livingWindowSurface.roughness, livingWindowGlass);
+		material.F0 = lerp(material.F0, max(material.F0, livingWindowSurface.f0.xxx), livingWindowGlass);
+#		if defined(TRUE_PBR)
+		material.Metallic *= 1.0 - livingWindowGlass;
+#		endif
+	}
+	material.BaseColor *= livingWindowSurface.albedoScale;
 #	endif
 
 	float llDirLightMult = SharedData::linearLightingSettings.enableLinearLighting && !SharedData::linearLightingSettings.isDirLightLinear && (inWorld || inReflection) && !SharedData::InInterior ? SharedData::linearLightingSettings.dirLightMult : 1.0f;
@@ -2340,6 +2521,13 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	if defined(EXP_HEIGHT_FOG)
 	if (SharedData::exponentialHeightFogSettings.enabled) {
 		dirLightColor *= ExponentialHeightFog::GetSunlightFogAttenuation(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz);
+	}
+#	endif
+
+#	if defined(PHYSICAL_SKY)
+	if (SharedData::physSkyData.enabled) {
+		dirLightColor *= PhysSky::SampleTr(normalize(DirLightDirection.xyz), SampShadowMaskSampler);
+		dirLightColor *= PhysSky::GetDirlightTransmittance(input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz, SampColorSampler);
 	}
 #	endif
 
@@ -2444,6 +2632,9 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float3 lightsDiffuseColor = 0.0.xxx;
 	float3 coatLightsDiffuseColor = 0.0.xxx;
 	float3 lightsSpecularColor = 0.0.xxx;
+#	if defined(CHARACTER_RAIN_SURFACE)
+	float3 characterRainSpecular = 0.0f;
+#	endif
 
 	float3 lodLandDiffuseColor = 0;
 
@@ -2469,6 +2660,11 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	if defined(WETNESS_EFFECTS)
 	if (waterRoughnessSpecular < 1)
 		EvaluateWetnessLighting(wetnessNormal, dirLightContext, waterRoughnessSpecular, dirLightOutput);
+#		if defined(CHARACTER_RAIN_SURFACE)
+	[branch] if (characterCoatMask > 0.0f)
+		characterRainSpecular += CharacterRainSpots::EvaluateLighting(characterSpotSurfaceNormal, dirLightContext,
+			characterSpotRoughness, characterCoatMask, characterCoatIntensity);
+#		endif
 #	endif
 
 	lightsDiffuseColor += dirLightOutput.diffuse;
@@ -2529,6 +2725,11 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #			if defined(WETNESS_EFFECTS)
 		if (waterRoughnessSpecular < 1)
 			EvaluateWetnessLighting(wetnessNormal, pointLightContext, waterRoughnessSpecular, pointLightOutput);
+#				if defined(CHARACTER_RAIN_SURFACE)
+		[branch] if (characterCoatMask > 0.0f)
+			characterRainSpecular += CharacterRainSpots::EvaluateLighting(characterSpotSurfaceNormal, pointLightContext,
+				characterSpotRoughness, characterCoatMask, characterCoatIntensity);
+#				endif
 #			endif
 		lightsDiffuseColor += pointLightOutput.diffuse;
 		lightsSpecularColor += pointLightOutput.specular;
@@ -2670,6 +2871,11 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #			if defined(WETNESS_EFFECTS)
 		if (waterRoughnessSpecular < 1)
 			EvaluateWetnessLighting(wetnessNormal, pointLightContext, waterRoughnessSpecular, pointLightOutput);
+#				if defined(CHARACTER_RAIN_SURFACE)
+		[branch] if (characterCoatMask > 0.0f)
+			characterRainSpecular += CharacterRainSpots::EvaluateLighting(characterSpotSurfaceNormal, pointLightContext,
+				characterSpotRoughness, characterCoatMask, characterCoatIntensity);
+#				endif
 #			endif
 
 		lightsDiffuseColor += pointLightOutput.diffuse;
@@ -2734,6 +2940,35 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	}
 #	endif
 
+#	if defined(LIVING_WINDOWS_ACTIVE)
+	// Light transmitted from the room replaces the flat glow-map paint on the pane. It is added after
+	// the albedo multiply below, so the glass texture never tints the interior.
+	float3 livingWindowTransmitted = 0.0;
+	// How much of the pane the room is showing through. The glow map steps aside
+	// for it below; multilayer parallax has to step aside for it too, further
+	// down, or its inner layer paints straight over the room.
+	float livingWindowInteriorWeight = 0.0;
+	[branch] if (livingWindowSurface.pane > 1e-4)
+	{
+		LivingWindows::Interior livingWindowInterior = LivingWindows::EvaluateInterior(livingWindowSurface, input.WorldPosition.xyz, SampColorSampler);
+		[branch] if (livingWindowInterior.weight > 1e-4)
+		{
+			float3 livingWindowColor = livingWindowInterior.color;
+			if (!SharedData::linearLightingSettings.enableLinearLighting)
+				livingWindowColor = Color::LinearToSrgb(livingWindowColor);
+			emitColor *= 1.0 - livingWindowInterior.weight;
+			livingWindowTransmitted = livingWindowColor * livingWindowInterior.weight;
+			livingWindowInteriorWeight = livingWindowInterior.weight;
+		}
+		[branch] if (SharedData::livingWindowsSettings.DebugOverlay != 0)
+		{
+			float livingWindowDebug = livingWindowSurface.pane * 0.6;
+			emitColor *= 1.0 - livingWindowDebug;
+			livingWindowTransmitted = lerp(livingWindowTransmitted, LivingWindows::DebugColor(livingWindowSurface.tier), livingWindowDebug);
+		}
+	}
+#	endif
+
 #	if !defined(TRUE_PBR)
 	diffuseColor += emitColor.xyz;
 #	endif
@@ -2752,6 +2987,14 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float3 layerColor = TexLayerSampler.Sample(SampLayerSampler, layerUv).xyz;
 
 	float mlpBlendFactor = saturate(viewNormalAngle) * (1.0 - baseColor.w);
+
+#		if defined(LIVING_WINDOWS_ACTIVE)
+	// Both painters key off the same low-alpha pane texels, so wherever the room
+	// is visible the vanilla inner layer was being lit at full strength on top of
+	// it and the interior never read as more than a faint tint. Fade the layer by
+	// exactly what the room is showing, the way the glow map is faded above.
+	mlpBlendFactor *= 1.0 - livingWindowInteriorWeight;
+#		endif
 
 	material.BaseColor = lerp(material.BaseColor, layerColor, mlpBlendFactor);
 
@@ -2793,7 +3036,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	if defined(HAIR)
 	float3 vertexColor = lerp(1, Color::ColorToLinear(TintColor.xyz), Color::ColorToLinear(input.Color.y));
 	float vertexAO = 1;
-#		if defined(CS_HAIR_SHADING)
+#		if defined(CS_HAIR)
 	if (SharedData::hairSpecularSettings.Enabled)
 		vertexColor = 1;
 #		endif
@@ -2878,6 +3121,13 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		else
 	float3 wetnessReflectance = 0.0;
 #		endif
+#		if defined(CHARACTER_RAIN_SURFACE)
+	float3 characterSpotReflectance = 0.0f;
+	[branch] if (characterCoatMask > 0.0f)
+		characterSpotReflectance = CharacterRainSpots::EvaluateIndirect(characterSpotSurfaceNormal, indirectContext,
+			characterSpotRoughness, characterCoatMask, characterCoatIntensity);
+	float3 characterRainAmbientColor = directionalAmbientColor;
+#		endif
 #	endif
 #	if defined(ENVMAP) || defined(MULTI_LAYER_PARALLAX) || defined(EYE)
 #		if defined(VANILLA_FRESNEL)
@@ -2910,6 +3160,10 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	color.xyz += diffuseColor * material.BaseColor;
 #	endif
 
+#	if defined(LIVING_WINDOWS_ACTIVE)
+	color.xyz += livingWindowTransmitted;
+#	endif
+
 	color.xyz += indirectLobeWeights.diffuse * directionalAmbientColor;
 	color.xyz += transmissionColor;
 
@@ -2939,6 +3193,11 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		endif
 		specularColor *= complexSpecular;
 #	endif  // defined (EMAT) && defined(ENVMAP)
+
+#	if defined(CHARACTER_RAIN_SURFACE)
+	// Water reflects independently of skin specular strength and the clothing material's masks.
+	specularColor += characterRainSpecular;
+#	endif
 
 #	if defined(LOD_LAND_BLEND) && defined(TRUE_PBR)
 	{
@@ -2992,47 +3251,80 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		color.xyz += indirectLobeWeights.specular * directionalAmbientColor;
 #		endif
 
+#		if defined(CHARACTER_RAIN_SURFACE)
+	[branch] if (any(characterSpotReflectance > 0.0f))
+	{
+#			if defined(DYNAMIC_CUBEMAPS)
+#				if defined(SKYLIGHTING)
+		color.xyz += characterSpotReflectance * DynamicCubemaps::GetDynamicCubemapSpecularIrradiance(characterSpotSurfaceNormal, viewDirection, characterSpotRoughness, skylightingSH);
+#				else
+		color.xyz += characterSpotReflectance * DynamicCubemaps::GetDynamicCubemapSpecularIrradiance(characterSpotSurfaceNormal, viewDirection, characterSpotRoughness);
+#				endif
+#			else
+		color.xyz += characterSpotReflectance * characterRainAmbientColor;
+#			endif
+	}
+#		endif
 	color.xyz = Color::IrradianceToGamma(color.xyz);
-	float3 fogColor = Color::Fog(input.FogParam.xyz);
-	float fogFactor = Color::FogAlpha(input.FogParam.w);
+#		if defined(PHYSICAL_SKY)
+	if (SharedData::physSkyData.enabled && inWorld) {
+		const float3 physSkyViewDir = normalize(input.WorldPosition.xyz);
+		if (inReflection)
+			color.xyz = PhysSky::CompositeAerialPerspectiveReflection(color.xyz, physSkyViewDir, length(input.WorldPosition.xyz), SampColorSampler);
+		else
+			color.xyz = PhysSky::CompositeAerialPerspective(color.xyz, physSkyViewDir, input.Position.xy, screenUV, length(input.WorldPosition.xyz), SampColorSampler);
+	}
+#		endif
+
+#		if defined(PHYSICAL_SKY) || defined(EXP_HEIGHT_FOG)
+	if (SharedData::PostWaterComposite && inWorld && !inReflection) {
+		const float4 medium = ViewMedium::SampleViewMedium(input.WorldPosition.xyz, screenUV, SampColorSampler);
+		const bool additive = (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::AdditiveLighting) != 0;
+		color.xyz = Color::IrradianceToGamma(Color::IrradianceToLinear(color.xyz) * medium.a + (additive ? 0.0.xxx : medium.rgb));
+	} else
+#		endif
+	{
+		float3 fogColor = Color::Fog(input.FogParam.xyz);
+		float fogFactor = Color::FogAlpha(input.FogParam.w);
 #		if defined(IBL)
-	if (SharedData::iblSettings.EnableIBL) {
-		fogColor = ImageBasedLighting::GetFogIBLColor(fogColor);
-	}
-#		endif
-#		if defined(EXP_HEIGHT_FOG)
-	float3 vanillaFogColor = fogColor;
-	float vanillaFogFactor = fogFactor;
-	if (SharedData::exponentialHeightFogSettings.enabled) {
-		float4 exponentialHeightFog;
-		if (inReflection) {
-			exponentialHeightFog = ExponentialHeightFog::GetExponentialHeightFogNoVolumetric(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, fogColor, float4(input.Position.xy * FrameBuffer::DynamicResolutionParams2.xy, input.Position.z, 1));
-		} else {
-			exponentialHeightFog = ExponentialHeightFog::GetExponentialHeightFog(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, fogColor, float4(input.Position.xy * FrameBuffer::DynamicResolutionParams2.xy, input.Position.z, 1));
+		if (SharedData::iblSettings.EnableIBL) {
+			fogColor = ImageBasedLighting::GetFogIBLColor(fogColor);
 		}
-		fogColor = exponentialHeightFog.xyz;
-		fogFactor = exponentialHeightFog.w;
-	}
 #		endif
-	if ((Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::AdditiveLighting) != 0) {
 #		if defined(EXP_HEIGHT_FOG)
-		vanillaFogColor = 0.0;
-#		endif
-		fogColor = 0.0;
-	}
-	if ((FrameBuffer::FrameParams.y && FrameBuffer::FrameParams.z) || inReflection) {
-#		if defined(EXP_HEIGHT_FOG)
+		float3 vanillaFogColor = fogColor;
+		float vanillaFogFactor = fogFactor;
 		if (SharedData::exponentialHeightFogSettings.enabled) {
-			if (!ExponentialHeightFog::ShouldDisableVanillaFog()) {
-				color.xyz = lerp(color.xyz, vanillaFogColor, vanillaFogFactor);
+			float4 exponentialHeightFog;
+			if (inReflection) {
+				exponentialHeightFog = ExponentialHeightFog::GetExponentialHeightFogNoVolumetric(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, fogColor, float4(input.Position.xy * FrameBuffer::DynamicResolutionParams2.xy, input.Position.z, 1));
+			} else {
+				exponentialHeightFog = ExponentialHeightFog::GetExponentialHeightFog(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, fogColor, float4(input.Position.xy * FrameBuffer::DynamicResolutionParams2.xy, input.Position.z, 1));
 			}
-			color.xyz = lerp(color.xyz, fogColor, fogFactor);
-		} else {
-			color.xyz = lerp(color.xyz, fogColor, fogFactor);
+			fogColor = exponentialHeightFog.xyz;
+			fogFactor = exponentialHeightFog.w;
 		}
-#		else
-		color.xyz = lerp(color.xyz, fogColor, fogFactor);
 #		endif
+		if ((Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::AdditiveLighting) != 0) {
+#		if defined(EXP_HEIGHT_FOG)
+			vanillaFogColor = 0.0;
+#		endif
+			fogColor = 0.0;
+		}
+		if ((FrameBuffer::FrameParams.y && FrameBuffer::FrameParams.z) || inReflection) {
+#		if defined(EXP_HEIGHT_FOG)
+			if (SharedData::exponentialHeightFogSettings.enabled) {
+				if (!ExponentialHeightFog::ShouldDisableVanillaFog()) {
+					color.xyz = lerp(color.xyz, vanillaFogColor, vanillaFogFactor);
+				}
+				color.xyz = lerp(color.xyz, fogColor, fogFactor);
+			} else {
+				color.xyz = lerp(color.xyz, fogColor, fogFactor);
+			}
+#		else
+			color.xyz = lerp(color.xyz, fogColor, fogFactor);
+#		endif
+		}
 	}
 #	endif
 
@@ -3195,6 +3487,17 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		screenSpaceNormal = normalize(FrameBuffer::WorldToView(wetnessNormal, false));
 		material.Roughness = waterRoughnessSpecular;
 	}
+#			if defined(CHARACTER_RAIN_SURFACE)
+	// One deferred lobe approximates the coat; filtered edges retain the underlying material response.
+	[branch] if (characterCoatMask > 0.0f)
+	{
+		float characterReflectionWeight = CharacterRainSpots::GetCoatWeight(characterCoatMask, characterCoatIntensity);
+		material.Roughness = lerp(material.Roughness, min(material.Roughness, characterSpotRoughness), characterReflectionWeight);
+		screenSpaceNormal = normalize(lerp(screenSpaceNormal,
+			FrameBuffer::WorldToView(characterSpotSurfaceNormal, false), characterReflectionWeight));
+		indirectLobeWeights.specular += characterSpotReflectance;
+	}
+#			endif
 #		endif
 
 	psout.Reflectance = float4(indirectLobeWeights.specular, psout.Diffuse.w);
@@ -3232,6 +3535,19 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	}
 #	endif
 
+#	if defined(CHARACTER_RAIN_SURFACE)
+	if (SharedData::wetnessEffectsSettings.CharacterSpotDebug && characterRainSurface && inWorld) {
+		float characterDebugMask = SharedData::wetnessEffectsSettings.CharacterSpotDebug == CharacterRainSpots::SurfaceDebugMode ? 1.0f :
+		                                                                                                                           (SharedData::wetnessEffectsSettings.CharacterSpotDebug == CharacterRainSpots::WeaponDebugMode ? float(heldWeapon) : characterSpotMask);
+		psout.Diffuse.xyz = characterDebugMask.xxx;
+#		if defined(DEFERRED)
+		psout.Specular.xyz = 0.0f;
+		psout.Albedo.xyz = 0.0f;
+		psout.Reflectance.xyz = 0.0f;
+#		endif
+	}
+#	endif
+
 #	if !defined(DEFERRED)
 	float3 ssrNormal = screenSpaceNormal;
 	ssrNormal.z = max(0.001, sqrt(8.0 - 8.0 * ssrNormal.z));
@@ -3253,6 +3569,16 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		undef LANDSCAPE_PARALLAX_ENABLED
 #	endif
 
+#if defined(OIT)
+#if OIT == 3 && !defined(DEFERRED)
+	WBOITResult oit = OIT_CaptureWBOIT(int2(input.Position.xy), psout.Diffuse, input.Position.z);
+	psout.OITFrontAccumalation = oit.accumFront;
+	psout.OITAccumalation = oit.accumAll;
+	psout.OITRevealage = oit.revealage;
+#else
+	psout.Diffuse = OIT_Capture(int2(input.Position.xy), psout.Diffuse, input.Position.z);
+#endif
+#endif
 	return psout;
 }
 #endif  // PSHADER

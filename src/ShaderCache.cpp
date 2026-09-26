@@ -1,9 +1,12 @@
 #include "ShaderCache.h"
+#include <fstream>
+#include "Features/LivingWindows.h"
 #include "Globals.h"
 #include "ShaderFileWatcher.h"
 #include "Util.h"
 
 #ifdef DEVBENCH_BRIDGE_ENABLED
+#	include "Features/RemoteControl/DevBenchBridge.h"
 #	include <DevBenchAPI.h>
 #endif
 
@@ -152,8 +155,19 @@ namespace SIE
 				}
 			}
 
+			// Living Windows only acts on materials that can mark their glass: glow maps, multilayer parallax
+			// (low diffuse alpha) and TruePBR (emissive map). Compiling its window code into every other
+			// Lighting permutation multiplied first-launch compile time without changing any pixel.
+			const auto technique = GetTechnique(descriptor);
+			const bool windowCapableTechnique =
+				technique == static_cast<uint32_t>(ShaderCache::LightingShaderTechniques::Glowmap) ||
+				technique == static_cast<uint32_t>(ShaderCache::LightingShaderTechniques::MultilayerParallax) ||
+				(descriptor & static_cast<uint32_t>(ShaderCache::LightingShaderFlags::TruePbr)) != 0;
+
 			for (auto* feature : Feature::GetFeatureList()) {
 				if (feature->loaded && feature->HasShaderDefine(RE::BSShader::Type::Lighting)) {
+					if (feature == &globals::features::livingWindows && !windowCapableTechnique)
+						continue;
 					defines[lastIndex++] = { feature->GetShaderDefineName().data(), nullptr };
 				}
 			}

@@ -16,6 +16,9 @@
 #include "Features/LightLimitFix.h"
 #include "Features/LinearLighting.h"
 #include "Features/PostProcessing.h"
+#include "Features/LivingWindows.h"
+#include "Features/PhysicalSky.h"
+#include "Features/NightSky.h"
 #include "Features/ProceduralSun.h"
 #include "Features/Skin.h"
 #include "Features/SnowCover.h"
@@ -49,6 +52,19 @@ std::pair<unsigned char*, size_t> _GetFeatureBufferData(Ts... feat_datas)
 
 std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 {
+	// The shared buffer is a hand-written mirror of SharedData.hlsli: if any struct's size drifts,
+	// every struct after it is read at the wrong offset by every shader, which looks like the whole
+	// world breaking and is unaffected by turning features off. Report the sizes once so a mismatch
+	// can be seen rather than guessed at.
+	static std::once_flag reportOnce;
+	std::call_once(reportOnce, [] {
+		logger::warn("[FeatureBuffer] tail struct sizes: SnowCover {}, PostProcessing {}, PhysicalSky {}, LivingWindows {}",
+			sizeof(SnowCover::PerFrame),
+			sizeof(decltype(globals::features::postProcessing.GetCommonBufferData())),
+			sizeof(PhysicalSky::CbData),
+			sizeof(LivingWindows::GPUSettings));
+	});
+
 	return _GetFeatureBufferData(
 		globals::features::grassLighting.settings,
 		globals::features::extendedMaterials.settings,
@@ -74,5 +90,8 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 		globals::features::vanillaFresnel.settings,
 		globals::features::snowCover.GetCommonBufferData(),
 		globals::features::postProcessing.GetCommonBufferData(),
-		globals::features::volumetricLighting.GetCommonBufferData());
+		globals::features::physicalSky.cbData,
+		globals::features::livingWindows.GetCommonBufferData(),
+		globals::features::volumetricLighting.GetCommonBufferData(),
+		globals::features::nightSky.GetCommonBufferData());
 }

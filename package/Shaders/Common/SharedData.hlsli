@@ -34,7 +34,8 @@ namespace SharedData
 		bool HideSky;             // HideSky flag in WorldSpace, e.g. Blackreach
 		float MipBias;            // Offset to mip level for TAA sharpness
 		float WaterSystemHeight;  // TES::GetWaterHeight in camera-relative Z; -FLT_MAX when no water body found
-		float3 pad0;
+		uint PostWaterComposite;
+		float2 pad0;
 		float4 AmbientSHR;
 		float4 AmbientSHG;
 		float4 AmbientSHB;
@@ -530,11 +531,150 @@ namespace SharedData
 		uint3 pad0;
 	};
 
+	struct PhysSkyData
+	{
+		// DYNAMIC
+		float2 texDim;
+		float2 rcpTexDim;  //
+		float2 frameDim;
+		float2 rcpFrameDim;  //
+
+		float zCameraPlanet;
+		float3 sunDir;  //
+		float3 sunlightColor;
+		float trMix;  //
+		float3 masserDir;
+		float apLumMix;  //
+		float3 masserColor;
+		float apTrMix;  //
+		float3 secundaDir;
+		float padSunDisk;  // was the Physical Sky sun disc, now drawn by Procedural Sun
+		float3 secundaColor;
+
+		// GENERAL
+		uint enabled;  //
+		int tonemapper;
+		float vanillaMix;
+
+		// WORLD
+		float zBottom;
+		float rPlanet;  //
+		float rAtmosphere;
+		float3 groundAlbedo;  //
+
+		// ATMOSPHERE
+		float2 cloudShadowRemapRange;
+
+		float aerosolFalloff;
+		float aerosolPhaseG;  //
+		float3 aerosolScatter;
+		uint halfResApShadow;  //
+		float3 aerosolAbsorption;
+
+		float rayleighFalloff;
+		float3 rayleighScatter;  //
+
+		float ozoneAltitude;  //
+		float ozoneThickness;
+		float3 ozoneAbsorption;  //
+
+		// CLOUDS (VANILLA)
+		uint enableVanillaClouds;
+		float cloudRelightMix;
+		float cloudOriginalMix;
+		float silverLiningMix;  //
+		float silverLiningSpread;
+
+		// VOLUMETRIC CLOUDS
+		uint enableVolumetricClouds;
+		float shadowVolumeRange;
+		float lowestCloudAltitude;  //
+		float highestCloudAltitude;
+		float3 volCloudScatter;  //
+		uint volCloudUseSun;
+		float3 volCloudAbsorption;  //
+		float volCloudLowBottom;
+		float volCloudLowThickness;
+
+		// SETTINGS
+		uint lightSkyStatics;
+		float skyStaticsBrightness;  //
+
+		// RAINBOW (the aurora moved to the Night Sky feature)
+		float rainbowIntensity;
+		uint enableRainbow;
+		float rainAmount;
+		float padRainbow;  //
+	};
+
+	struct LivingWindowsSettings
+	{
+		uint Enabled;
+		uint GlassOptics;
+		uint Interiors;
+		uint Occupants;
+
+		uint Curtains;
+		uint OutdoorViews;
+		uint DebugOverlay;
+		uint AtlasFlags;
+
+		float RoomDepth;
+		float InteriorBrightness;
+		float NightLitShare;
+		float OccupantActivity;
+
+		float CurtainShare;
+		float GlassRoughness;
+		float GlassReflectance;
+		float GrimeStrength;
+
+		float Waviness;
+		float FadeStart;
+		float FadeEnd;
+		float OutdoorBrightness;
+
+		float NightBlend;
+		float Raining;
+		float GameHour;
+		float DropletStrength;
+
+		float FrostStrength;
+		float FrostAmount;
+		float CondensationStrength;
+		float padLivingWindows;
+	};
+
 	struct VolumetricLightingSettings
 	{
 		float GodRayGain;
 		float GodRayExponent;
 		float2 pad0;
+	};
+
+	// Mirrors NightSky::PerFrame (src/Features/NightSky.h).
+	struct NightSkySettings
+	{
+		uint Enabled;
+		uint ReplaceStars;
+		float StarVisibility;
+		float StarBrightness;
+
+		float StarDensity;
+		float Twinkle;
+		float MilkyWay;
+		float Airglow;
+
+		float AuroraStrength;
+		float AuroraIntensity;
+		float SiderealAngle;
+		float Latitude;
+
+		float3 AuroraColorLow;
+		float Night;
+
+		float3 AuroraColorHigh;
+		float padNightSky;
 	};
 
 	cbuffer FeatureData : register(b6)
@@ -563,7 +703,10 @@ namespace SharedData
 		VanillaFresnelSettings vanillaFresnelSettings;
 		SnowCoverSettings snowCoverSettings;
 		PostProcessingSettings postProcessingSettings;
+		PhysSkyData physSkyData;
+		LivingWindowsSettings livingWindowsSettings;
 		VolumetricLightingSettings volumetricLightingSettings;
+		NightSkySettings nightSkySettings;
 	};
 
 	Texture2D<float4> DepthTexture : register(t17);

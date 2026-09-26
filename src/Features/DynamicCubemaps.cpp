@@ -5,6 +5,7 @@
 #include <cassert>
 
 #include "I18n/I18n.h"
+#include "PhysicalSky.h"
 #include "ShaderCache.h"
 #include "State.h"
 #include "Utils/D3D.h"

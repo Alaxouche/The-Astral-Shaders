@@ -294,7 +294,16 @@ public:
 		THLand5HasDisplacement = 1 << 5,
 		ETMaterialModel = 0b111 << 6,
 		THLandHasDisplacement = 1 << 9,
-		TVMeshVariation = 1 << 10
+		TVMeshVariation = 1 << 10,
+		OITAdditive = 1 << 11,
+		OITMultiplicative = 1 << 12,
+		OITDepthWrite = 1 << 13,
+		OITDisabled = 1 << 14,
+		// Bits 22-28: Living Windows per-draw window classification (see LivingWindows.h).
+		LivingWindowCandidate = 1u << 22,
+		LivingWindowTierMask = 0b11u << 23,
+		LivingWindowFamilyMask = 0b111u << 25,
+		LivingWindowExplicit = 1u << 28
 	};
 
 	bool inWorld = false;
@@ -361,11 +370,17 @@ public:
 		float EffectRadius;
 		float3 pad0;
 
+		// Living Windows: world-space bounding sphere of the glass shape being drawn (xyz centre,
+		// w radius). Positive w frames one room over the whole shape, negative w repeats rooms
+		// across a facade; zero when the draw is not window glass.
+		float4 LivingWindowBound;
+
 		bool operator==(const PermutationCB& other) const
 		{
 			return PixelShaderDescriptor == other.PixelShaderDescriptor &&
 			       ExtraShaderDescriptor == other.ExtraShaderDescriptor &&
-			       ExtraFeatureDescriptor == other.ExtraFeatureDescriptor && EffectRadius == other.EffectRadius;
+			       ExtraFeatureDescriptor == other.ExtraFeatureDescriptor && EffectRadius == other.EffectRadius &&
+			       LivingWindowBound == other.LivingWindowBound;
 		}
 	};
 	STATIC_ASSERT_ALIGNAS_16(PermutationCB);
@@ -394,7 +409,8 @@ public:
 		uint HideSky;
 		float MipBias;
 		float WaterSystemHeight;  // TES::GetWaterHeight in camera-relative Z; -NI_INFINITY when no water body found
-		float3 pad0;
+		uint PostWaterComposite;
+		float2 pad0;
 		float4 AmbientSHR;
 		float4 AmbientSHG;
 		float4 AmbientSHB;

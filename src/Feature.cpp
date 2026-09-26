@@ -5,6 +5,7 @@
 #include "Features/CSEditor.h"
 #include "Features/CloudShadows.h"
 #include "Features/DynamicCubemaps.h"
+#include "Features/NightSky.h"
 #include "Features/ProceduralSun.h"
 #include "Features/Effects11.h"
 #include "Features/ExponentialHeightFog.h"
@@ -26,6 +27,8 @@
 #include "Features/LinearLighting.h"
 #include "Features/PerformanceOverlay.h"
 #include "Features/PostProcessing.h"
+#include "Features/LivingWindows.h"
+#include "Features/PhysicalSky.h"
 #include "Features/RemoteControl.h"
 #include "Features/RenderDoc.h"
 #include "Features/ScreenSpaceGI.h"
@@ -244,6 +247,7 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::dynamicCubemaps,
 		&globals::features::cloudShadows,
 		&globals::features::proceduralSun,
+		&globals::features::nightSky,
 		&globals::features::waterEffects,
 		&globals::features::performanceOverlay,
 		&globals::features::subsurfaceScattering,
@@ -275,6 +279,8 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::exponentialHeightFog,
 		&globals::features::hdrDisplay,
 		&globals::features::postProcessing,
+		&globals::features::physicalSky,
+		&globals::features::livingWindows,
 		&globals::features::skin,
 		&globals::features::snowCover,
 		&globals::features::footstepParticles

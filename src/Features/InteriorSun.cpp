@@ -3,6 +3,8 @@
 #include "State.h"
 #include "Utils/VersionedRelocation.h"
 
+#include "PhysicalSky.h"
+
 #define I18N_KEY_PREFIX "feature.interior_sun."
 
 #include <numbers>

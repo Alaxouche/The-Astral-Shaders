@@ -80,6 +80,9 @@ namespace Permutation
 		static const uint IsEye = (1 << 7);
 		static const uint NoSnow = (1 << 8);
 		static const uint NoFoliageTint = (1 << 9);
+		// Character rain flags reserve the high end so upstream's next sequential flag never collides.
+		static const uint IsCharacterRainSurface = (1u << 30);
+		static const uint IsHeldWeapon = (1u << 29);
 	}
 
 	namespace ExtraFeatureFlags
@@ -92,6 +95,13 @@ namespace Permutation
 		static const int THLand5HasDisplacement = (1 << 5);
 		static const int THLandHasDisplacement = (1 << 9);
 		static const int TVMeshVariation = (1 << 10);
+
+
+		// Living Windows per-draw window classification (bits 22-28, see src/Features/LivingWindows.h).
+		static const uint LivingWindowCandidate = (1 << 22);
+		static const uint LivingWindowTierShift = 23;
+		static const uint LivingWindowFamilyShift = 25;
+		static const uint LivingWindowExplicit = (1 << 28);
 	}
 
 	cbuffer PerShader : register(b4)
@@ -102,6 +112,11 @@ namespace Permutation
 		uint ExtraFeatureDescriptor;
 
 		float EffectRadius;
+		float3 PerShaderPad0;
+
+		// Living Windows: world-space bounding sphere of the drawn glass shape (xyz centre, w radius;
+		// negative w marks a facade shape, zero a draw that is not window glass).
+		float4 LivingWindowBound;
 	};
 
 }

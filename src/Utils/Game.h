@@ -45,6 +45,7 @@ namespace Util
 		// Conversion constants
 		constexpr float GAME_UNIT_TO_CM = 1.428f;
 		constexpr float GAME_UNIT_TO_M = GAME_UNIT_TO_CM / 100.0f;
+		constexpr float GAME_UNIT_TO_KM = GAME_UNIT_TO_M / 1000.0f;
 		constexpr float GAME_UNIT_TO_FEET = GAME_UNIT_TO_CM / 30.48f;
 		constexpr float GAME_UNIT_TO_INCHES = GAME_UNIT_TO_CM / 2.54f;
 
