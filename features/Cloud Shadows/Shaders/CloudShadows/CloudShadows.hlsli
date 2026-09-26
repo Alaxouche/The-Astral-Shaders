@@ -1,15 +1,24 @@
 #ifndef CLOUD_SHADOWS_HLSLI
 #define CLOUD_SHADOWS_HLSLI
 
+// Redefinable so a pass that already owns these slots can move them: Physical Sky's ShadowAccum
+// remaps the shadow slot to t4, and its Volumetrics pass owns t26 for its own history texture.
+#ifndef CLOUD_SHADOW_REGISTER
+#	define CLOUD_SHADOW_REGISTER t25
+#endif
+
+#ifndef CLOUD_SELFSHADOW_REGISTER
+#	define CLOUD_SELFSHADOW_REGISTER t26
+#endif
+
 #include "Common/Game.hlsli"
 
 namespace CloudShadows
 {
-	TextureCube<float> CloudShadowsTexture : register(t25);
-	// Physical Sky's ray shadows sample the cloud occlusion cubemap through this slot. Nothing on
-	// this base writes it, so the sample reads 0 and the self-shadow term contributes nothing
-	// rather than failing to compile.
-	TextureCube<float> CloudSelfShadowTexture : register(t26);
+	TextureCube<float> CloudShadowsTexture : register(CLOUD_SHADOW_REGISTER);
+	// Bound with the decks drawn above the one being drawn while a cloud deck is drawn, and with
+	// the cloud occlusion copy for Physical Sky's ray shadows.
+	TextureCube<float> CloudSelfShadowTexture : register(CLOUD_SELFSHADOW_REGISTER);
 
 	const static float CloudHeight = (2e3f / GAME_UNIT_TO_M);
 	const static float PlanetRadius = (6371e3f / GAME_UNIT_TO_M);

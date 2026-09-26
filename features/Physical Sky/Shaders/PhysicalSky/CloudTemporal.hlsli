@@ -25,10 +25,22 @@ float CloudSceneDeviceDepth(uint2 pixel, uint footprint)
 {
 	const uint2 origin = (pixel / footprint) * footprint;
 	const uint2 maximum = uint2(VolumetricCloudBuffer[0].activeFrameDim) - 1u;
+	// The farthest surface in the block, so a cloud ray is not cut short by one near pixel and the
+	// history test compares against the same surface the trace saw. "Farthest" is the larger value
+	// under a standard projection and the smaller one under reverse Z, where the far plane is 0 --
+	// taking the maximum either way returns the NEAREST surface, which at a tree-branch silhouette
+	// hands every sky pixel in the block the branch's depth and defeats the rejection entirely.
+#ifdef REVERSE_Z
+	float depth = 1.0;
+	[unroll] for (uint y = 0u; y < footprint; ++y)
+		[unroll] for (uint x = 0u; x < footprint; ++x)
+			depth = min(depth, TexDepth[min(origin + uint2(x, y), maximum)]);
+#else
 	float depth = 0.0;
 	[unroll] for (uint y = 0u; y < footprint; ++y)
 		[unroll] for (uint x = 0u; x < footprint; ++x)
 			depth = max(depth, TexDepth[min(origin + uint2(x, y), maximum)]);
+#endif
 	return depth;
 }
 
