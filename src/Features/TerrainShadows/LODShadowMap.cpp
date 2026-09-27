@@ -8,6 +8,10 @@
 #include "State.h"
 #include "Util.h"
 
+// Must match TerrainShadows.hlsli's LODShadowTexture register. t61-t64 are Physical Sky's
+// atmosphere LUTs in this fork, so the upstream slot was moved past the 60-66 block.
+static constexpr UINT kLODShadowSlot = 67;
+
 namespace
 {
 	constexpr double kCascadeRadius[LODShadowMap::kCascadeCount] = { 16384.0, 49152.0, 163840.0 };
@@ -126,8 +130,8 @@ void LODShadowMap::ReleaseTargets()
 {
 	if (auto* context = globals::d3d::context) {
 		ID3D11ShaderResourceView* nullView = nullptr;
-		context->PSSetShaderResources(61, 1, &nullView);
-		context->CSSetShaderResources(61, 1, &nullView);
+		context->PSSetShaderResources(kLODShadowSlot, 1, &nullView);
+		context->CSSetShaderResources(kLODShadowSlot, 1, &nullView);
 	}
 	targets[0].reset();
 	targets[1].reset();
@@ -419,8 +423,8 @@ void LODShadowMap::Bind(ID3D11DeviceContext* a_context) const
 	if (!a_context || !targets[activeTarget])
 		return;
 	ID3D11ShaderResourceView* view = targets[activeTarget]->srv.get();
-	a_context->PSSetShaderResources(61, 1, &view);
-	a_context->CSSetShaderResources(61, 1, &view);
+	a_context->PSSetShaderResources(kLODShadowSlot, 1, &view);
+	a_context->CSSetShaderResources(kLODShadowSlot, 1, &view);
 }
 
 bool LODShadowMap::UpdateCaptureRows()

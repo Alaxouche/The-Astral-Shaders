@@ -1,7 +1,10 @@
 namespace TerrainShadows
 {
 	Texture2D<float2> ShadowHeightTexture : register(t60);
-	Texture2DArray<float> LODShadowTexture : register(t61);
+	// t61 through t64 belong to Physical Sky's atmosphere LUTs in this fork, and Lighting,
+	// DistantTree and Effect all pull in both headers, so the upstream slot overlaps there.
+	// t67 is the first free slot after the 60-66 block. LODShadowMap.cpp binds the same number.
+	Texture2DArray<float> LODShadowTexture : register(t67);
 
 	// Lowers shadow heights to hide self-shadowing from the coarse heightmap.
 	static const float SelfShadowBias = 256.0;
