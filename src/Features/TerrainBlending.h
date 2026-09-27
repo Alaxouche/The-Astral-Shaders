@@ -8,6 +8,9 @@ struct TerrainBlending : Feature
 private:
 	static constexpr std::string_view MOD_ID = "157076";
 
+	/** @brief SKSE module of Dynamic Terrain Deformation, whose per-frame landscape reshaping the second terrain depth pass cannot follow. */
+	static constexpr const wchar_t* kDeformableTerrainModule = L"NMN_DeformableTerrain.dll";
+
 public:
 	virtual inline std::string GetName() override { return "Terrain Blending"; }
 	virtual std::string GetDisplayName() override { return T("feature.terrain_blending.name", "Terrain Blending"); }

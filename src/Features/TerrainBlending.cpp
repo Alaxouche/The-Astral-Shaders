@@ -131,6 +131,21 @@ void TerrainBlending::SetupResources()
 
 void TerrainBlending::PostPostLoad()
 {
+	// Dynamic Terrain Deformation reshapes the landscape mesh every frame. Terrain Blending draws
+	// terrain a second time into its own depth buffer and blends that against the main prepass, so
+	// the two passes see different geometry and everything standing on deformed ground sinks into
+	// it or floats above it. Checked here because every SKSE plugin has loaded by now and the
+	// shader disk cache has not been validated yet, so installing or removing that plugin
+	// invalidates the cache through regular feature validation and TERRAIN_BLENDING leaves the
+	// shaders. The hooks are skipped entirely rather than gated per call: they only test
+	// settings.Enabled, which a later State::Load() would restore from the user config.
+	if (GetModuleHandleW(kDeformableTerrainModule) != nullptr) {
+		loaded = false;
+		failedLoadedMessage = "Dynamic Terrain Deformation is installed. It is incompatible with Terrain Blending, which has been disabled automatically.";
+		logger::info("[Terrain Blending] Dynamic Terrain Deformation detected, feature disabled");
+		return;
+	}
+
 	Hooks::Install();
 }
 
