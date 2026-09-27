@@ -213,6 +213,20 @@ void TerrainBlending::ResetTerrainDepth()
 		globals::state->EndPerfEvent();
 }
 
+void TerrainBlending::RestoreSceneDepthSRVs()
+{
+	if (!depthSRVBackup || !prepassSRVBackup)
+		return;
+
+	auto renderer = globals::game::renderer;
+	if (!renderer)
+		return;
+
+	auto& depthStencils = renderer->GetDepthStencilData().depthStencils;
+	depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV = depthSRVBackup;
+	depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kPOST_ZPREPASS_COPY].depthSRV = prepassSRVBackup;
+}
+
 void TerrainBlending::BlendPrepassDepths()
 {
 	ZoneScoped;

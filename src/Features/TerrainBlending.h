@@ -104,6 +104,15 @@ public:
 	void ResetDepth();
 	/** @brief Restores the original vertex shader and marks render targets dirty after terrain depth rendering. */
 	void ResetTerrainDepth();
+	/**
+	 * @brief Points the scene depth SRVs back at the game's own depth.
+	 *
+	 * Main_RenderDepth swaps kMAIN and kPOST_ZPREPASS_COPY to blendedDepthTexture for the whole
+	 * frame, but that texture only ever holds render-resolution depth. Upscaling calls this once
+	 * the frame is full resolution, before the vanilla imagespace chain reads those SRVs.
+	 */
+	void RestoreSceneDepthSRVs();
+
 	/** @brief Blends the main and terrain depth buffers using a compute shader dispatch. */
 	void BlendPrepassDepths();
 

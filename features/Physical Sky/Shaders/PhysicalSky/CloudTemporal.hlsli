@@ -164,9 +164,17 @@ float4 LoadCloudBoundary(uint2 pixel, float3 ray)
 		} else {
 			useHistory = abs(EncodeCloudDepth(SharedData::GetScreenDepth(CloudSceneDeviceDepth(pixel, 2u))) - result.metadata.y) <= 0.064;
 		}
-		if (useHistory && result.color.a > 0.0)
-			useHistory = CloudFootprintHasCloud(TexVolLowLum,
-				(float2(pixel) - CloudPhaseOffset()) * 0.25, int2(info.lowFrameDim) - 1);
+		// Reject the history whenever it disagrees with the trace about whether there is cloud here
+		// at all, in both directions. Only testing "the history has cloud and the trace does not"
+		// left the opposite case, a sky that is clouding over, to enter through the traced pixels
+		// alone, one in sixteen per frame. The new layer then crept across the sky over many frames
+		// instead of appearing at once, and because a ray near the horizon crosses far more of the
+		// cloud shell than one near the zenith, it became visible from the horizon upwards: the
+		// column that fills from the ground to the sky. Both branches settle after one frame, since
+		// the rebuilt result then agrees with the trace.
+		if (useHistory)
+			useHistory = (result.color.a > 0.0) == CloudFootprintHasCloud(TexVolLowLum,
+													  (float2(pixel) - CloudPhaseOffset()) * 0.25, int2(info.lowFrameDim) - 1);
 	}
 	if (!useHistory)
 		result = ReconstructCloud(TexVolLowLum, TexVolLowAux,

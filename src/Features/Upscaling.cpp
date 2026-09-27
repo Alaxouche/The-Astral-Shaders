@@ -6,6 +6,7 @@
 #include "Hooks.h"
 #include "PostProcessing.h"
 #include "State.h"
+#include "TerrainBlending.h"
 #include "Upscaling/DX12SwapChain.h"
 #include "Upscaling/FidelityFX.h"
 #include "Upscaling/Streamline.h"
@@ -1543,6 +1544,15 @@ void Upscaling::PerformUpscaling()
 	TracyD3D11Zone(globals::state->tracyCtx, "Upscaling");
 	Upscale();
 	UpscaleDepth();
+
+	// Terrain Blending leaves its blended depth bound as the scene depth for the whole frame, and
+	// that texture is only ever written over the render-resolution area. The frame is full
+	// resolution from here on and the vanilla imagespace chain samples these SRVs, so hand it back
+	// the game's own upscaled depth. Every Community Shaders pass that wants the blended depth has
+	// already run by this point.
+	auto& terrainBlending = globals::features::terrainBlending;
+	if (terrainBlending.loaded)
+		terrainBlending.RestoreSceneDepthSRVs();
 
 	auto& runtimeData = globals::game::graphicsState->GetRuntimeData();
 
