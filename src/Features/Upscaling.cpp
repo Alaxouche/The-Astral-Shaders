@@ -1546,8 +1546,22 @@ void Upscaling::PerformUpscaling()
 
 	auto& runtimeData = globals::game::graphicsState->GetRuntimeData();
 
-	// Disable dynamic resolution past this point
+	// The frame is full resolution from here on, and the vanilla imagespace chain runs next, inside
+	// the same Main_PostProcessing hook. Raising the lock alone only forces the shader-side
+	// DynamicResolutionParams to 1; the ratios themselves and the renderer viewport still describe
+	// the pre-upscale sub-rect, so every imagespace pass is set up for a render-resolution frame it
+	// is no longer being handed. PostDisplay() does this same reset, but it runs at UI draw, long
+	// after those passes are done.
+	//
+	// The previous ratios are carried across frames by this feature's own members, which
+	// ConfigureUpscaling reads before overwriting them, so clearing them here costs nothing.
+	runtimeData.dynamicResolutionPreviousWidthRatio = 1;
+	runtimeData.dynamicResolutionPreviousHeightRatio = 1;
+	runtimeData.dynamicResolutionWidthRatio = 1;
+	runtimeData.dynamicResolutionHeightRatio = 1;
 	runtimeData.dynamicResolutionLock = 1;
+
+	globals::game::renderer->UpdateViewPort(0, 0, 1);
 
 	// Updates the PerFrame constant buffer so that dynamic resolution settings are disabled
 	UpdateCameraData();
