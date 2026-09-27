@@ -3,6 +3,7 @@
 #include "Deferred.h"
 #include "Globals.h"
 #include "I18n/I18n.h"
+#include "Menu.h"
 #include "ShaderCache.h"
 #include "State.h"
 #include "Utils/D3D.h"
@@ -19,6 +20,11 @@ void TerrainBlending::DrawSettings()
 
 	if (auto _tt = Util::HoverTooltipWrapper()) {
 		ImGui::Text("%s", T(TKEY("enable_tooltip"), "Enable seamless blending between terrain and objects."));
+	}
+
+	if (deformableTerrainLoaded) {
+		ImGui::TextColored(Menu::GetSingleton()->GetTheme().StatusPalette.Warning, "%s",
+			T(TKEY("deformable_terrain_gate"), "Dynamic Terrain Deformation is loaded. Blending is held off while it reshapes the landscape, because the two passes would see different geometry. Everything else in the feature keeps running, so nothing else has to be recompiled."));
 	}
 }
 
@@ -131,28 +137,33 @@ void TerrainBlending::SetupResources()
 
 void TerrainBlending::PostPostLoad()
 {
-	// Dynamic Terrain Deformation reshapes the landscape mesh every frame. Terrain Blending draws
-	// terrain a second time into its own depth buffer and blends that against the main prepass, so
-	// the two passes see different geometry and everything standing on deformed ground sinks into
-	// it or floats above it. Checked here because every SKSE plugin has loaded by now and the
-	// shader disk cache has not been validated yet, so installing or removing that plugin
-	// invalidates the cache through regular feature validation and TERRAIN_BLENDING leaves the
-	// shaders. The hooks are skipped entirely rather than gated per call: they only test
-	// settings.Enabled, which a later State::Load() would restore from the user config.
-	if (GetModuleHandleW(kDeformableTerrainModule) != nullptr) {
-		loaded = false;
-		failedLoadedMessage = "Dynamic Terrain Deformation is installed. It is incompatible with Terrain Blending, which has been disabled automatically.";
-		logger::info("[Terrain Blending] Dynamic Terrain Deformation detected, feature disabled");
-		return;
-	}
+	// Dynamic Terrain Deformation reshapes the landscape mesh every frame. The second terrain depth
+	// pass cannot follow it, so the blend compares two different geometries and anything standing on
+	// deformed ground sinks into it or floats above it. Checked here because every SKSE plugin has
+	// loaded by now.
+	deformableTerrainLoaded = GetModuleHandleW(kDeformableTerrainModule) != nullptr;
+	if (deformableTerrainLoaded)
+		logger::info("[Terrain Blending] Dynamic Terrain Deformation detected, blending gated off for this session");
 
 	Hooks::Install();
 }
 
 void TerrainBlending::DataLoaded()
 {
+	// Land fade is the vanilla substitute for blending. It only gets turned off when blending is
+	// actually going to run, so a gated session keeps the game's own transition.
+	if (deformableTerrainLoaded)
+		return;
+
 	auto bEnableLandFade = RE::GetINISetting("bEnableLandFade:Display");
 	bEnableLandFade->data.b = false;
+}
+
+TerrainBlending::Settings TerrainBlending::GetCommonBufferData() const
+{
+	Settings data = settings;
+	data.Enabled = IsActive();
+	return data;
 }
 
 void TerrainBlending::TerrainShaderHacks()
@@ -282,6 +293,10 @@ void TerrainBlending::Hooks::Main_RenderDepth::thunk(bool a1, bool a2)
 
 	singleton.eyePosition = Util::GetEyePosition();
 
+	// Deliberately the raw toggle, not IsActive(): this block is what binds blendedDepthTexture, and
+	// its R32_FLOAT format is what every TERRAIN_BLENDING consumer was compiled to sample. A gated
+	// session still runs it; with no terrain redirected into terrainDepth, which stays cleared to the
+	// far plane, the blend returns the main depth untouched and the format contract holds.
 	if (shaderCache->IsEnabled() && singleton.settings.Enabled) {
 		mainDepth.depthSRV = singleton.blendedDepthTexture->srv.get();
 		zPrepassCopy.depthSRV = singleton.blendedDepthTexture->srv.get();
@@ -318,7 +333,7 @@ void TerrainBlending::Hooks::BSBatchRenderer__RenderPassImmediately::thunk(RE::B
 	auto& singleton = globals::features::terrainBlending;
 	auto shaderCache = globals::shaderCache;
 
-	if (shaderCache->IsEnabled() && singleton.settings.Enabled) {
+	if (shaderCache->IsEnabled() && singleton.IsActive()) {
 		if (singleton.renderDepth) {
 			// Entering or exiting terrain depth section
 			bool inTerrain = a_pass->shaderProperty && a_pass->shaderProperty->flags.all(RE::BSShaderProperty::EShaderPropertyFlag::kMultiTextureLandscape);

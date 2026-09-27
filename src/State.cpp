@@ -90,7 +90,7 @@ void State::Draw()
 			weatherManager->UpdateFeatures();
 		}
 
-		if (terrainBlending.loaded && terrainBlending.settings.Enabled) {
+		if (terrainBlending.loaded && terrainBlending.IsActive()) {
 			ZoneScopedN("TerrainBlending::TerrainShaderHacks");
 			terrainBlending.TerrainShaderHacks();
 		}

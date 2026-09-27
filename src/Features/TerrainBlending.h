@@ -41,6 +41,21 @@ public:
 
 	Settings settings;
 
+	/** @brief True while Dynamic Terrain Deformation is loaded, which gates the blend off. */
+	bool deformableTerrainLoaded = false;
+
+	/**
+	 * @brief Whether the blend should run this frame: the user's toggle, gated by mod compatibility.
+	 *
+	 * The feature stays loaded and TERRAIN_BLENDING stays defined either way, so the shader disk
+	 * cache is never invalidated by the gate and the scene depth SRV keeps the R32_FLOAT format its
+	 * consumers were compiled against.
+	 */
+	[[nodiscard]] bool IsActive() const { return settings.Enabled && !deformableTerrainLoaded; }
+
+	/** @brief Returns the settings as the GPU should see them, with Enabled masked by the gate. */
+	Settings GetCommonBufferData() const;
+
 	/** @brief Draws the ImGui settings panel for Terrain Blending configuration. */
 	virtual void DrawSettings() override;
 	virtual void LoadSettings(json& o_json) override;
