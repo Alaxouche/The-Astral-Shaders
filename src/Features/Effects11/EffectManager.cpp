@@ -1,6 +1,7 @@
 #include "EffectManager.h"
 
 #include "D3D11StateBackup.h"
+#include "Editor/Effects11Editor.h"
 #include "Features/Effects11.h"
 #include "Features/ProceduralSun.h"
 #include "Features/ReverseZ.h"
@@ -259,28 +260,38 @@ void EffectManager::RegisterSettings()
 	settingManager.RegisterColorTimeOfDaySetting("MoonColorFilter", "SKY", { 1.0f, 1.0f, 1.0f }, true);
 	settingManager.RegisterTimeOfDaySetting("StarsIntensity", "SKY", 1.0f, 0.0f, 30000.0f, 0.01f, true);
 	settingManager.RegisterTimeOfDaySetting("StarsCurve", "SKY", 1.0f, 0.1f, 8.0f, 0.01f, true);
-	settingManager.RegisterFloatSetting("CloudsEdgeIntensity", "SKY", 2.0f, 0.0f, 10.0f, 0.01f, false);
-	settingManager.RegisterTimeOfDaySetting("CloudsEdgeMoonMultiplier", "SKY", 0.0f, 0.0f, 10.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("CloudsVertexAlphaBoost", "SKY", 0.0f, 0.0f, 2.0f, 0.01f, true);
+	settingManager.RegisterFloatSetting("CloudsEdgeClamp", "SKY", 0.5f, 0.05f, 8.0f, 0.01f, false);
+	settingManager.RegisterFloatSetting("CloudsEdgeIntensity", "SKY", 2.0f, 0.0f, 30000.0f, 0.01f, false);
+	settingManager.RegisterFloatSetting("CloudsEdgeFadeRange", "SKY", 1.0f, 0.0f, 1.0f, 0.01f, false);
+	settingManager.RegisterTimeOfDaySetting("CloudsEdgeMoonMultiplier", "SKY", 2.0f, 0.0f, 100.0f, 0.01f, true);
 	settingManager.RegisterBoolSetting("UseProceduralGradientWeights", "SKY", false, false);
 	settingManager.RegisterTimeOfDaySetting("ProceduralGradientWeightCurve", "SKY", 4.0f, 1.0f, 32.0f, 0.01f, true);
 
 	settingManager.RegisterBoolSetting("EnableCloudsLightingFromMoon", "SKYSCATTERING", true, false);
 	settingManager.RegisterBoolSetting("CalculateCloudsEdgeFromScattering", "SKYSCATTERING", false, false);
-	settingManager.RegisterTimeOfDaySetting("Intensity", "SKYSCATTERING", 1.0f, 0.0f, 100.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("AtmosphereThickness", "SKYSCATTERING", 1.0f, 0.05f, 100.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("HorizonRange", "SKYSCATTERING", 0.5f, 0.0f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("Intensity", "SKYSCATTERING", 1.0f, 0.0f, 30000.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("Amount", "SKYSCATTERING", 0.0f, 0.0f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("DustVolume", "SKYSCATTERING", 0.2f, 0.0f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("DustDensity", "SKYSCATTERING", 0.2f, 0.0f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("DustDarkening", "SKYSCATTERING", 0.0f, 0.0f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("ShadowAmount", "SKYSCATTERING", 0.3f, 0.0f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("ColorFromSun", "SKYSCATTERING", 0.0f, 0.0f, 1.0f, 0.01f, true);
 	settingManager.RegisterColorTimeOfDaySetting("ScatteringColor", "SKYSCATTERING", { 1.0f, 1.0f, 1.0f }, true);
-	settingManager.RegisterTimeOfDaySetting("ColorFromSun", "SKYSCATTERING", 1.0f, 0.0f, 1.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("ShadowAmount", "SKYSCATTERING", 0.8f, 0.0f, 1.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("SunGlowIntensity", "SKYSCATTERING", 1.5f, 0.0f, 100.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("SunGlowRange", "SKYSCATTERING", 1.5f, 0.2f, 6.67f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("AirGlowIntensity", "SKYSCATTERING", 0.2f, 0.0f, 100.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("AirGlowRange", "SKYSCATTERING", 5.0f, 0.2f, 6.67f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("MoonGlowAmount", "SKYSCATTERING", 1.0f, 0.0f, 10.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("DustDensity", "SKYSCATTERING", 2.0f, 0.0f, 100.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("AtmosphereThickness", "SKYSCATTERING", 1.0f, 0.05f, 10.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("CloudsLightingSunMultiplier", "SKYSCATTERING", 0.35f, 0.0f, 100.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("CloudsLightingSunMinIntensity", "SKYSCATTERING", 0.55f, 0.0f, 1.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("CloudsLightingMoonIntensity", "SKYSCATTERING", 1.0f, 0.0f, 10.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("CloudsLightingDensity", "SKYSCATTERING", 2.0f, 0.0f, 10.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("AirGlowIntensity", "SKYSCATTERING", 0.0f, 0.0f, 30000.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("AirGlowRange", "SKYSCATTERING", 0.2f, 0.05f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("SunGlowIntensity", "SKYSCATTERING", 0.0f, 0.0f, 30000.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("SunGlowRange", "SKYSCATTERING", 0.2f, 0.05f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("MoonGlowAmount", "SKYSCATTERING", 0.0f, 0.0f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("MoonGlowRange", "SKYSCATTERING", 0.2f, 0.1f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("CloudsLightingSunMultiplier", "SKYSCATTERING", 0.0f, 0.0f, 100.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("CloudsLightingSunMinIntensity", "SKYSCATTERING", 0.1f, 0.0f, 100.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("CloudsLightingMoonIntensity", "SKYSCATTERING", 0.0f, 0.0f, 30000.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("CloudsLightingDensity", "SKYSCATTERING", 1.0f, 0.0f, 10.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("CloudsLightingDesaturation", "SKYSCATTERING", 0.0f, -1.0f, 1.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("CloudsLightingForwardScattering", "SKYSCATTERING", 0.0f, 0.0f, 5.0f, 0.01f, true);
 
 	settingManager.RegisterTimeOfDaySetting("Intensity", "VOLUMETRICFOG", 1.0f, 0.0f, 30000.0f, 0.01f, true);
 	settingManager.RegisterTimeOfDaySetting("Curve", "VOLUMETRICFOG", 1.0f, 0.1f, 8.0f, 0.01f, true);
@@ -302,7 +313,7 @@ void EffectManager::RegisterSettings()
 	settingManager.RegisterTimeOfDaySetting("MotionStretch", "RAIN", 0.28f, 0.0f, 1.0f, 0.01f, true);
 	settingManager.RegisterTimeOfDaySetting("MotionTransparency", "RAIN", 0.1f, 0.0f, 1.0f, 0.01f, true);
 
-	settingManager.RegisterTimeOfDaySetting("Amount", "CLOUDSHADOWS", 0.5f, 0.0f, 4.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("Amount", "CLOUDSHADOWS", 0.8f, 0.0f, 4.0f, 0.01f, true);
 
 	settingManager.RegisterTimeOfDaySetting("Intensity", "GAMEVOLUMETRICRAYS", 1.0f, 0.0f, 1000.0f, 0.01f, true);
 	settingManager.RegisterTimeOfDaySetting("RangeFactor", "GAMEVOLUMETRICRAYS", 1.0f, 0.0f, 100.0f, 0.01f, true);
@@ -941,8 +952,10 @@ void EffectManager::UpdateCursorData()
 	commonData.tempInfo1[0] = cursorPosition[0];
 	commonData.tempInfo1[1] = cursorPosition[1];
 
+	// Shaders get the cursor while a UI that shows it is open, e.g. for click-to-focus depth of field
 	auto* menu = globals::menu;
-	if (menu && menu->IsEnabled && ImGui::GetCurrentContext()) {
+	const bool cursorVisible = (menu && menu->IsEnabled) || Effects11Editor::GetSingleton().IsOpen();
+	if (cursorVisible && ImGui::GetCurrentContext()) {
 		const auto& io = ImGui::GetIO();
 		if (io.DisplaySize.x > 0.0f && io.DisplaySize.y > 0.0f) {
 			cursorPosition[0] = std::clamp(io.MousePos.x / io.DisplaySize.x, 0.0f, 1.0f);
@@ -1210,41 +1223,4 @@ void EffectManager::ReloadShaders()
 	CreateCopyShaders();
 	CreateColorCorrectionShader();
 	CreateStandardDepthShader();
-}
-
-void EffectManager::RenderEffectsList()
-{
-	Effect* allEffects[] = { &enbDepthOfField, &enbBloom, &enbLens, &enbAdaptation, &enbEffect, &enbEffectPostPass };
-
-	std::vector<Effect*> compiledEffects;
-	for (auto* effect : allEffects)
-		if (effect->IsCompiled())
-			compiledEffects.push_back(effect);
-
-#ifdef ENABLE_ENB_EXTENDER
-	if (!compiledEffects.empty())
-		ExtendedEffect::RenderMergedUI(compiledEffects, UITree::FilterMode::TopLevelOnly);
-#endif
-
-	for (auto* effect : compiledEffects) {
-		if (ImGui::TreeNodeEx(effect->GetName().c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-#ifdef ENABLE_ENB_EXTENDER
-			Effect* self = effect;
-			ExtendedEffect::RenderMergedUI({ &self, 1 }, UITree::FilterMode::NonTopLevelOnly);
-#else
-			effect->RenderImGui();
-#endif
-			ImGui::TreePop();
-		}
-	}
-
-	for (auto* effect : allEffects) {
-		if (!effect->IsFilePresent())
-			continue;
-		if (!effect->GetErrors().empty()) {
-			ImGui::TextColored(globals::menu->GetSettings().Theme.StatusPalette.Error, "%s:", effect->GetName().c_str());
-			for (const auto& err : effect->GetErrors())
-				ImGui::TextWrapped("%s", err.c_str());
-		}
-	}
 }

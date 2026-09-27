@@ -260,6 +260,7 @@ namespace globals
 		extern REL::Relocation<const RE::NiRTTI*> NiAlphaPropertyRTTI;
 		extern REL::Relocation<const RE::NiRTTI*> NiSourceTextureRTTI;
 		extern REL::Relocation<const RE::NiRTTI*> BSGrassShaderPropertyRTTI;
+		extern REL::Relocation<const RE::NiRTTI*> BSDistantTreeShaderPropertyRTTI;
 		extern REL::Relocation<const RE::NiRTTI*> BSMultiStreamInstanceTriShapeRTTI;
 	}
 

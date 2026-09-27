@@ -125,6 +125,49 @@ void Effect::CaptureBaseValue(UIVariable& uiVar)
 	std::copy(std::begin(uiVar.vectorValue), std::end(uiVar.vectorValue), std::begin(uiVar.baseVectorValue));
 }
 
+void Effect::CaptureDefaultValue(UIVariable& uiVar)
+{
+	// #define-backed values are read from the preset ini while preprocessing, so they have no shader default
+	if (uiVar.isLabel || uiVar.isDefine || !uiVar.effectVariable)
+		return;
+	switch (uiVar.type) {
+	case UIVariableType::Float:
+		uiVar.defaultFloatValue = uiVar.floatValue;
+		break;
+	case UIVariableType::Int:
+		uiVar.defaultIntValue = uiVar.intValue;
+		break;
+	case UIVariableType::Bool:
+		uiVar.defaultBoolValue = uiVar.boolValue;
+		break;
+	default:
+		std::copy(std::begin(uiVar.vectorValue), std::end(uiVar.vectorValue), std::begin(uiVar.defaultVectorValue));
+		break;
+	}
+	uiVar.hasDefaultValue = true;
+}
+
+bool Effect::RestoreDefaultValue(UIVariable& uiVar)
+{
+	if (!uiVar.hasDefaultValue)
+		return false;
+	switch (uiVar.type) {
+	case UIVariableType::Float:
+		uiVar.floatValue = uiVar.defaultFloatValue;
+		break;
+	case UIVariableType::Int:
+		uiVar.intValue = uiVar.defaultIntValue;
+		break;
+	case UIVariableType::Bool:
+		uiVar.boolValue = uiVar.defaultBoolValue;
+		break;
+	default:
+		std::copy(std::begin(uiVar.defaultVectorValue), std::end(uiVar.defaultVectorValue), std::begin(uiVar.vectorValue));
+		break;
+	}
+	return true;
+}
+
 void Effect::CaptureBaseValues()
 {
 	for (auto& uiVar : uiVariables)
@@ -300,6 +343,18 @@ bool Effect::LoadFXFile()
 	}
 	mainFile.close();
 
+	if (ENBExtender::IsEncryptedSource(sourceCode)) {
+		uiDefines.clear();
+		std::string error;
+		if (!ENBExtender::CreateEncryptedEffect(GetName(), effect, error)) {
+			errors.push_back(error);
+			return false;
+		}
+		ReflectCompiledEffect();
+		ENBExtender::ResolveCompiledGroups(*this, filePath.parent_path() / (GetName() + ".ini"));
+		logger::info("[EFFECTS11] Loaded encrypted FX file through ENB Extender: {}", filePath.string());
+		return true;
+	}
 
 	auto enbseriesPath = filePath.parent_path();
 	auto iniFilePath = enbseriesPath / (GetName() + ".ini");
@@ -414,15 +469,20 @@ bool Effect::LoadFXFile()
 		}
 	}
 
+	ReflectCompiledEffect();
+
+	logger::info("[EFFECTS11] Successfully loaded FX file: {}", filePathStr);
+	return true;
+}
+
+void Effect::ReflectCompiledEffect()
+{
 	EnumerateAllVariables();
 	SetupCustomTextures();
 	LoadTechniques();
 	LoadUITechniques();
 
 	LoadUIVariables();
-
-	logger::info("[EFFECTS11] Successfully loaded FX file: {}", filePathStr);
-	return true;
 }
 
 Effect::TechniqueSequenceResult Effect::ExecuteTechniqueSequence(const std::string& a_baseTechniqueName, ID3D11ShaderResourceView* a_input, TextureManager::Texture& a_output, TextureManager::Texture& a_temp)
@@ -737,6 +797,7 @@ void Effect::LoadUIVariables()
 		UIVariable uiVar = {};
 		if (ENBExtender::CreateUIVariable(uiVar, variable, varDesc, typeDesc, groupStack, *this)) {
 			LoadUIVariableValue(uiVar);
+			CaptureDefaultValue(uiVar);
 			uiVariables.push_back(std::move(uiVar));
 		}
 	}

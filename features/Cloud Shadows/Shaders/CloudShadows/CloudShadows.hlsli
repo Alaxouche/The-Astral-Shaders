@@ -17,7 +17,9 @@ namespace CloudShadows
 {
 	TextureCube<float> CloudShadowsTexture : register(CLOUD_SHADOW_REGISTER);
 	// Bound with the decks drawn above the one being drawn while a cloud deck is drawn, and with
-	// the cloud occlusion copy for Physical Sky's ray shadows.
+	// the cloud occlusion copy for Physical Sky's ray shadows. Declared unconditionally rather than
+	// under CLOUDS: Physical Sky samples it from its sky pass, which has PS_SKY_SAMPLERS but no
+	// CLOUDS. Nothing else claims the slot, and a pass that does can move it with the macro above.
 	TextureCube<float> CloudSelfShadowTexture : register(CLOUD_SELFSHADOW_REGISTER);
 
 	const static float CloudHeight = (2e3f / GAME_UNIT_TO_M);

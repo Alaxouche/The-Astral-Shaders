@@ -208,7 +208,7 @@ void SettingManager::RegisterColorTimeOfDaySetting(const std::string& key, const
 }
 
 template <typename T>
-T SettingManager::GetValue(const std::string& key, const std::string& category, bool rawValue)
+T SettingManager::GetValue(std::string_view key, std::string_view category, bool rawValue)
 {
 	std::shared_lock lock(mutex);
 	uint32_t id = GetSettingIDInternal(key, category);
@@ -341,13 +341,13 @@ void SettingManager::SetValueInternal(uint32_t id, const T& value)
 	setting.currentValue = value;
 }
 
-uint32_t SettingManager::GetSettingID(const std::string& key, const std::string& category) const
+uint32_t SettingManager::GetSettingID(std::string_view key, std::string_view category) const
 {
 	std::shared_lock lock(mutex);
 	return GetSettingIDInternal(key, category);
 }
 
-uint32_t SettingManager::GetSettingIDInternal(const std::string& key, const std::string& category) const
+uint32_t SettingManager::GetSettingIDInternal(std::string_view key, std::string_view category) const
 {
 	auto catIt = categories.find(category);
 	if (catIt != categories.end()) {
@@ -359,7 +359,7 @@ uint32_t SettingManager::GetSettingIDInternal(const std::string& key, const std:
 	return 0xFFFFFFFF;
 }
 
-float SettingManager::GetInterpolatedTimeOfDayValue(const std::string& key, const std::string& category)
+float SettingManager::GetInterpolatedTimeOfDayValue(std::string_view key, std::string_view category)
 {
 	std::shared_lock lock(mutex);
 	uint32_t id = GetSettingIDInternal(key, category);
@@ -369,7 +369,7 @@ float SettingManager::GetInterpolatedTimeOfDayValue(const std::string& key, cons
 	return ComputeTimeOfDayInterpolation(timeOfDayValue);
 }
 
-float3 SettingManager::GetInterpolatedColorTimeOfDayValue(const std::string& key, const std::string& category)
+float3 SettingManager::GetInterpolatedColorTimeOfDayValue(std::string_view key, std::string_view category)
 {
 	std::shared_lock lock(mutex);
 	uint32_t id = GetSettingIDInternal(key, category);
@@ -379,7 +379,7 @@ float3 SettingManager::GetInterpolatedColorTimeOfDayValue(const std::string& key
 	return ComputeColorTimeOfDayInterpolation(colorTimeOfDayValue);
 }
 
-const Setting* SettingManager::GetSettingInfo(const std::string& key, const std::string& category) const
+const Setting* SettingManager::GetSettingInfo(std::string_view key, std::string_view category) const
 {
 	std::shared_lock lock(mutex);
 	uint32_t id = GetSettingIDInternal(key, category);
@@ -430,41 +430,10 @@ bool SettingManager::IsCategoryExteriorOnly(const std::string& category) const
 	return it->second.exteriorOnly;
 }
 
-std::map<std::string, std::vector<std::string>> SettingManager::GetCategorizedSettings() const
+std::vector<std::string> SettingManager::GetCategories() const
 {
 	std::shared_lock lock(mutex);
-	std::map<std::string, std::vector<std::string>> result;
-	result["Main"] = {};
-	result["Weather"] = {};
-	result["Debug"] = {};
-
-	for (const auto& catName : categoryOrder) {
-		auto it = categories.find(catName);
-		if (it == categories.end())
-			continue;
-
-		if (it->second.tab == "Debug") {
-			result["Debug"].push_back(catName);
-			continue;
-		}
-
-		bool hasNonTod = false;
-		bool hasTod = false;
-		for (const auto& [key, id] : it->second.settings) {
-			auto type = allSettings[id].type;
-			if (type == SettingType::TimeOfDay || type == SettingType::ColorTimeOfDay)
-				hasTod = true;
-			else
-				hasNonTod = true;
-		}
-
-		if (hasNonTod)
-			result["Main"].push_back(catName);
-		if (hasTod)
-			result["Weather"].push_back(catName);
-	}
-
-	return result;
+	return categoryOrder;
 }
 
 void SettingManager::SetCategoryDependency(const std::string& category, const std::string& dependsOnKey, const std::string& dependsOnCategory)
@@ -475,6 +444,15 @@ void SettingManager::SetCategoryDependency(const std::string& category, const st
 		it->second.dependsOnKey = dependsOnKey;
 		it->second.dependsOnCategory = dependsOnCategory;
 	}
+}
+
+std::pair<std::string, std::string> SettingManager::GetCategoryDependency(const std::string& category) const
+{
+	std::shared_lock lock(mutex);
+	auto it = categories.find(category);
+	if (it == categories.end())
+		return {};
+	return { it->second.dependsOnKey, it->second.dependsOnCategory };
 }
 
 void SettingManager::SetSettingDependency(const std::string& key, const std::string& category, const std::string& dependsOnKey, const std::string& dependsOnCategory)
@@ -528,6 +506,12 @@ void SettingManager::SetSettingLegacyKey(const std::string& key, const std::stri
 	auto& legacyKeys = allSettings[id].legacyKeys;
 	if (std::find(legacyKeys.begin(), legacyKeys.end(), legacyKey) == legacyKeys.end())
 		legacyKeys.push_back(legacyKey);
+}
+
+bool SettingManager::IsWeatherSystemEnabled() const
+{
+	std::shared_lock lock(mutex);
+	return IsWeatherSystemEnabledInternal();
 }
 
 void SettingManager::SetWeatherBlendFactors(uint32_t newCurrentWeatherID, uint32_t newLastWeatherID, float blendFactor)
@@ -1116,10 +1100,10 @@ void SettingManager::Save()
 }
 
 // Explicit template instantiations
-template bool SettingManager::GetValue<bool>(const std::string& key, const std::string& category, bool rawValue);
-template float SettingManager::GetValue<float>(const std::string& key, const std::string& category, bool rawValue);
-template TimeOfDayValue SettingManager::GetValue<TimeOfDayValue>(const std::string& key, const std::string& category, bool rawValue);
-template ColorTimeOfDayValue SettingManager::GetValue<ColorTimeOfDayValue>(const std::string& key, const std::string& category, bool rawValue);
+template bool SettingManager::GetValue<bool>(std::string_view key, std::string_view category, bool rawValue);
+template float SettingManager::GetValue<float>(std::string_view key, std::string_view category, bool rawValue);
+template TimeOfDayValue SettingManager::GetValue<TimeOfDayValue>(std::string_view key, std::string_view category, bool rawValue);
+template ColorTimeOfDayValue SettingManager::GetValue<ColorTimeOfDayValue>(std::string_view key, std::string_view category, bool rawValue);
 
 template bool SettingManager::GetValue<bool>(uint32_t id, bool rawValue);
 template float SettingManager::GetValue<float>(uint32_t id, bool rawValue);

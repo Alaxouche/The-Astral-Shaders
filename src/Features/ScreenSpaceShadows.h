@@ -9,7 +9,7 @@ public:
 	virtual std::string GetDisplayName() override { return T("feature.screen_space_shadows.name", "Screen Space Shadows"); }
 	virtual inline std::string GetShortName() override { return "ScreenSpaceShadows"; }
 	virtual inline std::string_view GetShaderDefineName() override { return "SCREEN_SPACE_SHADOWS"; }
-	virtual std::string_view GetCategory() const override { return FeatureCategories::kLighting; }
+	virtual std::string_view GetCategory() const override { return FeatureCategories::kShadows; }
 
 	/** @brief Returns a localized description and list of key features for the UI summary panel. */
 	virtual std::pair<std::string, std::vector<std::string>> GetFeatureSummary() override
@@ -35,40 +35,6 @@ public:
 	};
 
 	BendSettings bendSettings;
-
-	struct DistantSettings
-	{
-		bool Enable = true;
-		uint SampleCount = 12;
-		float MaxRayLength = 16384.0f;
-		float Intensity = 1.0f;
-		float Thickness = 1.0f;
-	};
-
-	DistantSettings distantSettings;
-
-	static constexpr uint DistantMinSampleCount = 4;
-	static constexpr uint DistantMaxSampleCount = 32;
-	static constexpr float DistantMinRayLength = 2048.0f;
-	static constexpr float DistantMaxRayLength = 65536.0f;
-	static constexpr float DistantMinThickness = 0.1f;
-	static constexpr float DistantMaxThickness = 2.0f;
-	static constexpr float DistantFadeLength = 1024.0f;
-
-	struct alignas(16) DistantShadowsCB
-	{
-		float2 RenderSize;
-		float2 InvRenderSize;
-		float StartDistance;
-		float FadeLength;
-		float MaxRayLength;
-		float Intensity;
-		float ThicknessScale;
-		uint SampleCount;
-		uint UseContactShadows;
-		float pad0;
-	};
-	STATIC_ASSERT_ALIGNAS_16(DistantShadowsCB);
 
 	struct alignas(16) RaymarchCB
 	{
@@ -98,10 +64,6 @@ public:
 
 	Texture2D* screenSpaceShadowsTexture = nullptr;
 
-	ConstantBuffer* distantShadowsCB = nullptr;
-	ID3D11ComputeShader* distantShadowsCS = nullptr;
-	Texture2D* contactShadowsCopyTexture = nullptr;
-
 	/** @brief Creates the raymarch constant buffer, point border sampler, and shadow output texture. */
 	virtual void SetupResources() override;
 
@@ -130,9 +92,6 @@ public:
 	/** @brief Dispatches the Bend SSS compute shader to generate screen-space contact shadows. */
 	void DrawShadows();
 
-	ID3D11ComputeShader* GetComputeDistantShadows();
-	float GetShadowCascadeEndDistance();
-	void DrawDistantShadows(bool a_hasContactShadows);
-
 	virtual void RestoreDefaultSettings() override;
+
 };
