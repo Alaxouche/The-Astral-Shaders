@@ -17,6 +17,7 @@
 #include "Features/Skylighting.h"
 #include "Features/SubsurfaceScattering.h"
 #include "Features/TerrainBlending.h"
+#include "Features/TerrainShadows.h"
 #include "Features/Upscaling.h"
 
 #include "Hooks.h"
@@ -417,8 +418,10 @@ void Deferred::DeferredPasses()
 	if (dynamicCubemaps.loaded)
 		dynamicCubemaps.PostDeferred();
 
-	if (globals::features::effects11.loaded)
+	if (globals::features::effects11.loaded) {
 		globals::features::effects11.DrawVolumetricRays();
+		globals::features::effects11.DrawSunRays();
+	}
 }
 
 void Deferred::EndDeferred()
@@ -864,9 +867,15 @@ void Deferred::Hooks::BSCubeMapCamera_RenderCubemap::thunk(RE::NiAVObject* camer
 	auto deferred = globals::deferred;
 	auto state = globals::state;
 
+	auto& terrainShadows = globals::features::terrainShadows;
+
 	deferred->ReflectionsPrepasses();
 	state->permutationData.ExtraShaderDescriptor |= static_cast<uint32_t>(State::ExtraShaderDescriptors::IsReflections);
+	if (terrainShadows.loaded)
+		terrainShadows.lodShadowMap.BeginFace(camera, static_cast<uint32_t>(a2));
 	func(camera, a2, a3, a4, a5);
+	if (terrainShadows.loaded)
+		terrainShadows.lodShadowMap.EndFace();
 	state->permutationData.ExtraShaderDescriptor &= ~static_cast<uint32_t>(State::ExtraShaderDescriptors::IsReflections);
 }
 

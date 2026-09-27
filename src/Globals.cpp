@@ -180,7 +180,6 @@ namespace globals
 		REL::Relocation<const RE::NiRTTI*> NiAlphaPropertyRTTI;
 		REL::Relocation<const RE::NiRTTI*> NiSourceTextureRTTI;
 		REL::Relocation<const RE::NiRTTI*> BSGrassShaderPropertyRTTI;
-		REL::Relocation<const RE::NiRTTI*> BSDistantTreeShaderPropertyRTTI;
 		REL::Relocation<const RE::NiRTTI*> BSMultiStreamInstanceTriShapeRTTI;
 	}
 
@@ -243,7 +242,6 @@ namespace globals
 			NiAlphaPropertyRTTI = { RE::NiAlphaProperty::Ni_RTTI };
 			NiSourceTextureRTTI = { RE::NiSourceTexture::Ni_RTTI };
 			BSGrassShaderPropertyRTTI = { RE::BSGrassShaderProperty::Ni_RTTI };
-			BSDistantTreeShaderPropertyRTTI = { RE::BSDistantTreeShaderProperty::Ni_RTTI };
 			BSMultiStreamInstanceTriShapeRTTI = { RE::BSMultiStreamInstanceTriShape::Ni_RTTI };
 		}
 
