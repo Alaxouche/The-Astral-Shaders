@@ -60,7 +60,7 @@ struct NightSky : Feature
 	virtual inline std::string GetName() override { return "Night Sky"; }
 	virtual std::string GetDisplayName() override { return T("feature.night_sky.name", "Night Sky"); }
 	virtual inline std::string GetShortName() override { return "NightSky"; }
-	virtual std::string_view GetCategory() const override { return FeatureCategories::kSky; }
+	virtual std::string_view GetCategory() const override { return FeatureCategories::kSkyAndWeather; }
 	virtual inline std::string_view GetShaderDefineName() override { return "NIGHT_SKY"; }
 	virtual inline bool HasShaderDefine(RE::BSShader::Type shaderType) override { return shaderType == RE::BSShader::Type::Sky; }
 
