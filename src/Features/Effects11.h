@@ -5,6 +5,7 @@
 #include <memory>
 #include <winrt/base.h>
 
+// C4324: the aligned PerFrame cache member pads the struct
 #pragma warning(push)
 #pragma warning(disable: 4324)
 
@@ -207,6 +208,7 @@ public:
 
 	__declspec(noinline) void ModifyParticle(RE::BSRenderPass* Pass);
 	void ParticleShaderHacks();
+	/** @brief True when the effect is on, the raindrop texture loaded, and RAIN "Enable" is set. */
 	bool IsRainEnabled();
 
 	/**
@@ -235,12 +237,9 @@ private:
 
 	uint tonemapReplacedFrame = UINT32_MAX;  ///< frameCount when the effect chain last wrote the tonemap output
 
-	// The feature buffer is rebuilt several times per frame, so the setting lookups behind
-	// GetCommonBufferData are resolved once per frame and replayed from here.
+	// The feature buffer is rebuilt several times per frame, so GetCommonBufferData's lookups are replayed from here
 	PerFrame perFrameCache{};
-	uint perFrameCacheFrame = UINT32_MAX;
-
-	uint32_t rainEnabledSettingID = UINT32_MAX;  ///< RAIN:Enable, resolved on first use
+	Util::FrameChecker perFrameCacheChecker;
 
 	struct PointLightingParams
 	{

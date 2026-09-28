@@ -79,7 +79,8 @@ namespace SharedData
 		bool EnableHeightBlending;
 		bool EnableShadows;
 		bool EnableParallaxWarpingFix;
-		uint2 pad0;
+		float ParallaxQuality;
+		uint pad0;
 	};
 
 	struct CubemapCreatorSettings
@@ -719,6 +720,12 @@ namespace SharedData
 		float padNightSky;
 	};
 
+	struct HorizonFixSettings
+	{
+		float farWaterDistance;
+		float3 pad;
+	};
+
 	cbuffer FeatureData : register(b6)
 	{
 		GrassLightingSettings grassLightingSettings;
@@ -749,6 +756,7 @@ namespace SharedData
 		LivingWindowsSettings livingWindowsSettings;
 		VolumetricLightingSettings volumetricLightingSettings;
 		NightSkySettings nightSkySettings;
+		HorizonFixSettings horizonFixSettings;
 	};
 
 	Texture2D<float4> DepthTexture : register(t17);

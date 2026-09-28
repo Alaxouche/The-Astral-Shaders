@@ -22,6 +22,7 @@
 #include "Feature.h"
 #include "FeatureIssues.h"
 #include "FeatureVersions.h"
+#include "Features/LightLimitFix/ShadowDiagnostics.h"
 #include "Features/RenderDoc.h"
 #include "Features/Upscaling.h"
 #include "I18n/I18n.h"
@@ -977,7 +978,8 @@ void Menu::ProcessInputEventQueue()
 
 			// Dispatch bound hotkey actions for `key`. Combo bindings (modifier + key)
 			// fire on key-down for responsiveness; single-key bindings fire on key-up.
-			auto dispatchHotkeyActions = [this, key](bool combosOnly) {
+			bool effects11EditorToggled = false;
+			auto dispatchHotkeyActions = [this, key, &effects11EditorToggled](bool combosOnly) {
 				struct KeyAction
 				{
 					std::vector<InputCombo>& settingKey;
@@ -1019,13 +1021,17 @@ void Menu::ProcessInputEventQueue()
 						 if (globals::features::effects11.loaded)
 							 globals::features::effects11.ToggleEnabled();
 					 } },
-					{ settings.Effects11EditorKey, []() {
-						 if (!SetupRenderer::ShouldShowFirstTimeSetup())
+					{ settings.Effects11EditorKey, [&effects11EditorToggled]() {
+						 if (!SetupRenderer::ShouldShowFirstTimeSetup()) {
 							 Effects11Editor::GetSingleton().Toggle();
+							 effects11EditorToggled = true;
+						 }
 					 } },
 				};
 				// RenderDoc's capture key is a single, unmodified key; only consider it on key-up.
 				if (!combosOnly && globals::features::renderDoc.HandleCaptureHotkey(key))
+					return true;
+				if (!combosOnly && LocalShadowDiagnostics::HandleHotkey(key))
 					return true;
 				for (const auto& ka : keyActions) {
 					const bool isCombo = ka.settingKey.size() > 1;
@@ -1131,7 +1137,8 @@ void Menu::ProcessInputEventQueue()
 
 				// Handle ESC key for menu and editor window
 				auto* editorWindow = EditorWindow::GetSingleton();
-				if (key == VK_ESCAPE) {
+				// An Escape-bound Effects11 editor hotkey already toggled the editor this release
+				if (key == VK_ESCAPE && !effects11EditorToggled) {
 					if (editorWindow && editorWindow->IsInPreviewMode()) {
 						editorWindow->ExitPreviewMode();
 					} else if (editorWindow && editorWindow->open && editorWindow->ShouldHandleEscapeKey()) {
