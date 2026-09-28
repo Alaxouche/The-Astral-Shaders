@@ -940,9 +940,9 @@ void ThemeManager::CreateDefaultThemeFiles()
 
 		file << R"({
 	"DisplayName": "Default Theme",
-	"Description": "Default Bottled Shaders theme",
+	"Description": "Default Astral Shaders theme",
 	"Version": "1.0",
-	"Author": "Bottled Shaders",
+	"Author": "Astral Shaders",
 	"Theme": {
 		"UseSimplePalette": true,
 		"Palette": {

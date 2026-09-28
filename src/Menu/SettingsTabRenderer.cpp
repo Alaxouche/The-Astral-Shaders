@@ -564,7 +564,7 @@ void SettingsTabRenderer::RenderBehaviorTab()
 				ImGui::EndCombo();
 			}
 			if (auto _tt = Util::HoverTooltipWrapper()) {
-				ImGui::Text("%s", T("menu.settings.language_tooltip", "Select the display language for the Bottled Shaders interface."));
+				ImGui::Text("%s", T("menu.settings.language_tooltip", "Select the display language for the Astral Shaders interface."));
 			}
 		}
 

@@ -188,7 +188,7 @@ void OverlayRenderer::RenderOverlay(
 	}
 	editorWindow->UpdateOpenState();
 
-	// The Effects 11 editor, the CS Editor and the Bottled Shaders menu are exclusive
+	// The Effects 11 editor, the CS Editor and the Astral Shaders menu are exclusive
 	auto& effects11Editor = Effects11Editor::GetSingleton();
 	if (effects11Editor.IsOpen() && (editorWindow->open || menu.IsEnabled))
 		effects11Editor.Close(false);

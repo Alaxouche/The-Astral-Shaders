@@ -1,5 +1,7 @@
 #include "Menu.h"
 
+#include "ForkVersion.h"
+
 #ifndef DIRECTINPUT_VERSION
 #	define DIRECTINPUT_VERSION 0x0800
 #endif
@@ -709,7 +711,7 @@ void Menu::Init()
 }
 
 /**
- * @brief Main UI rendering coordinator for the Bottled Shaders menu
+ * @brief Main UI rendering coordinator for the Astral Shaders menu
  *
  * This method serves as the primary entry point for rendering the entire menu interface.
  * It handles window setup, docking configuration, and delegates rendering to specialized
@@ -737,7 +739,7 @@ void Menu::DrawSettings()
 	ImGui::SetNextWindowPos(Util::GetNativeViewportSizeScaled(0.5f), layoutCond, ImVec2(0.5f, 0.5f));
 	ImGui::SetNextWindowSize(Util::GetNativeViewportSizeScaled(0.8f), layoutCond);
 	resetLayout = false;
-	auto versionStr = Util::GetFormattedVersion(Plugin::VERSION);
+	auto versionStr = Fork::GetVersionString();
 	auto displayTitle = I18n::GetSingleton()->Format("menu.window_title", { { "name", std::string(Plugin::DISPLAY_NAME) }, { "version", versionStr } }, "{name} {version}");
 	// Use ### to keep a stable window ID regardless of the title text, preserving docking state
 	auto title = std::format("{}###CommunityShaders", displayTitle);

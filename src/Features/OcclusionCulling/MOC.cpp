@@ -41,6 +41,11 @@ namespace MOC
 	bool  CullSmallShadows = true;
 	float SmallShadowMinSize = 0.0f;
 	float SmallShadowSlope = 0.03f;  // doodlum: measured to net Utility down vs occlusion-off
+	// Target kept shadow-caster geometries per frame (0 = off). When the scene submits more,
+	// the small-caster slope is raised until the count fits; when it submits fewer, the boost
+	// decays back toward the user's slope. Converts "Utility explodes in dense scenes" into a
+	// bounded cost, spending the shadow detail on the nearest casters first.
+	float ShadowDrawBudget = 8000.0f;
 
 	namespace
 	{
@@ -103,6 +108,11 @@ namespace MOC
 		// per-face cameras of every active local shadow light. The small-caster SHADOW cull runs
 		// only on culls that carry one of these, so it can never touch a main-view subtree walk.
 		// Single writer (the frame's build claimer) fills the slots then publishes the count.
+		// Shadow-budget controller state: kept caster geometries this frame, and the slope
+		// boost the controller currently applies on top of the user slope.
+		std::atomic<std::uint32_t> g_shadowKeptGeom{ 0 };
+		std::atomic<float>         g_dynSlopeBoost{ 0.0f };
+
 		constexpr std::uint32_t          kMaxShadowCams = 64;
 		std::atomic<const RE::NiCamera*> g_shadowCams[kMaxShadowCams] = {};
 		std::atomic<std::uint32_t>       g_shadowCamCount{ 0 };
@@ -579,6 +589,22 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 		if (g_kickCounter.fetch_add(1, std::memory_order_relaxed) < g_settleUntilKick.load(std::memory_order_relaxed))
 			return false;
 
+		// Shadow draw budget: one controller step per frame, on last frame's kept-caster count.
+		// Multiplicative attack, slow decay, hard ceiling; the boost adds to the user's slope.
+		{
+			const std::uint32_t kept = g_shadowKeptGeom.exchange(0, std::memory_order_relaxed);
+			float               boost = g_dynSlopeBoost.load(std::memory_order_relaxed);
+			if (CullSmallShadows && ShadowDrawBudget > 0.0f) {
+				if (static_cast<float>(kept) > ShadowDrawBudget)
+					boost = std::min(boost * 1.15f + 0.002f, 0.30f);
+				else if (static_cast<float>(kept) < ShadowDrawBudget * 0.85f)
+					boost = std::max(boost * 0.90f - 0.0005f, 0.0f);
+			} else {
+				boost = 0.0f;
+			}
+			g_dynSlopeBoost.store(boost, std::memory_order_relaxed);
+		}
+
 		// Once per frame: CAS-claim the frame so exactly ONE of the concurrent main-scene culls
 		// loads the snapshot. Losers report whether a completed load for this frame is published.
 		auto*               gfxState = globals::game::graphicsState;
@@ -851,6 +877,11 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 	{
 		if (!CullSmallShadows || !a_object)
 			return true;
-		return SmallCullKeeps(a_object, SmallShadowMinSize, SmallShadowSlope);
+		const float slope = SmallShadowSlope + g_dynSlopeBoost.load(std::memory_order_relaxed);
+		const bool  keep = SmallCullKeeps(a_object, SmallShadowMinSize, slope);
+		// Count kept GEOMETRY only: nodes do not draw, so this tracks the actual Utility load.
+		if (keep && a_object->AsGeometry())
+			g_shadowKeptGeom.fetch_add(1, std::memory_order_relaxed);
+		return keep;
 	}
 }

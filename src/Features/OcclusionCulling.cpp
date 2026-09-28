@@ -20,7 +20,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	CullConfirmFrames,
 	CullSmallShadows,
 	SmallShadowMinSize,
-	SmallShadowSlope)
+	SmallShadowSlope,
+	ShadowDrawBudget)
 
 namespace
 {
@@ -238,6 +239,7 @@ void OcclusionCulling::SyncSettingsToMOC()
 	MOC::CullSmallShadows = settings.CullSmallShadows;
 	MOC::SmallShadowMinSize = settings.SmallShadowMinSize;
 	MOC::SmallShadowSlope = settings.SmallShadowSlope;
+	MOC::ShadowDrawBudget = settings.ShadowDrawBudget;
 }
 
 void OcclusionCulling::DrawSettings()
@@ -277,6 +279,11 @@ void OcclusionCulling::DrawSettings()
 	}
 	if (settings.CullSmallShadows) {
 		changed |= ImGui::SliderFloat(T("feature.occlusion_culling.small_shadow_slope", "Shadow Cull Distance Growth"), &settings.SmallShadowSlope, 0.0f, 0.08f, "%.3f");
+		changed |= ImGui::SliderFloat(T("feature.occlusion_culling.shadow_budget", "Shadow Draw Budget"), &settings.ShadowDrawBudget, 0.0f, 16000.0f, "%.0f");
+		if (auto _tt = Util::HoverTooltipWrapper()) {
+			ImGui::Text("%s", T("feature.occlusion_culling.shadow_budget_tooltip",
+				"Target number of shadow-casting meshes per frame. In scenes that submit more, the cull threshold rises automatically until the count fits, dropping the smallest and most distant shadows first. 0 disables the budget."));
+		}
 	}
 
 	ImGui::EndDisabled();

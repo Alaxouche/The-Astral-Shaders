@@ -33,6 +33,9 @@ struct OcclusionCulling : Feature
 		bool  CullSmallShadows = true;
 		float SmallShadowMinSize = 0.0f;
 		float SmallShadowSlope = 0.03f;
+		// Target kept shadow casters per frame; the cull slope auto-raises above the value set
+		// here until the scene fits. 0 disables the controller.
+		float ShadowDrawBudget = 8000.0f;
 	};
 
 	Settings settings;

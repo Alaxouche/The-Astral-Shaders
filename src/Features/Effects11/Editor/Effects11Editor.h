@@ -19,7 +19,7 @@ namespace UITree
  * Draws two panels at the screen edges so the scene stays visible while tuning:
  * "Effects 11" for enbseries.ini and weather file settings, and "Shader Parameters"
  * for the preset's .fx files. It is opened from the Effects 11 feature page or the
- * editor hotkey. The Bottled Shaders menu and the editor are never shown together.
+ * editor hotkey. The Astral Shaders menu and the editor are never shown together.
  */
 class Effects11Editor
 {
@@ -27,14 +27,14 @@ public:
 	static Effects11Editor& GetSingleton();
 
 	/**
-	 * @brief Opens the editor and closes the Bottled Shaders menu.
-	 * @param a_returnToMenu Reopen the Bottled Shaders menu when the editor closes.
+	 * @brief Opens the editor and closes the Astral Shaders menu.
+	 * @param a_returnToMenu Reopen the Astral Shaders menu when the editor closes.
 	 */
 	void Open(bool a_returnToMenu);
 
 	/**
 	 * @brief Closes the editor.
-	 * @param a_restoreMenu Reopen the Bottled Shaders menu if the editor was opened from it.
+	 * @param a_restoreMenu Reopen the Astral Shaders menu if the editor was opened from it.
 	 */
 	void Close(bool a_restoreMenu = true);
 

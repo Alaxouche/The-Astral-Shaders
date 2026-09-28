@@ -37,6 +37,7 @@ namespace MOC
 	extern bool  CullSmallShadows;        // shadow-map distance-scaled small-caster cull (shadow only)
 	extern float SmallShadowMinSize;      // shadow cull: base bound-radius threshold at the camera
 	extern float SmallShadowSlope;        // shadow cull: threshold growth per unit of camera distance
+	extern float ShadowDrawBudget;        // target kept caster geometries per frame; 0 disables the controller
 
 	/** @brief Mark the occlusion feature live. Hi-Z GPU resources are created lazily. */
 	void Init();
