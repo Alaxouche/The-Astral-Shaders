@@ -38,6 +38,7 @@ struct WaterEffects;
 struct PerformanceOverlay;
 struct WetnessEffects;
 struct ExtendedTranslucency;
+struct OcclusionCulling;
 struct ReverseZ;
 struct Upscaling;
 class Profiler;
@@ -138,6 +139,7 @@ namespace globals
 		extern PerformanceOverlay performanceOverlay;
 		extern WetnessEffects wetnessEffects;
 		extern ExtendedTranslucency extendedTranslucency;
+		extern OcclusionCulling occlusionCulling;
 		extern ReverseZ reverseZ;
 		extern Upscaling upscaling;
 		extern HDRDisplay hdrDisplay;

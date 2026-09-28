@@ -12,6 +12,7 @@
 #include "Features/ExponentialHeightFog.h"
 #include "Features/IBL.h"
 #include "Features/PhysicalSky.h"
+#include "Features/OcclusionCulling/MOC.h"
 #include "Features/ReverseZ.h"
 #include "Features/ScreenSpaceGI.h"
 #include "Features/Skylighting.h"
@@ -249,6 +250,9 @@ void Deferred::PrepassPasses()
 
 	auto context = globals::d3d::context;
 	context->OMSetRenderTargets(0, nullptr, nullptr);  // Unbind all bound render targets
+
+	// Reduce this frame's populated depth for next frame's Hi-Z occlusion cull.
+	MOC::HiZPrepass();
 
 	Feature::ForEachLoadedFeature("Prepass", [](Feature* feature) { feature->Prepass(); }, true);
 }

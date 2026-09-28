@@ -48,6 +48,7 @@
 #include "Features/VolumetricLighting.h"
 #include "Features/VolumetricShadows.h"
 #include "Features/WaterEffects.h"
+#include "Features/OcclusionCulling.h"
 #include "Features/ReverseZ.h"
 #include "Features/WetnessEffects.h"
 #include "Menu.h"
@@ -105,6 +106,7 @@ namespace globals
 		PerformanceOverlay performanceOverlay{};
 		WetnessEffects wetnessEffects{};
 		ExtendedTranslucency extendedTranslucency{};
+		OcclusionCulling occlusionCulling{};
 		ReverseZ reverseZ{};
 		Upscaling upscaling{};
 		HDRDisplay hdrDisplay{};
