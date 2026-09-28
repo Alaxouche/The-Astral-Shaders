@@ -12,6 +12,7 @@
 #include "Features/ExponentialHeightFog.h"
 #include "Features/IBL.h"
 #include "Features/PhysicalSky.h"
+#include "Features/LivingWindows.h"
 #include "Features/OcclusionCulling/MOC.h"
 #include "Features/ReverseZ.h"
 #include "Features/ScreenSpaceGI.h"
@@ -436,6 +437,11 @@ void Deferred::DeferredPasses()
 		globals::features::effects11.DrawVolumetricRays();
 		globals::features::effects11.DrawSunRays();
 	}
+
+	// Window sun beams composite here too: the scene and its depth are final, upscaling has
+	// not run yet, and the additive pass draws onto the same main target.
+	if (globals::features::livingWindows.loaded)
+		globals::features::livingWindows.DrawLightShafts();
 }
 
 void Deferred::EndDeferred()

@@ -78,6 +78,12 @@ struct LivingWindows : Feature
 		float MinRoomRadius = 18.0f;
 		/** @brief Geometry bound radius below which a window shows no occupants. */
 		float MinOccupantRadius = 40.0f;
+		/** @brief Volumetric sun beams through interior windows. */
+		bool LightShafts = true;
+		float ShaftIntensity = 0.7f;
+		/** @brief Beam reach from the pane along the sun direction, game units. */
+		float ShaftLength = 900.0f;
+		float ShaftDensity = 1.0f;
 		/** @brief Extra case-insensitive path fragments that mark a material as a window. */
 		std::vector<std::string> ExtraWindowTokens;
 		/** @brief Case-insensitive path fragments that never count as windows. */
@@ -133,6 +139,31 @@ struct LivingWindows : Feature
 	static constexpr std::uint32_t kDescriptorMask = kCandidateBit | (0b11u << kTierShift) | (0b111u << kFamilyShift) | kExplicitBit;
 
 	/** @brief Most windows one draw publishes; the nearest to the camera win. Matches LivingWindows.hlsli. */
+	/** @brief One recorded pane for this frame's light-shaft pass (world space). */
+	struct ShaftWindow
+	{
+		RE::NiPoint3 center;
+		float radius;
+		RE::NiPoint3 normal;  // zero when unknown (bound-only windows)
+	};
+
+	/** @brief Remembers a pane seen this frame so DrawLightShafts can build beams from it. */
+	void RecordShaftWindow(const RE::NiPoint3& a_center, float a_radius, const RE::NiPoint3& a_normal);
+	/** @brief Renders and composites the window sun beams; called from Deferred after the composite. */
+	void DrawLightShafts();
+
+	std::vector<ShaftWindow> shaftWindows;
+	winrt::com_ptr<ID3D11ComputeShader> shaftRenderCS;
+	winrt::com_ptr<ID3D11VertexShader> shaftVS;
+	winrt::com_ptr<ID3D11PixelShader> shaftPS;
+	winrt::com_ptr<ID3D11Buffer> shaftCB;
+	winrt::com_ptr<ID3D11BlendState> shaftBlend;
+	winrt::com_ptr<ID3D11Texture2D> shaftTex;
+	winrt::com_ptr<ID3D11UnorderedAccessView> shaftUAV;
+	winrt::com_ptr<ID3D11ShaderResourceView> shaftSRV;
+	int shaftTexW = 0, shaftTexH = 0;
+	bool shaftInitTried = false;
+
 	static constexpr std::uint32_t kMaxWindowsPerDraw = 16;
 	/** @brief PS constant buffer slot of the per-draw window list. */
 	static constexpr UINT kWindowListSlot = 13;

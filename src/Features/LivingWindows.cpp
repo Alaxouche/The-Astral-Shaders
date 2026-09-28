@@ -1,8 +1,13 @@
 #include "LivingWindows.h"
 
 #include "../I18n/I18n.h"
+#include "Deferred.h"
+#include "Features/ReverseZ.h"
+#include "Features/SkySync.h"
 #include "Globals.h"
 #include "State.h"
+
+#include <RE/M/Main.h>
 #include "Utils/D3D.h"
 #include "Utils/Game.h"
 
@@ -45,6 +50,10 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	OutdoorBrightness,
 	MinRoomRadius,
 	MinOccupantRadius,
+	LightShafts,
+	ShaftIntensity,
+	ShaftLength,
+	ShaftDensity,
 	ExtraWindowTokens,
 	ExcludedTokens)
 
@@ -176,6 +185,17 @@ void LivingWindows::DrawSettings()
 	ImGui::SeparatorText(T(TKEY("detection"), "Detection"));
 	ImGui::SliderFloat(T(TKEY("min_room_radius"), "Minimum Size for Rooms"), &settings.MinRoomRadius, 0.0f, 128.0f, "%.0f");
 	ImGui::SliderFloat(T(TKEY("min_occupant_radius"), "Minimum Size for Occupants"), &settings.MinOccupantRadius, 0.0f, 256.0f, "%.0f");
+
+	ImGui::SeparatorText(T(TKEY("shafts_header"), "Light Shafts"));
+	ImGui::Checkbox(T(TKEY("shafts_enable"), "Window Light Shafts"), &settings.LightShafts);
+	if (auto _tt = Util::HoverTooltipWrapper()) {
+		ImGui::Text("%s", T(TKEY("shafts_enable_tooltip"), "Volumetric sun beams entering interiors through the windows this feature tracks. Depth-bounded, so walls occlude them."));
+	}
+	if (settings.LightShafts) {
+		ImGui::SliderFloat(T(TKEY("shafts_intensity"), "Shaft Intensity"), &settings.ShaftIntensity, 0.0f, 3.0f, "%.2f");
+		ImGui::SliderFloat(T(TKEY("shafts_length"), "Shaft Length"), &settings.ShaftLength, 200.0f, 2500.0f, "%.0f");
+		ImGui::SliderFloat(T(TKEY("shafts_density"), "Shaft Density"), &settings.ShaftDensity, 0.1f, 3.0f, "%.2f");
+	}
 	settings.MinOccupantRadius = std::max(settings.MinOccupantRadius, settings.MinRoomRadius);
 	ImGui::SliderFloat(T(TKEY("fade_start"), "Fade Start"), &settings.FadeStart, 256.0f, 16000.0f, "%.0f");
 	ImGui::SliderFloat(T(TKEY("fade_end"), "Fade End"), &settings.FadeEnd, 512.0f, 24000.0f, "%.0f");
@@ -626,6 +646,16 @@ void LivingWindows::PublishWindowList(RE::BSGeometry* a_geometry, const ShapeWin
 			const RE::NiPoint3 center = world * window.center;
 			const RE::NiPoint3& h = window.halfExtent;
 			list.Center[k] = float4(center.x, center.y, center.z, 0.0f);
+			{
+				// Shaft recording: lateral radius from the two largest extents, pane normal
+				// as the axis of the smallest one (windows are thin along their normal).
+				const float wx = world.scale * h.x, wy = world.scale * h.y, wz = world.scale * h.z;
+				const float mn = std::min({ wx, wy, wz });
+				RE::NiPoint3 normal = mn == wx ? RE::NiPoint3{ 1, 0, 0 } : (mn == wy ? RE::NiPoint3{ 0, 1, 0 } : RE::NiPoint3{ 0, 0, 1 });
+				normal = world.rotate * normal;
+				const float lateral = 0.5f * (wx + wy + wz - mn);
+				RecordShaftWindow(center, std::max(lateral, 8.0f), normal);
+			}
 			list.HalfExtent[k] = float4(
 				world.scale * (std::abs(m[0][0]) * h.x + std::abs(m[0][1]) * h.y + std::abs(m[0][2]) * h.z),
 				world.scale * (std::abs(m[1][0]) * h.x + std::abs(m[1][1]) * h.y + std::abs(m[1][2]) * h.z),
@@ -824,6 +854,215 @@ std::uint32_t LivingWindows::TierFromMeshName(const char* a_name) const
 	return 0;
 }
 
+void LivingWindows::RecordShaftWindow(const RE::NiPoint3& a_center, float a_radius, const RE::NiPoint3& a_normal)
+{
+	// Render-thread only (the forward draw hook); DrawLightShafts consumes and clears later
+	// in the same frame on the same thread.
+	if (!settings.LightShafts || a_radius <= 0.0f || shaftWindows.size() >= 256)
+		return;
+	shaftWindows.push_back({ a_center, a_radius, a_normal });
+}
+
+namespace
+{
+	// Must mirror ShaftCB in WindowShafts.hlsl.
+	struct alignas(16) ShaftCBData
+	{
+		float4 CamDir;
+		float4 CamRight;
+		float4 CamUp;
+		float4 Slopes;
+		float4 DepthParams;
+		float4 SunDir;
+		float4 SunColor;
+		float4 Dims;
+		float4 Dims2;
+		float4 Params;
+		float4 WindowCenter[16];
+		float4 WindowNormal[16];
+	};
+}
+
+void LivingWindows::DrawLightShafts()
+{
+	auto windows = std::move(shaftWindows);
+	shaftWindows.clear();
+
+	if (!loaded || !settings.Enabled || !settings.LightShafts || windows.empty() || !Util::IsInterior())
+		return;
+
+	auto* sky = globals::game::sky;
+	if (!sky)
+		return;
+	const RE::NiPoint3 toSun = globals::features::skySync.GetCelestialDirection(sky, SkySync::Caster::Sun);
+	if (toSun.z <= 0.05f)
+		return;  // sun below or grazing the horizon: no beams
+
+	auto* device = globals::d3d::device;
+	auto* context = globals::d3d::context;
+	auto* cam = RE::Main::WorldRootCamera();
+	auto* depthSRV = Util::GetCurrentSceneDepthSRV(false);
+	auto* deferred = globals::deferred;
+	if (!device || !context || !cam || !depthSRV || !deferred || !deferred->linearSampler)
+		return;
+
+	// Lazy resources: shaders from the feature file, a half-res beam buffer, additive blend.
+	if (!shaftInitTried) {
+		shaftInitTried = true;
+		const auto path = L"Data\\Shaders\\LivingWindows\\WindowShafts.hlsl";
+		shaftRenderCS.attach(reinterpret_cast<ID3D11ComputeShader*>(Util::CompileShader(path, {}, "cs_5_0", "renderShafts")));
+		shaftVS.attach(reinterpret_cast<ID3D11VertexShader*>(Util::CompileShader(path, {}, "vs_5_0", "shaftVS")));
+		shaftPS.attach(reinterpret_cast<ID3D11PixelShader*>(Util::CompileShader(path, {}, "ps_5_0", "shaftPS")));
+
+		D3D11_BUFFER_DESC cbDesc{};
+		cbDesc.ByteWidth = sizeof(ShaftCBData);
+		cbDesc.Usage = D3D11_USAGE_DYNAMIC;
+		cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		device->CreateBuffer(&cbDesc, nullptr, shaftCB.put());
+		Util::SetResourceName(shaftCB.get(), "LivingWindows::ShaftCB");
+
+		D3D11_BLEND_DESC blendDesc{};
+		blendDesc.RenderTarget[0].BlendEnable = true;
+		blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+		blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+		blendDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+		blendDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ZERO;
+		blendDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+		blendDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+		blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+		device->CreateBlendState(&blendDesc, shaftBlend.put());
+		Util::SetResourceName(shaftBlend.get(), "LivingWindows::ShaftBlend");
+
+		auto* renderer = globals::game::renderer;
+		if (renderer) {
+			auto& main = renderer->GetRuntimeData().renderTargets[RE::RENDER_TARGETS::kMAIN];
+			D3D11_TEXTURE2D_DESC mainDesc{};
+			static_cast<ID3D11Texture2D*>(main.texture)->GetDesc(&mainDesc);
+			D3D11_TEXTURE2D_DESC texDesc{};
+			texDesc.Width = std::max(mainDesc.Width / 2, 1u);
+			texDesc.Height = std::max(mainDesc.Height / 2, 1u);
+			texDesc.MipLevels = 1;
+			texDesc.ArraySize = 1;
+			texDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+			texDesc.SampleDesc = { 1, 0 };
+			texDesc.Usage = D3D11_USAGE_DEFAULT;
+			texDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+			if (SUCCEEDED(device->CreateTexture2D(&texDesc, nullptr, shaftTex.put()))) {
+				Util::SetResourceName(shaftTex.get(), "LivingWindows::ShaftTex");
+				device->CreateUnorderedAccessView(shaftTex.get(), nullptr, shaftUAV.put());
+				Util::SetResourceName(shaftUAV.get(), "LivingWindows::ShaftTex UAV");
+				device->CreateShaderResourceView(shaftTex.get(), nullptr, shaftSRV.put());
+				Util::SetResourceName(shaftSRV.get(), "LivingWindows::ShaftTex SRV");
+				shaftTexW = static_cast<int>(texDesc.Width);
+				shaftTexH = static_cast<int>(texDesc.Height);
+			}
+		}
+	}
+	if (!shaftRenderCS || !shaftVS || !shaftPS || !shaftCB || !shaftBlend || !shaftUAV)
+		return;
+
+	// Keep the nearest panes when the frame recorded more than the shader takes.
+	const RE::NiPoint3 camPos = cam->world.translate;
+	if (windows.size() > kMaxWindowsPerDraw) {
+		std::partial_sort(windows.begin(), windows.begin() + kMaxWindowsPerDraw, windows.end(),
+			[&camPos](const ShaftWindow& a, const ShaftWindow& b) {
+				return (a.center - camPos).SqrLength() < (b.center - camPos).SqrLength();
+			});
+		windows.resize(kMaxWindowsPerDraw);
+	}
+
+	const auto& R = cam->world.rotate.entry;
+	const RE::NiPoint3 dir{ R[0][0], R[1][0], R[2][0] };
+	const RE::NiPoint3 up{ R[0][1], R[1][1], R[2][1] };
+	const RE::NiPoint3 right{ R[0][2], R[1][2], R[2][2] };
+	const RE::NiFrustum& fr = cam->GetRuntimeData2().viewFrustum;
+	if (fr.bOrtho || !(fr.fFar > fr.fNear))
+		return;
+	const float projF = fr.fFar / (fr.fFar - fr.fNear);
+	const float projNF = fr.fNear * fr.fFar / (fr.fFar - fr.fNear);
+
+	auto* renderer = globals::game::renderer;
+	auto& main = renderer->GetRuntimeData().renderTargets[RE::RENDER_TARGETS::kMAIN];
+	D3D11_TEXTURE2D_DESC mainDesc{};
+	static_cast<ID3D11Texture2D*>(main.texture)->GetDesc(&mainDesc);
+	const float2 dynFull = Util::ConvertToDynamic(float2{ static_cast<float>(mainDesc.Width), static_cast<float>(mainDesc.Height) }, true);
+	const int dynW = std::clamp(static_cast<int>(dynFull.x), 2, static_cast<int>(mainDesc.Width));
+	const int dynH = std::clamp(static_cast<int>(dynFull.y), 2, static_cast<int>(mainDesc.Height));
+	const int halfW = std::min(dynW / 2, shaftTexW);
+	const int halfH = std::min(dynH / 2, shaftTexH);
+
+	const RE::NiPoint3 sunDir{ -toSun.x, -toSun.y, -toSun.z };  // travel direction of the light
+
+	ShaftCBData data{};
+	data.CamDir = float4(dir.x, dir.y, dir.z, globals::features::reverseZ.IsActive() ? 1.0f : 0.0f);
+	data.CamRight = float4(right.x, right.y, right.z, 0.0f);
+	data.CamUp = float4(up.x, up.y, up.z, 0.0f);
+	data.Slopes = float4(0.5f * (fr.fRight - fr.fLeft), 0.5f * (fr.fRight + fr.fLeft), 0.5f * (fr.fTop - fr.fBottom), 0.5f * (fr.fTop + fr.fBottom));
+	data.DepthParams = float4(projF, projNF, settings.ShaftLength * 4.0f, 8.0f);
+	data.SunDir = float4(sunDir.x, sunDir.y, sunDir.z, 0.6f);
+	data.SunColor = float4(1.0f * settings.ShaftIntensity, 0.92f * settings.ShaftIntensity, 0.78f * settings.ShaftIntensity, 0.15f / std::max(settings.ShaftLength, 1.0f));
+	data.Dims = float4(static_cast<float>(halfW), static_cast<float>(halfH), static_cast<float>(dynW), static_cast<float>(dynH));
+	data.Dims2 = float4(static_cast<float>(shaftTexW), static_cast<float>(shaftTexH), 0.0f, 0.0f);
+	data.Params = float4(settings.ShaftLength, settings.ShaftDensity, static_cast<float>(windows.size()), static_cast<float>(globals::game::graphicsState->frameCount & 1023u));
+	for (std::size_t i = 0; i < windows.size(); ++i) {
+		const RE::NiPoint3 rel = windows[i].center - camPos;
+		data.WindowCenter[i] = float4(rel.x, rel.y, rel.z, windows[i].radius);
+		data.WindowNormal[i] = float4(windows[i].normal.x, windows[i].normal.y, windows[i].normal.z, 0.0f);
+	}
+
+	D3D11_MAPPED_SUBRESOURCE mapped{};
+	if (FAILED(context->Map(shaftCB.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+		return;
+	std::memcpy(mapped.pData, &data, sizeof(data));
+	context->Unmap(shaftCB.get(), 0);
+
+	TracyD3D11Zone(globals::state->tracyCtx, "LivingWindows - Light Shafts");
+	globals::profiler->BeginPass("LivingWindows::LightShafts");
+
+	// Pass 1: half-res beam accumulation.
+	ID3D11Buffer* cb = shaftCB.get();
+	context->CSSetConstantBuffers(0, 1, &cb);
+	context->CSSetShaderResources(0, 1, &depthSRV);
+	ID3D11UnorderedAccessView* uav = shaftUAV.get();
+	context->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
+	context->CSSetShader(shaftRenderCS.get(), nullptr, 0);
+	context->Dispatch((halfW + 7) / 8, (halfH + 7) / 8, 1);
+	ID3D11ShaderResourceView* nullSRV = nullptr;
+	ID3D11UnorderedAccessView* nullUAV = nullptr;
+	context->CSSetShaderResources(0, 1, &nullSRV);
+	context->CSSetUnorderedAccessViews(0, 1, &nullUAV, nullptr);
+	context->CSSetShader(nullptr, nullptr, 0);
+
+	// Pass 2: additive fullscreen composite onto the main target.
+	context->OMSetRenderTargets(1, &main.RTV, nullptr);
+	D3D11_VIEWPORT viewport{ 0.0f, 0.0f, static_cast<float>(mainDesc.Width), static_cast<float>(mainDesc.Height), 0.0f, 1.0f };
+	context->RSSetViewports(1, &viewport);
+	context->OMSetBlendState(shaftBlend.get(), nullptr, 0xFFFFFFFF);
+	context->OMSetDepthStencilState(nullptr, 0);
+	context->IASetInputLayout(nullptr);
+	context->IASetVertexBuffers(0, 0, nullptr, nullptr, nullptr);
+	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	context->VSSetShader(shaftVS.get(), nullptr, 0);
+	context->PSSetShader(shaftPS.get(), nullptr, 0);
+	context->PSSetConstantBuffers(0, 1, &cb);
+	ID3D11ShaderResourceView* srv = shaftSRV.get();
+	context->PSSetShaderResources(0, 1, &srv);
+	ID3D11SamplerState* sampler = deferred->linearSampler;
+	context->PSSetSamplers(0, 1, &sampler);
+	context->Draw(3, 0);
+
+	context->PSSetShaderResources(0, 1, &nullSRV);
+	context->VSSetShader(nullptr, nullptr, 0);
+	context->PSSetShader(nullptr, nullptr, 0);
+	context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+	ID3D11RenderTargetView* nullRTV = nullptr;
+	context->OMSetRenderTargets(1, &nullRTV, nullptr);
+	globals::game::stateUpdateFlags->set(RE::BSGraphics::ShaderFlags::DIRTY_RENDERTARGET);
+
+	globals::profiler->EndPass();
+}
+
 void LivingWindows::UpdatePermutation(RE::BSRenderPass* a_pass)
 {
 	auto& descriptor = globals::state->permutationData.ExtraFeatureDescriptor;
@@ -875,6 +1114,8 @@ void LivingWindows::UpdatePermutation(RE::BSRenderPass* a_pass)
 				singleWindow = windowName && !facadeName;
 			}
 			bound = float4(worldBound.center.x, worldBound.center.y, worldBound.center.z, singleWindow ? radius : -radius);
+			if (singleWindow)
+				RecordShaftWindow(worldBound.center, radius * 0.45f, RE::NiPoint3{ 0.0f, 0.0f, 0.0f });
 		}
 
 		// A house mesh carries the glass of all its windows in one shape, so the shape's bounds span
