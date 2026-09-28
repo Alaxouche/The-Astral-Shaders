@@ -18,6 +18,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	EnableOcclusionTesting,
 	OccluderTestMinRadius,
 	CullConfirmFrames,
+	MinScreenSize,
 	CullSmallShadows,
 	SmallShadowMinSize,
 	SmallShadowSlope,
@@ -236,6 +237,7 @@ void OcclusionCulling::SyncSettingsToMOC()
 	MOC::EnableOcclusionTesting = loaded && settings.EnableOcclusionTesting;
 	MOC::OccluderTestMinRadius = settings.OccluderTestMinRadius;
 	MOC::CullConfirmFrames = static_cast<std::uint32_t>(std::clamp(settings.CullConfirmFrames, 1, 4));
+	MOC::MinScreenSize = settings.MinScreenSize;
 	MOC::CullSmallShadows = settings.CullSmallShadows;
 	MOC::SmallShadowMinSize = settings.SmallShadowMinSize;
 	MOC::SmallShadowSlope = settings.SmallShadowSlope;
@@ -268,6 +270,12 @@ void OcclusionCulling::DrawSettings()
 	if (auto _tt = Util::HoverTooltipWrapper()) {
 		ImGui::Text("%s", T("feature.occlusion_culling.confirm_frames_tooltip",
 			"An object is only skipped after being occluded this many frames in a row. Higher = no visible pop-out even in fast motion, at the cost of drawing occluded objects a few extra frames."));
+	}
+
+	changed |= ImGui::SliderFloat(T("feature.occlusion_culling.min_screen_size", "Min On-Screen Size (px)"), &settings.MinScreenSize, 0.0f, 8.0f, "%.1f");
+	if (auto _tt = Util::HoverTooltipWrapper()) {
+		ImGui::Text("%s", T("feature.occlusion_culling.min_screen_size_tooltip",
+			"Objects whose projected size is below this many pixels are not drawn at all. 1-2 px removes distant clutter no one can see; higher trades visible detail for draw calls. 0 disables."));
 	}
 
 	ImGui::Spacing();

@@ -34,6 +34,7 @@ namespace MOC
 	extern bool          EnableOcclusionTesting;  // master gate for TestObject/TestMultiBound
 	extern float         OccluderTestMinRadius;   // min world-bound radius for per-object tests
 	extern std::uint32_t CullConfirmFrames;       // consecutive occluded frames before a cull acts
+	extern float         MinScreenSize;         // main-view projected-diameter cull threshold, pixels; 0 = off
 	extern bool  CullSmallShadows;        // shadow-map distance-scaled small-caster cull (shadow only)
 	extern float SmallShadowMinSize;      // shadow cull: base bound-radius threshold at the camera
 	extern float SmallShadowSlope;        // shadow cull: threshold growth per unit of camera distance

@@ -27,6 +27,9 @@ struct OcclusionCulling : Feature
 		// An occluded verdict must hold this many consecutive frames before the object is
 		// actually skipped, so single-frame mistakes never reach the screen.
 		int CullConfirmFrames = 2;
+		// Objects whose projected diameter is smaller than this many pixels are not drawn in
+		// the main view at all (0 = off). Distant clutter vanishes below visibility.
+		float MinScreenSize = 1.5f;
 		// Distance-scaled small-object SHADOW cull (radius < min + slope*camDist), never actors.
 		// Drops the object's shadow only (mesh still renders); cuts shadow-map draws, which are
 		// the bulk of Utility. Invisible by design -> on by default.

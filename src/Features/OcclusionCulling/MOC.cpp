@@ -38,6 +38,9 @@ namespace MOC
 	bool          EnableOcclusionTesting = true;
 	float         OccluderTestMinRadius = 0.0f;
 	std::uint32_t CullConfirmFrames = 2;
+	// Main-view screen-coverage cull: objects whose projected diameter is below this many
+	// pixels are skipped entirely (0 = off). Deterministic size math, no depth involved.
+	float MinScreenSize = 1.5f;
 	bool  CullSmallShadows = true;
 	float SmallShadowMinSize = 0.0f;
 	float SmallShadowSlope = 0.03f;  // doodlum: measured to net Utility down vs occlusion-off
@@ -133,6 +136,7 @@ namespace MOC
 		float g_motionAng = 0.0f;    // rotation, radians (small-angle chord)
 		float g_projSx = 1.0f, g_projSy = 1.0f;
 		float g_projF = 1.0f, g_projNF = 0.0f, g_nearZ = 1.0f;
+		float g_renderH = 0.0f;
 
 		// Occluded-streak confirmation: an object is only culled after CullConfirmFrames
 		// CONSECUTIVE occluded verdicts, so a single-frame mistake (stale depth, edge cell)
@@ -629,6 +633,7 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 		g_projF = snap->projF;
 		g_projNF = snap->projNF;
 		g_nearZ = snap->nearZ;
+		g_renderH = static_cast<float>(snap->renderH);
 		g_frame = frame;
 
 		// Camera motion since the snapshot's depth was rendered, for the test margins: the
@@ -819,6 +824,21 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 
 		if (!g_hizFront.load(std::memory_order_acquire))
 			return true;  // no Hi-Z readback published yet -- keep (conservative)
+
+		// Screen-coverage cull: below the pixel threshold an object cannot meaningfully
+		// contribute, whatever the depth says. Deterministic, so it needs no confirmation;
+		// kAlwaysDraw objects are exempt like everywhere else.
+		if (MinScreenSize > 0.0f && g_renderH > 0.0f) {
+			const auto fl = a_object->GetFlags().underlying();
+			if (!(fl & 0x800) && !(fl & 0x1000)) {
+				const float dx = a_object->worldBound.center.x - g_posAdjust.x;
+				const float dy = a_object->worldBound.center.y - g_posAdjust.y;
+				const float dz = a_object->worldBound.center.z - g_posAdjust.z;
+				const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+				if (dist > 1.0f && a_object->worldBound.radius * g_projSy * g_renderH < MinScreenSize * dist)
+					return false;
+			}
+		}
 
 		// Never occlusion-test object LOD (distant tree / rock / building LOD meshes, flagged
 		// kLODObjects / kHDLODObjects): their tall, thin, batched bounds mis-test against the
