@@ -39,6 +39,7 @@ struct PerformanceOverlay;
 struct WetnessEffects;
 struct ExtendedTranslucency;
 struct OcclusionCulling;
+struct SoftShadows;
 struct ReverseZ;
 struct Upscaling;
 class Profiler;
@@ -140,6 +141,7 @@ namespace globals
 		extern WetnessEffects wetnessEffects;
 		extern ExtendedTranslucency extendedTranslucency;
 		extern OcclusionCulling occlusionCulling;
+		extern SoftShadows softShadows;
 		extern ReverseZ reverseZ;
 		extern Upscaling upscaling;
 		extern HDRDisplay hdrDisplay;
