@@ -80,8 +80,8 @@ namespace MOC
 	 */
 	bool IsSceneListCamera(const RE::NiCamera* a_camera);
 
-	/** @brief True for the sun shadow-gather camera (stage-1 caster pre-gather). */
-	bool IsSunGatherCamera(const RE::NiCamera* a_camera);
+	/** @brief True for any shadow cull camera this frame: sun gather, sun cascades, local light faces. */
+	bool IsShadowCullCamera(const RE::NiCamera* a_camera);
 
 	/** @brief Small-caster shadow cull -- drops the shadow only (keep=true; never actors/kAlwaysDraw). */
 	bool TestShadowCasterSmall(RE::NiAVObject* a_object);

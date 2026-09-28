@@ -76,10 +76,11 @@ namespace
 			return;  // occluded -> do not accumulate / recurse
 		}
 
-		// SUN shadow-gather pass: small-caster SHADOW cull. A rejection here removes the
-		// caster from every cascade -- its mesh still renders in the main view, only its
-		// shadow is dropped. Pure size math; no depth buffer is involved for shadows.
-		if (!bracketed && a_object && MOC::IsSunGatherCamera(a_self->camera) && !MOC::TestShadowCasterSmall(a_object)) {
+		// SHADOW passes (sun gather, sun cascades, local light faces): small-caster SHADOW
+		// cull. A rejection here removes the caster from that shadow map -- its mesh still
+		// renders in the main view, only its shadow is dropped. Pure size math; no depth
+		// buffer is involved for shadows.
+		if (!bracketed && a_object && MOC::IsShadowCullCamera(a_self->camera) && !MOC::TestShadowCasterSmall(a_object)) {
 			MarkCulledLikeEngine(a_self, a_object);
 			return;
 		}

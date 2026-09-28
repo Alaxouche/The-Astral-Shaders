@@ -99,8 +99,13 @@ namespace MOC
 		int                                       g_hizGridW = 0, g_hizGridH = 0, g_hizFullW = 0, g_hizFullH = 0;
 		bool                                      g_hizInitTried = false, g_hizReady = false;
 
-		// Sun shadow-gather camera (the small-caster SHADOW cull runs only on that pass).
-		std::atomic<const RE::NiCamera*> g_sunGatherCam{ nullptr };
+		// Every shadow cull camera this frame: the sun gather camera, the sun cascades, and the
+		// per-face cameras of every active local shadow light. The small-caster SHADOW cull runs
+		// only on culls that carry one of these, so it can never touch a main-view subtree walk.
+		// Single writer (the frame's build claimer) fills the slots then publishes the count.
+		constexpr std::uint32_t          kMaxShadowCams = 64;
+		std::atomic<const RE::NiCamera*> g_shadowCams[kMaxShadowCams] = {};
+		std::atomic<std::uint32_t>       g_shadowCamCount{ 0 };
 		bool                             g_init = false;
 
 		// Camera matrices for the current build (camera-relative, row-vector layout), loaded
@@ -614,20 +619,44 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 			g_motionAng = 1.5f * std::sqrt(std::max(2.0f * (1.0f - cosAng), 0.0f));
 		}
 
-		// Identify the sun shadow-gather camera so the small-caster SHADOW cull runs on that
-		// pass and nowhere else. doodlum read ShadowSceneNode+0x210 and dirLight+0x578 raw (SE);
-		// CommonLibSSE-NG names both members and relocates them per runtime.
-		if (CullSmallShadows) {
-			const RE::NiCamera* sunCam = nullptr;
-			if (auto* smState = globals::game::smState) {
-				if (auto* ssn = smState->shadowSceneNode[0]) {
-					if (auto* dirLight = ssn->GetRuntimeData().sunShadowDirLight)
-						sunCam = dirLight->GetShadowDirectionalLightRuntimeData().fullFrustumCamera.get();
+		// Collect every shadow cull camera so the small-caster SHADOW cull recognises its
+		// passes positively. doodlum only identified the sun gather camera (raw SE offsets),
+		// which left every LOCAL light's shadow cull untouched -- in an interior that is all
+		// of them, and Utility ran unfiltered. CommonLibSSE-NG names the whole chain: the
+		// shadow scene node's light lists, each light's shadowmap descriptors, and each
+		// descriptor's cull camera.
+		{
+			std::uint32_t count = 0;
+			const auto    add = [&count](const RE::NiCamera* a_cam) {
+				if (a_cam && count < kMaxShadowCams)
+					g_shadowCams[count++].store(a_cam, std::memory_order_relaxed);
+			};
+			const auto addLight = [&add](RE::BSShadowLight* a_light) {
+				if (!a_light)
+					return;
+				auto& rt = a_light->GetRuntimeData();
+				for (auto& desc : rt.shadowmapDescriptors)
+					if (desc.isEnabled)
+						add(desc.camera.get());
+				if (rt.drawFocusShadows)
+					for (auto& desc : rt.focusShadowmapDescriptors)
+						if (desc.isEnabled)
+							add(desc.camera.get());
+			};
+			if (CullSmallShadows) {
+				if (auto* smState = globals::game::smState) {
+					if (auto* ssn = smState->shadowSceneNode[0]) {
+						auto& ssnRt = ssn->GetRuntimeData();
+						if (auto* dirLight = ssnRt.sunShadowDirLight) {
+							add(dirLight->GetShadowDirectionalLightRuntimeData().fullFrustumCamera.get());
+							addLight(dirLight);
+						}
+						for (auto& light : ssnRt.activeShadowLights)
+							addLight(light.get());
+					}
 				}
 			}
-			g_sunGatherCam.store(sunCam, std::memory_order_release);
-		} else {
-			g_sunGatherCam.store(nullptr, std::memory_order_release);
+			g_shadowCamCount.store(count, std::memory_order_release);
 		}
 
 		g_buildDone.store(frame, std::memory_order_release);
@@ -807,9 +836,15 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 		return a_camera && a_camera == GetMainCamera();
 	}
 
-	bool IsSunGatherCamera(const RE::NiCamera* a_camera)
+	bool IsShadowCullCamera(const RE::NiCamera* a_camera)
 	{
-		return a_camera && a_camera == g_sunGatherCam.load(std::memory_order_acquire);
+		if (!a_camera)
+			return false;
+		const std::uint32_t count = g_shadowCamCount.load(std::memory_order_acquire);
+		for (std::uint32_t i = 0; i < count; ++i)
+			if (g_shadowCams[i].load(std::memory_order_relaxed) == a_camera)
+				return true;
+		return false;
 	}
 
 	bool TestShadowCasterSmall(RE::NiAVObject* a_object)
