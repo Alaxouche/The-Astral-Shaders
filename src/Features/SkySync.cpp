@@ -358,7 +358,6 @@ bool SkySync::Update(const RE::Sky* sky)
 	ProcessSun(sky, directions, intensities);
 	ProcessMoon(sky, Caster::Masser, directions, intensities);
 	ProcessMoon(sky, Caster::Secunda, directions, intensities);
-	std::copy(std::begin(directions), std::end(directions), std::begin(rawDirections));
 
 	std::copy(std::begin(directions), std::end(directions), std::begin(rawDirections));
 	const auto calendar = globals::game::calendar;
