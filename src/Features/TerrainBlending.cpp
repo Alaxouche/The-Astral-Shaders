@@ -242,7 +242,10 @@ void TerrainBlending::BlendPrepassDepths()
 	{
 		TracyD3D11Zone(globals::state->tracyCtx, "Terrain Blending - Depth Blend CS");
 
-		ID3D11ShaderResourceView* views[2] = { depthSRVBackup, terrainDepth.depthSRV };
+		// Gated: feed the main depth to both inputs. min/max of a value with itself is that
+		// value in either depth convention, so blendedDepthTexture becomes an exact R32_FLOAT
+		// copy of the scene depth without touching terrainDepth at all.
+		ID3D11ShaderResourceView* views[2] = { depthSRVBackup, IsActive() ? terrainDepth.depthSRV : depthSRVBackup };
 		context->CSSetShaderResources(0, ARRAYSIZE(views), views);
 
 		ID3D11UnorderedAccessView* uavs[2] = { blendedDepthTexture->uav.get(), blendedDepthTexture16->uav.get() };
@@ -270,7 +273,9 @@ void TerrainBlending::BlendPrepassDepths()
 	auto renderer = globals::game::renderer;
 	auto& mainDepth = renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN];
 
-	context->CopyResource(terrainDepth.texture, mainDepth.texture);
+	// The terrain depth seed is only needed when the terrain redirect actually runs.
+	if (IsActive())
+		context->CopyResource(terrainDepth.texture, mainDepth.texture);
 
 	if (globals::state->frameAnnotations)
 		globals::state->EndPerfEvent();
@@ -316,7 +321,10 @@ void TerrainBlending::Hooks::Main_RenderDepth::thunk(bool a1, bool a2)
 		zPrepassCopy.depthSRV = singleton.blendedDepthTexture->srv.get();
 
 		singleton.renderDepth = true;
-		singleton.ResetDepth();
+		// Gated (Dynamic Terrain Deformation present): no terrain is redirected into
+		// terrainDepth, so its clear is dead work -- the blend below reads the main depth twice.
+		if (singleton.IsActive())
+			singleton.ResetDepth();
 
 		{
 			ZoneScopedN("Terrain Depth - Game Render");

@@ -17,6 +17,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	OcclusionCulling::Settings,
 	EnableOcclusionTesting,
 	OccluderTestMinRadius,
+	CullConfirmFrames,
 	CullSmallShadows,
 	SmallShadowMinSize,
 	SmallShadowSlope)
@@ -232,6 +233,7 @@ void OcclusionCulling::SyncSettingsToMOC()
 {
 	MOC::EnableOcclusionTesting = loaded && settings.EnableOcclusionTesting;
 	MOC::OccluderTestMinRadius = settings.OccluderTestMinRadius;
+	MOC::CullConfirmFrames = static_cast<std::uint32_t>(std::clamp(settings.CullConfirmFrames, 1, 4));
 	MOC::CullSmallShadows = settings.CullSmallShadows;
 	MOC::SmallShadowMinSize = settings.SmallShadowMinSize;
 	MOC::SmallShadowSlope = settings.SmallShadowSlope;
@@ -257,6 +259,12 @@ void OcclusionCulling::DrawSettings()
 	if (auto _tt = Util::HoverTooltipWrapper()) {
 		ImGui::Text("%s", T("feature.occlusion_culling.min_test_radius_tooltip",
 			"Objects smaller than this (world-bound radius) are never occlusion-tested. Lower = more draw calls saved but more CPU per frame."));
+	}
+
+	changed |= ImGui::SliderInt(T("feature.occlusion_culling.confirm_frames", "Cull Confirmation Frames"), &settings.CullConfirmFrames, 1, 4);
+	if (auto _tt = Util::HoverTooltipWrapper()) {
+		ImGui::Text("%s", T("feature.occlusion_culling.confirm_frames_tooltip",
+			"An object is only skipped after being occluded this many frames in a row. Higher = no visible pop-out even in fast motion, at the cost of drawing occluded objects a few extra frames."));
 	}
 
 	ImGui::Spacing();

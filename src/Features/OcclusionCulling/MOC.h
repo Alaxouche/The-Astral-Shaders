@@ -31,8 +31,9 @@ namespace MOC
 {
 	// --- Runtime settings consumed by the Hi-Z occlusion path. The OcclusionCulling
 	//     Feature writes these from its serialized settings; MOC reads them. ---
-	extern bool  EnableOcclusionTesting;  // master gate for TestObject/TestMultiBound
-	extern float OccluderTestMinRadius;   // min world-bound radius for per-object tests
+	extern bool          EnableOcclusionTesting;  // master gate for TestObject/TestMultiBound
+	extern float         OccluderTestMinRadius;   // min world-bound radius for per-object tests
+	extern std::uint32_t CullConfirmFrames;       // consecutive occluded frames before a cull acts
 	extern bool  CullSmallShadows;        // shadow-map distance-scaled small-caster cull (shadow only)
 	extern float SmallShadowMinSize;      // shadow cull: base bound-radius threshold at the camera
 	extern float SmallShadowSlope;        // shadow cull: threshold growth per unit of camera distance

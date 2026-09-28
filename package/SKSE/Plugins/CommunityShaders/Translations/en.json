@@ -1451,6 +1451,8 @@
     "feature.night_sky.status": "Star visibility %.2f, night %.2f, aurora %.2f",
     "feature.night_sky.twinkle": "Twinkle",
     "feature.night_sky.twinkle_tooltip": "Atmospheric scintillation. Strongest near the horizon, where starlight crosses the most air.",
+    "feature.occlusion_culling.confirm_frames": "Cull Confirmation Frames",
+    "feature.occlusion_culling.confirm_frames_tooltip": "An object is only skipped after being occluded this many frames in a row. Higher = no visible pop-out even in fast motion, at the cost of drawing occluded objects a few extra frames.",
     "feature.occlusion_culling.desc": "GPU Hi-Z occlusion culling: skips drawing scene objects fully hidden behind nearer geometry, using the previous frame's reduced depth.",
     "feature.occlusion_culling.description": "Skips drawing scene objects fully hidden behind nearer geometry, using the previous frame's GPU-reduced depth. Also drops distant small objects from the shadow maps only.",
     "feature.occlusion_culling.enable_testing": "Enable Occlusion Culling",

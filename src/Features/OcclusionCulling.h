@@ -24,6 +24,9 @@ struct OcclusionCulling : Feature
 		bool EnableOcclusionTesting = true;
 		// Only objects with at least this world-bound radius are occlusion-tested.
 		float OccluderTestMinRadius = 0.0f;
+		// An occluded verdict must hold this many consecutive frames before the object is
+		// actually skipped, so single-frame mistakes never reach the screen.
+		int CullConfirmFrames = 2;
 		// Distance-scaled small-object SHADOW cull (radius < min + slope*camDist), never actors.
 		// Drops the object's shadow only (mesh still renders); cuts shadow-map draws, which are
 		// the bulk of Utility. Invisible by design -> on by default.

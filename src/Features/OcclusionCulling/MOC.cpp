@@ -35,8 +35,9 @@ namespace MOC
 {
 	// ---- Settings consumed by the Hi-Z occlusion path (written by the OcclusionCulling
 	//      Feature from its serialized settings; read here). ----
-	bool  EnableOcclusionTesting = true;
-	float OccluderTestMinRadius = 0.0f;
+	bool          EnableOcclusionTesting = true;
+	float         OccluderTestMinRadius = 0.0f;
+	std::uint32_t CullConfirmFrames = 2;
 	bool  CullSmallShadows = true;
 	float SmallShadowMinSize = 0.0f;
 	float SmallShadowSlope = 0.03f;  // doodlum: measured to net Utility down vs occlusion-off
@@ -64,6 +65,10 @@ namespace MOC
 			XMMATRIX viewProj{};
 			RE::NiPoint3 posAdjust{};
 			XMVECTOR     posAdjustV = _mm_setzero_ps();
+			RE::NiPoint3 camDir{};                      // camera forward (world), for the rotation margin
+			float        projSx = 1.0f, projSy = 1.0f;  // clip-space x/y scale (frustum slopes)
+			float        projF = 1.0f, projNF = 0.0f;   // standard z(w) = F - NF/w
+			float        nearZ = 1.0f;
 		};
 		// Two snapshots recycled alternately; readers grab the published pointer and finish a
 		// per-object test in microseconds while publishes are a frame apart.
@@ -78,6 +83,10 @@ namespace MOC
 			XMMATRIX                        view{};
 			XMMATRIX                        viewProj{};
 			RE::NiPoint3                    posAdjust{};
+			RE::NiPoint3                    camDir{};
+			float                           projSx = 1.0f, projSy = 1.0f;
+			float                           projF = 1.0f, projNF = 0.0f;
+			float                           nearZ = 1.0f;
 			int                             renderW = 0, renderH = 0;
 			bool                            pending = false;
 		};
@@ -100,6 +109,46 @@ namespace MOC
 		XMMATRIX     g_viewProj = XMMatrixIdentity();
 		RE::NiPoint3 g_posAdjust{ 0.0f, 0.0f, 0.0f };
 		XMVECTOR     g_posAdjustV = _mm_setzero_ps();  // (x, y, z, 0)
+
+		// Motion safety margin, refreshed per build: how far the CURRENT camera has moved and
+		// turned since the snapshot's depth was rendered. The rect and depth of every test are
+		// dilated by first-order bounds of that motion, so anything the camera could have
+		// disoccluded since the snapshot is kept rather than popped.
+		float g_motionDelta = 0.0f;  // translation, world units
+		float g_motionAng = 0.0f;    // rotation, radians (small-angle chord)
+		float g_projSx = 1.0f, g_projSy = 1.0f;
+		float g_projF = 1.0f, g_projNF = 0.0f, g_nearZ = 1.0f;
+
+		// Occluded-streak confirmation: an object is only culled after CullConfirmFrames
+		// CONSECUTIVE occluded verdicts, so a single-frame mistake (stale depth, edge cell)
+		// never reaches the screen. Fixed-size hash of packed atomics -- cull job threads race
+		// benignly (a lost increment errs toward keeping the object). Packing per entry:
+		// key 44 bits (ptr>>4) | frame 12 bits | count 8 bits.
+		constexpr std::uint32_t    kStreakSlots = 32768;  // 256 KiB
+		std::atomic<std::uint64_t> g_streaks[kStreakSlots];
+		std::uint32_t              g_frame = 0;  // frame of the current build, read by the cull threads
+
+		bool ConfirmOcclusion(const void* a_key, std::uint32_t a_need)
+		{
+			if (a_need <= 1)
+				return true;
+			const std::uint64_t key = (reinterpret_cast<std::uintptr_t>(a_key) >> 4) & 0xFFFFFFFFFFFull;
+			auto&               slot = g_streaks[(key * 2654435761ull) & (kStreakSlots - 1)];
+			const std::uint64_t cur = slot.load(std::memory_order_relaxed);
+			const std::uint32_t frame = g_frame & 0xFFFu;
+			std::uint32_t       count = 1;
+			if ((cur >> 20) == key) {
+				const std::uint32_t last = static_cast<std::uint32_t>(cur >> 8) & 0xFFFu;
+				const std::uint32_t gap = (frame - last) & 0xFFFu;
+				const std::uint32_t old = static_cast<std::uint32_t>(cur & 0xFFu);
+				if (gap == 0)
+					count = old;  // re-tested within the same frame: streak unchanged
+				else if (gap == 1)
+					count = std::min(old + 1u, 255u);
+			}
+			slot.store(key << 20 | static_cast<std::uint64_t>(frame) << 8 | count, std::memory_order_relaxed);
+			return count >= a_need;
+		}
 
 		// Once-per-frame build coordination: one of the concurrent main-scene culls CAS-claims
 		// the frame and publishes the snapshot load; losers skip testing until published.
@@ -373,8 +422,17 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 			}
 
 			// The object's NEAREST NDC depth (standard Z) = min z over the projected corners.
-			return HiZTestRect(screenMin.m128_f32[0], screenMin.m128_f32[1],
-				screenMax.m128_f32[0], screenMax.m128_f32[1], screenMin.m128_f32[2]);
+			// Motion margins: dilate the rect by the camera's translation (scaled by 1/w, the
+			// screen-space size a world offset has at that distance) plus its rotation, and
+			// recompute the depth as if the object were g_motionDelta closer -- z(w) = F - NF/w
+			// is exact for this projection, so this bounds every disocclusion the camera can
+			// have caused since the snapshot.
+			const float mx = g_motionDelta * g_projSx / minW + g_motionAng;
+			const float my = g_motionDelta * g_projSy / minW + g_motionAng;
+			const float zSafe = g_projF - g_projNF / std::max(minW - g_motionDelta, g_nearZ);
+			return HiZTestRect(screenMin.m128_f32[0] - mx, screenMin.m128_f32[1] - my,
+				screenMax.m128_f32[0] + mx, screenMax.m128_f32[1] + my,
+				std::min(zSafe, screenMin.m128_f32[2]));
 		}
 
 		// Sphere occlusion test on a VALUE bound (center + radius).
@@ -436,10 +494,14 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 			XMVECTOR xyMins = _mm_min_ps(vCorner0NDC, _mm_min_ps(vCorner1NDC, _mm_min_ps(vCorner2NDC, vCorner3NDC)));
 			XMVECTOR xyMaxs = _mm_max_ps(vCorner0NDC, _mm_max_ps(vCorner1NDC, _mm_max_ps(vCorner2NDC, vCorner3NDC)));
 
-			// Nearest sphere point's NDC depth = clip z / clip w of closestPoint.
-			return HiZTestRect(xyMins.m128_f32[0], xyMins.m128_f32[1],
-				xyMaxs.m128_f32[0], xyMaxs.m128_f32[1],
-				closestPoint.m128_f32[2] / closestSpherePointW);
+			// Nearest sphere point's NDC depth = clip z / clip w of closestPoint, with the same
+			// motion margins as TestAABB.
+			const float mx = g_motionDelta * g_projSx / closestSpherePointW + g_motionAng;
+			const float my = g_motionDelta * g_projSy / closestSpherePointW + g_motionAng;
+			const float zSafe = g_projF - g_projNF / std::max(closestSpherePointW - g_motionDelta, g_nearZ);
+			return HiZTestRect(xyMins.m128_f32[0] - mx, xyMins.m128_f32[1] - my,
+				xyMaxs.m128_f32[0] + mx, xyMaxs.m128_f32[1] + my,
+				std::min(zSafe, closestPoint.m128_f32[2] / closestSpherePointW));
 		}
 
 		bool TestSphere(RE::NiAVObject* a_object)
@@ -531,6 +593,26 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 		g_viewProj = snap->viewProj;
 		g_posAdjust = snap->posAdjust;
 		g_posAdjustV = snap->posAdjustV;
+		g_projSx = snap->projSx;
+		g_projSy = snap->projSy;
+		g_projF = snap->projF;
+		g_projNF = snap->projNF;
+		g_nearZ = snap->nearZ;
+		g_frame = frame;
+
+		// Camera motion since the snapshot's depth was rendered, for the test margins: the
+		// translation in world units and the rotation as a small-angle chord, both padded 50%.
+		{
+			const RE::NiPoint3   camPos = renderCam->world.translate;
+			const RE::NiMatrix3& camR = renderCam->world.rotate;
+			const RE::NiPoint3   camDir{ camR.entry[0][0], camR.entry[1][0], camR.entry[2][0] };
+			const float          dx = camPos.x - snap->posAdjust.x;
+			const float          dy = camPos.y - snap->posAdjust.y;
+			const float          dz = camPos.z - snap->posAdjust.z;
+			g_motionDelta = 1.5f * std::sqrt(dx * dx + dy * dy + dz * dz);
+			const float cosAng = std::clamp(camDir.x * snap->camDir.x + camDir.y * snap->camDir.y + camDir.z * snap->camDir.z, -1.0f, 1.0f);
+			g_motionAng = 1.5f * std::sqrt(std::max(2.0f * (1.0f - cosAng), 0.0f));
+		}
 
 		// Identify the sun shadow-gather camera so the small-caster SHADOW cull runs on that
 		// pass and nowhere else. doodlum read ShadowSceneNode+0x210 and dirLight+0x578 raw (SE);
@@ -564,13 +646,22 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 		if (!ctx || !HiZEnsureInit())
 			return;
 
-		// 1. Harvest the OLDEST ring slot (written kHizRing frames ago -> its copy has long
-		//    retired; DO_NOT_WAIT will practically always succeed). Publish it as the snapshot
-		//    the next cull tests against, paired with the matrices its depth was rendered with.
-		auto& slot = g_hizRing[g_hizWrite];
-		if (slot.pending) {
-			D3D11_MAPPED_SUBRESOURCE m{};
-			if (SUCCEEDED(ctx->Map(slot.staging.get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m))) {
+		// 1. Harvest the NEWEST ring slot whose copy has retired (DO_NOT_WAIT; on a typical GPU
+		//    the copy queued last frame has). doodlum harvested the oldest slot, which pinned
+		//    every test to a depth kHizRing frames stale -- three frames of camera motion was
+		//    the largest single source of visible pops. Older pending slots are dropped unread
+		//    once a newer one is published; their copies were queued even earlier, so nothing
+		//    still references them.
+		{
+			int newest = -1;
+			for (int back = 1; back <= kHizRing; ++back) {
+				const int idx = (g_hizWrite - back + 2 * kHizRing) % kHizRing;
+				if (!g_hizRing[idx].pending)
+					continue;
+				D3D11_MAPPED_SUBRESOURCE m{};
+				if (FAILED(ctx->Map(g_hizRing[idx].staging.get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m)))
+					continue;  // still drawing: try an older slot
+				auto&        slot = g_hizRing[idx];
 				HiZSnapshot& snap = g_hizSnaps[g_hizWriteSnap];
 				snap.grid.resize(static_cast<std::size_t>(g_hizGridW) * g_hizGridH);
 				for (int y = 0; y < g_hizGridH; ++y)
@@ -588,13 +679,24 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 				snap.viewProj = slot.viewProj;
 				snap.posAdjust = slot.posAdjust;
 				snap.posAdjustV = _mm_setr_ps(slot.posAdjust.x, slot.posAdjust.y, slot.posAdjust.z, 0.0f);
+				snap.camDir = slot.camDir;
+				snap.projSx = slot.projSx;
+				snap.projSy = slot.projSy;
+				snap.projF = slot.projF;
+				snap.projNF = slot.projNF;
+				snap.nearZ = slot.nearZ;
 				g_hizFront.store(&snap, std::memory_order_release);
 				g_hizWriteSnap ^= 1;
-				slot.pending = false;
+				newest = back;
+				break;
 			}
-			// WAS_STILL_DRAWING: keep the slot pending and skip this frame's capture (never
-			// overwrite an in-flight copy); the ring self-heals next frame.
+			if (newest > 0) {
+				// Drop every slot older than the one just published.
+				for (int back = newest; back <= kHizRing; ++back)
+					g_hizRing[(g_hizWrite - back + 2 * kHizRing) % kHizRing].pending = false;
+			}
 		}
+		auto& slot = g_hizRing[g_hizWrite];
 
 		// 2. Capture this frame: reduce the depth into the grid, queue the copy into the slot,
 		//    and tag it with THIS frame's camera and dynamic render area (the depth only
@@ -627,6 +729,13 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 				slot.view = v;
 				slot.viewProj = vp;
 				slot.posAdjust = cam->world.translate;
+				const RE::NiMatrix3& camR = cam->world.rotate;
+				slot.camDir = { camR.entry[0][0], camR.entry[1][0], camR.entry[2][0] };  // col 0 = forward
+				slot.projSx = p.r[0].m128_f32[0];
+				slot.projSy = p.r[1].m128_f32[1];
+				slot.projF = p.r[2].m128_f32[2];    // z(w) = F - NF/w for this projection
+				slot.projNF = -p.r[3].m128_f32[2];  // (perspective branch of CalculateViewProjection)
+				slot.nearZ = std::max(cam->GetRuntimeData2().viewFrustum.fNear, 1.0f);
 				slot.renderW = std::clamp(static_cast<int>(renderSize.x), 16, g_hizFullW);
 				slot.renderH = std::clamp(static_cast<int>(renderSize.y), 16, g_hizFullH);
 				slot.pending = true;
@@ -669,7 +778,11 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 		}
 
 		auto* aabb = GetAABBNode(a_object);  // the single RTTI lookup, survivors only
-		return aabb ? TestAABB(aabb) : TestSphere(a_object);
+		if (aabb ? TestAABB(aabb) : TestSphere(a_object))
+			return true;
+		// Provably occluded this frame -- but only act once the verdict has held for
+		// CullConfirmFrames consecutive frames, so no single-frame mistake reaches the screen.
+		return !ConfirmOcclusion(a_object, CullConfirmFrames);
 	}
 
 	bool TestMultiBound(void* a_multiBound)
@@ -684,7 +797,9 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 
 		if (!g_hizFront.load(std::memory_order_acquire))
 			return true;
-		return TestAABB(aabb);
+		if (TestAABB(aabb))
+			return true;
+		return !ConfirmOcclusion(a_multiBound, CullConfirmFrames);
 	}
 
 	bool IsSceneListCamera(const RE::NiCamera* a_camera)
