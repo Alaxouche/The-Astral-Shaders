@@ -2,7 +2,6 @@
 
 #include "EngineFixes/AlphaGeometryGroupCeilingFix.h"
 #include "EngineFixes/CullPoolExhaustionFix.h"
-#include "EngineFixes/CullingProbe.h"
 #include "EngineFixes/EffectShaderNoDecalsFix.h"
 #include "EngineFixes/ShadowmapCascadeCullingFix.h"
 #include "EngineFixes/ShadowmapCascadeRasterizerFix.h"
@@ -14,15 +13,13 @@ const std::vector<EngineFix*>& EngineFix::GetOnPostPostLoadFixesList()
 	static EffectShaderNoDecalsFix effectShaderNoDecalsFix;
 	static ShadowmapCascadeCullingFix shadowmapCascadeCullingFix;
 	static ShadowmapRasterizerFix shadowmapRasterizerFix;
-	static CullingProbe cullingProbe;
 
 	static std::vector<EngineFix*> fixes = {
 		&alphaGeometryGroupCeilingFix,
 		&cullPoolExhaustionFix,
 		&effectShaderNoDecalsFix,
 		&shadowmapCascadeCullingFix,
-		&shadowmapRasterizerFix,
-		&cullingProbe
+		&shadowmapRasterizerFix
 	};
 
 	return fixes;
