@@ -5,6 +5,7 @@
 
 #include "../../State.h"
 #include "../../Utils/FileSystem.h"
+#include "../../Utils/Format.h"
 #include "../HDRDisplay.h"
 #include "../Upscaling.h"
 #include "DX12SwapChain.h"
@@ -390,16 +391,29 @@ void FidelityFX::CreateFSRResources()
 	}
 
 	float2 screenSize{ (float)globals::game::graphicsState->screenWidth, (float)globals::game::graphicsState->screenHeight };
-	auto renderSize = Util::ConvertToDynamic(screenSize);
 
 	uint32_t displayWidth = (uint32_t)screenSize.x;
 	uint32_t displayHeight = (uint32_t)screenSize.y;
-	uint32_t renderWidth = (uint32_t)renderSize.x;
-	uint32_t renderHeight = (uint32_t)renderSize.y;
+	// The context is created from the viewport hook, before the frame's dynamic ratios are
+	// written, so the current render size is not knowable here. The upscaler only needs an
+	// upper bound: sizing it at the display resolution keeps every quality preset valid
+	// without recreating the context, and the real render size goes into each dispatch.
+	uint32_t renderWidth = displayWidth;
+	uint32_t renderHeight = displayHeight;
 
-	FfxFsr3ContextDescription contextDescription;
+	// Value-initialised: the description carries interfaces and a message callback this
+	// upscaling-only context never sets, which must read as null rather than stack garbage.
+	FfxFsr3ContextDescription contextDescription{};
 	contextDescription.maxRenderSize.width = renderWidth;
 	contextDescription.maxRenderSize.height = renderHeight;
+	// Runtime diagnostics: a backend failure otherwise surfaces as a bare error code.
+	contextDescription.fpMessage = [](FfxMsgType a_type, const wchar_t* a_message) {
+		const std::string message = Util::WStringToString(a_message ? a_message : L"");
+		if (a_type == FFX_MESSAGE_TYPE_ERROR)
+			logger::error("[FidelityFX] FSR3: {}", message);
+		else
+			logger::warn("[FidelityFX] FSR3: {}", message);
+	};
 	contextDescription.maxUpscaleSize.width = displayWidth;
 	contextDescription.maxUpscaleSize.height = displayHeight;
 	contextDescription.displaySize.width = displayWidth;
@@ -416,12 +430,12 @@ void FidelityFX::CreateFSRResources()
 	contextDescription.backendInterfaceUpscaling = fsrInterface;
 
 	if (const auto contextResult = ffxFsr3ContextCreate(&fsrContext[0], &contextDescription); contextResult != FFX_OK) {
-		logger::critical("[FidelityFX] Failed to initialize FSR3 context (error {:#x}, render {}x{}, display {}x{})!", static_cast<uint32_t>(contextResult), renderWidth, renderHeight, displayWidth, displayHeight);
+		logger::critical("[FidelityFX] Failed to initialize FSR3 context (error {:#x}, max render {}x{}, display {}x{})!", static_cast<uint32_t>(contextResult), renderWidth, renderHeight, displayWidth, displayHeight);
 		free(fsrScratchBuffer);
 		fsrScratchBuffer = nullptr;
 		return;
 	}
-	logger::info("[FidelityFX] Created FSR3 context (Display: {}x{}, Render: {}x{})",
+	logger::info("[FidelityFX] Created FSR3 context (Display: {}x{}, Max render: {}x{})",
 		displayWidth, displayHeight, renderWidth, renderHeight);
 }
 
