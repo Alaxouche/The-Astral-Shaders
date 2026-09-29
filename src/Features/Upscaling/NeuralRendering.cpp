@@ -33,6 +33,21 @@ namespace
 		}
 	}
 
+	/** @brief NGX result for a feature the system, hardware or graphics API does not support. */
+	constexpr uint32_t kNgxFeatureNotSupported = 0xBAD00001u;
+
+	/** @brief Failure line for a frame NGX rejected, naming the hardware gate when that is the cause. */
+	std::string DescribeEvaluationFailure(uint32_t result)
+	{
+		if (result == kNgxFeatureNotSupported)
+			return std::format("{} (NGX 0x{:08X})",
+				T(TKEY("failure_unsupported_gpu"), "this nvngx_dlssnr.dll refuses this graphics card. NVIDIA's own build only creates the feature on the GPUs it was released for; pressing Retry will not change that"),
+				result);
+		return std::format("{} (NGX 0x{:08X})",
+			T(TKEY("failure_evaluation"), "the NVIDIA runtime failed to process a frame. Update the GPU driver, then press Retry"),
+			result);
+	}
+
 	/** @brief Which history resets a frame needs: the request, the first frame, or a frame gap. */
 	bool NeedsHistoryReset(bool requested, uint32_t lastFrame, uint32_t frame)
 	{
@@ -484,7 +499,12 @@ void NeuralRendering::DrawSettings(bool& enabled, bool& allowUnvalidatedBuild, N
 	}
 
 	const auto current = GetStatus();
-	ImGui::TextWrapped("%s", current.text.c_str());
+	// The pass is only reached while the game world renders. In the main menu nothing has
+	// published a status yet, and "Off" next to a ticked box reads as a fault.
+	if (enabled && current.state == Status::State::kOff)
+		ImGui::TextWrapped("%s", T(TKEY("status_waiting"), "Waiting for the game world: the pass starts once a save is loaded."));
+	else
+		ImGui::TextWrapped("%s", current.text.c_str());
 	if (current.state == Status::State::kActive)
 		ImGui::TextDisabled("%ux%u, %u frames", current.width, current.height, current.appliedFrames);
 
@@ -594,8 +614,7 @@ void NeuralRendering::DrawBeforeUpscaling(bool enabled, bool allowUnvalidatedBui
 		const bool applied = work.Draw(main.texture, motionVector.SRV, depthStencil.depthSRV, shaders, reset, boundedTuning);
 		lastNgxResult.store(work.frame.result, std::memory_order_relaxed);
 		if (!applied)
-			throw std::runtime_error(std::format("the NVIDIA runtime failed to process a frame. Update the GPU driver, then press Retry (NGX 0x{:08X})",
-				work.frame.result));
+			throw std::runtime_error(DescribeEvaluationFailure(work.frame.result));
 
 		// The pass wrote kMAIN behind the engine's back.
 		globals::game::stateUpdateFlags->set(RE::BSGraphics::ShaderFlags::DIRTY_RENDERTARGET);
