@@ -11,6 +11,7 @@
 #include "LinearLighting.h"
 #include "SkySync.h"
 #include "TerrainShadows.h"
+#include "Upscaling.h"
 #include "VolumetricShadows.h"
 
 #include "State.h"
@@ -1014,8 +1015,14 @@ void PhysicalSky::Reset()
 
 	// resolution
 	float2 res{ (float)globals::game::graphicsState->screenWidth, (float)globals::game::graphicsState->screenHeight };
-	float2 dynres = Util::ConvertToDynamic(res);
-	dynres = { floor(dynres.x), floor(dynres.y) };
+	// Reset runs at Present, where the dynamic resolution ratios are already back at 1, so
+	// ConvertToDynamic would return the display size and the shadow accumulation would trace the
+	// whole texture while the scene only reads the render rectangle. The upscaler's own scale is
+	// what the coming frame renders at; rounding recovers the integer size it was derived from.
+	float2 dynres = res;
+	if (const auto& upscaling = globals::features::upscaling; upscaling.loaded && upscaling.IsUpscalingActive())
+		dynres = { std::round(res.x * upscaling.resolutionScale.x), std::round(res.y * upscaling.resolutionScale.y) };
+	dynres = { std::clamp(dynres.x, 1.0f, res.x), std::clamp(dynres.y, 1.0f, res.y) };
 
 	auto sunDir = skySync.rawDirections[static_cast<int>(SkySync::Caster::Sun)];
 	auto masserDir = skySync.rawDirections[static_cast<int>(SkySync::Caster::Masser)];
