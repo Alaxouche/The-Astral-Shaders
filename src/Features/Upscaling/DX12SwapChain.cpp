@@ -6,6 +6,7 @@
 #include "../HDRDisplay.h"
 #include "../Upscaling.h"
 #include "FidelityFX.h"
+#include "SeamProbe.h"
 #include "Streamline.h"
 #include "Utils/D3D.h"
 
@@ -228,6 +229,13 @@ HRESULT DX12SwapChain::Present(UINT SyncInterval, UINT Flags)
 		hdr->ScaleUIBrightnessForFG();
 
 	bool isHDR = hdr && hdr->settings.enableHDR;
+
+	// Last stage of the seam probe: the image handed to the swap chain, UI included.
+	if (SeamProbe::IsSampling()) {
+		if (swapChainBufferWrapped)
+			SeamProbe::Measure("10 back buffer at present", swapChainBufferWrapped->resource11);
+		SeamProbe::EndFrame();
+	}
 
 	// Wait for D3D11 to finish (includes ApplyHDR scene encoding AND UIBrightnessCS)
 	fenceValue++;

@@ -6,6 +6,7 @@
 #include "Features/ProceduralSun.h"
 #include "Features/ReverseZ.h"
 #include "Features/SkySync.h"
+#include "Features/Upscaling/SeamProbe.h"
 #include "Globals.h"
 #include "Menu.h"
 #include "State.h"
@@ -452,7 +453,20 @@ bool EffectManager::ExecuteEffects(RE::BSGraphics::RenderTargetData& a_input, RE
 
 	auto& textureManager = TextureManager::GetSingleton();
 
+	const bool probing = SeamProbe::IsSampling();
+	const auto probeCommon = [&](const char* a_stage, const char* a_name) {
+		if (auto* texture = textureManager.GetCommonTexture(a_name))
+			SeamProbe::Measure(a_stage, texture->texture.get());
+	};
+	if (probing) {
+		SeamProbe::Measure("3 E11 colour correction (kMAIN)", textureOriginal.texture);
+		if (auto* depthSRV = GetEffectDepthSRV())
+			SeamProbe::Measure("4 E11 depth input", static_cast<ID3D11View*>(depthSRV));
+	}
+
 	ExecuteEffect(enbDepthOfField, ids.useDepthOfField);
+	if (probing)
+		SeamProbe::Measure("5 E11 depth of field (kMAIN)", textureOriginal.texture);
 
 	if (WillEffectRun(enbBloom, ids.useBloom) || WillEffectRun(enbLens, ids.useLens) || WillEffectRun(enbAdaptation, ids.useAdaptation))
 		textureManager.UpdateDownsampledTexture(textureOriginal.SRV);
@@ -460,6 +474,10 @@ bool EffectManager::ExecuteEffects(RE::BSGraphics::RenderTargetData& a_input, RE
 	ExecuteEffect(enbBloom, ids.useBloom);
 	ExecuteEffect(enbLens, ids.useLens);
 	ExecuteEffect(enbAdaptation, ids.useAdaptation);
+	if (probing) {
+		probeCommon("6 E11 bloom", "TextureBloom");
+		probeCommon("6 E11 lens", "TextureLens");
+	}
 	ExecuteEffect(enbEffect);
 	ExecuteEffect(enbEffectPostPass, ids.usePostPass);
 
@@ -471,6 +489,10 @@ bool EffectManager::ExecuteEffects(RE::BSGraphics::RenderTargetData& a_input, RE
 		globals::profiler->BeginPass("Effects11::CopyToOutput");
 		wroteOutput = CopyTexture(textureSDRTemp->srv.get(), a_output.RTV);
 		globals::profiler->EndPass();
+		if (probing) {
+			SeamProbe::Measure("7 E11 effect output", textureSDRTemp->texture.get());
+			SeamProbe::Measure("7 E11 copied to target", static_cast<ID3D11View*>(a_output.RTV));
+		}
 	}
 
 	stateBackup.Restore(context);

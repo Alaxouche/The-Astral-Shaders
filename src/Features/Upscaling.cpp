@@ -9,6 +9,7 @@
 #include "TerrainBlending.h"
 #include "Upscaling/DX12SwapChain.h"
 #include "Upscaling/FidelityFX.h"
+#include "Upscaling/SeamProbe.h"
 #include "Upscaling/Streamline.h"
 #include "Utils/Game.h"
 #include "Utils/UI.h"
@@ -1823,11 +1824,24 @@ void Upscaling::Main_PostProcessing::thunk(RE::ImageSpaceManager* a_this, uint32
 		upscaling.frameGenerationPrepared = upscaling.CopySharedD3D12Resources();
 	}
 
+	// Seam probe: a few sampled frames locate the pass that leaves a discontinuity along the
+	// render rectangle. The render fraction is read here because the upscale resets it.
+	auto& renderTargets = globals::game::renderer->GetRuntimeData().renderTargets;
+	SeamProbe::BeginFrame(upscaling.resolutionScale, upscaling.IsUpscalingActive() && globals::state->inWorld);
+	if (SeamProbe::IsSampling()) {
+		// Inside the render rectangle the same defect shows at the squared fraction: a pass that
+		// applies the dynamic ratio twice only covers that part of the scene.
+		SeamProbe::Measure("1 kMAIN before upscale (r^2)", renderTargets[RE::RENDER_TARGETS::kMAIN].texture, upscaling.resolutionScale * upscaling.resolutionScale);
+	}
+
 	if (upscaleMethod != UpscaleMethod::kNONE && upscaleMethod != UpscaleMethod::kTAA)
 		upscaling.PerformUpscaling();
 
 	if (upscaleMethod == UpscaleMethod::kDLSS)
 		upscaling.ApplySharpening();
+
+	if (SeamProbe::IsSampling())
+		SeamProbe::Measure("2 kMAIN after upscale", renderTargets[RE::RENDER_TARGETS::kMAIN].texture);
 
 	Util::SetTemporal(upscaleMethod == UpscaleMethod::kTAA);
 
@@ -1838,6 +1852,13 @@ void Upscaling::Main_PostProcessing::thunk(RE::ImageSpaceManager* a_this, uint32
 		globals::features::hdrDisplay.RedirectFramebuffer();
 
 	func(a_this, a3, a_target, a_4, a_5);
+
+	if (SeamProbe::IsSampling()) {
+		SeamProbe::Measure("8 kMAIN after imagespace", renderTargets[RE::RENDER_TARGETS::kMAIN].texture);
+		if (static_cast<uint32_t>(a_target) < static_cast<uint32_t>(RE::RENDER_TARGETS::kTOTAL))
+			SeamProbe::Measure("9 imagespace target", static_cast<ID3D11View*>(renderTargets[a_target].RTV));
+		SeamProbe::Measure("9 framebuffer before UI", static_cast<ID3D11View*>(renderTargets[RE::RENDER_TARGETS::kFRAMEBUFFER].RTV));
+	}
 
 	// Restore kFRAMEBUFFER after ISHDR — hdrTexture now has the HDR scene
 	if (hdrLoaded)
