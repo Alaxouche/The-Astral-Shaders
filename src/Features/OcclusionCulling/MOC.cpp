@@ -198,32 +198,72 @@ namespace MOC
 		// Conservative by construction: coarse cells only over-estimate occluder distance
 		// (max-reduce), OOB depth reads contributed 0 (near) which a max ignores, off-screen
 		// rects are kept (the engine's frustum cull owns that verdict).
-		bool HiZTestRect(float a_minX, float a_minY, float a_maxX, float a_maxY, float a_objNdcZMin)
+		//
+		// a_objW is the view depth of the object's nearest point. The rect is dilated here, by
+		// how far the camera's motion since the snapshot can have moved an OCCLUDER across the
+		// screen. A world offset d at view depth w covers d / w on screen, so the occluder that
+		// matters is the nearest one: when the camera is pressed against a wall or a pillar, a
+		// step sideways slides that silhouette across a large part of the screen while the
+		// objects far behind it barely move. Sizing the margin on the tested object's own depth
+		// left those objects culled along the silhouette of whatever the camera was close to.
+		bool HiZTestRect(float a_minX, float a_minY, float a_maxX, float a_maxY, float a_objNdcZMin, float a_objW)
 		{
 			const HiZSnapshot* s = g_hizFront.load(std::memory_order_acquire);
 			if (!s || s->grid.empty())
 				return true;
-			if (a_maxX < -1.0f || a_minX > 1.0f || a_maxY < -1.0f || a_minY > 1.0f)
-				return true;  // fully off-screen in the snapshot's view: keep
 			if (a_objNdcZMin > 0.9995f)
 				return true;  // sky-dome / far-plane distance: the depth range is compressed to ~1.0 there
 				              // so the coarse grid can't reliably occlude, and sky/cloud objects are never
 				              // occluded -- keep (prevents distant clouds/atmosphere vanishing).
-			// NDC -> UV (y flips) -> grid-cell range. Cells cover 16px blocks of the DYNAMIC
-			// render area (the depth only occupies that top-left sub-rect under upscaling).
-			const float u0 = (a_minX + 1.0f) * 0.5f, u1 = (a_maxX + 1.0f) * 0.5f;
-			const float v0 = (1.0f - a_maxY) * 0.5f, v1 = (1.0f - a_minY) * 0.5f;
-			const int cx0 = std::clamp(static_cast<int>(u0 * s->renderW) / 16, 0, s->renderCellsX - 1);
-			const int cx1 = std::clamp(static_cast<int>(u1 * s->renderW) / 16, 0, s->renderCellsX - 1);
-			const int cy0 = std::clamp(static_cast<int>(v0 * s->renderH) / 16, 0, s->renderCellsY - 1);
-			const int cy1 = std::clamp(static_cast<int>(v1 * s->renderH) / 16, 0, s->renderCellsY - 1);
-			if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > 256)
-				return true;  // huge screen rect: almost surely visible; skip the scan
+
+			// Largest rect, in grid cells, that is still scanned; above it the object is kept.
+			constexpr int kMaxScannedCells = 256;
+			// The nearest occluder is only known once the rect has been scanned, and a nearer one
+			// widens the rect, so the margin is refined a few times.
+			constexpr int kMarginPasses = 3;
+
+			float occluderW = std::max(a_objW, s->nearZ);
 			float farthest = 0.0f;
-			for (int y = cy0; y <= cy1; ++y) {
-				const float* row = &s->grid[static_cast<std::size_t>(y) * s->gridW];
-				for (int x = cx0; x <= cx1; ++x)
-					farthest = std::max(farthest, row[x]);
+			for (int pass = 0; pass < kMarginPasses; ++pass) {
+				const float mx = g_motionDelta * s->projSx / occluderW + g_motionAng;
+				const float my = g_motionDelta * s->projSy / occluderW + g_motionAng;
+				const float minX = a_minX - mx, maxX = a_maxX + mx;
+				const float minY = a_minY - my, maxY = a_maxY + my;
+				if (maxX < -1.0f || minX > 1.0f || maxY < -1.0f || minY > 1.0f)
+					return true;  // fully off-screen in the snapshot's view: keep
+
+				// NDC -> UV (y flips) -> grid-cell range. Cells cover 16px blocks of the DYNAMIC
+				// render area (the depth only occupies that top-left sub-rect under upscaling).
+				const float u0 = (minX + 1.0f) * 0.5f, u1 = (maxX + 1.0f) * 0.5f;
+				const float v0 = (1.0f - maxY) * 0.5f, v1 = (1.0f - minY) * 0.5f;
+				const int cx0 = std::clamp(static_cast<int>(u0 * s->renderW) / 16, 0, s->renderCellsX - 1);
+				const int cx1 = std::clamp(static_cast<int>(u1 * s->renderW) / 16, 0, s->renderCellsX - 1);
+				const int cy0 = std::clamp(static_cast<int>(v0 * s->renderH) / 16, 0, s->renderCellsY - 1);
+				const int cy1 = std::clamp(static_cast<int>(v1 * s->renderH) / 16, 0, s->renderCellsY - 1);
+				if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > kMaxScannedCells)
+					return true;  // huge screen rect: almost surely visible; skip the scan
+
+				farthest = 0.0f;
+				float nearest = 1.0f;
+				for (int y = cy0; y <= cy1; ++y) {
+					const float* row = &s->grid[static_cast<std::size_t>(y) * s->gridW];
+					for (int x = cx0; x <= cx1; ++x) {
+						farthest = std::max(farthest, row[x]);
+						nearest = std::min(nearest, row[x]);
+					}
+				}
+				if (a_objNdcZMin <= farthest + g_hizBias)
+					return true;  // visible in this rect, and a wider rect can only agree
+
+				// Standard z(w) = F - NF / w, so w = NF / (F - z). A cell only holds an occluder's
+				// depth when the occluder covers it entirely, which is also the only case in
+				// which it can occlude anything in this test.
+				const float nearestW = std::max(s->projNF / std::max(s->projF - nearest, 1e-6f), s->nearZ);
+				if (nearestW >= occluderW)
+					break;  // the margin already covers the nearest occluder
+				occluderW = nearestW;
+				if (pass == kMarginPasses - 1)
+					return true;  // still finding nearer occluders: not provable, keep
 			}
 			return a_objNdcZMin <= farthest + g_hizBias;  // false => occluded
 		}
@@ -451,12 +491,11 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 			// recompute the depth as if the object were g_motionDelta closer -- z(w) = F - NF/w
 			// is exact for this projection, so this bounds every disocclusion the camera can
 			// have caused since the snapshot.
-			const float mx = g_motionDelta * g_projSx / minW + g_motionAng;
-			const float my = g_motionDelta * g_projSy / minW + g_motionAng;
+			// The rect itself is dilated inside HiZTestRect, which knows the occluders.
 			const float zSafe = g_projF - g_projNF / std::max(minW - g_motionDelta, g_nearZ);
-			return HiZTestRect(screenMin.m128_f32[0] - mx, screenMin.m128_f32[1] - my,
-				screenMax.m128_f32[0] + mx, screenMax.m128_f32[1] + my,
-				std::min(zSafe, screenMin.m128_f32[2]));
+			return HiZTestRect(screenMin.m128_f32[0], screenMin.m128_f32[1],
+				screenMax.m128_f32[0], screenMax.m128_f32[1],
+				std::min(zSafe, screenMin.m128_f32[2]), minW);
 		}
 
 		// Sphere occlusion test on a VALUE bound (center + radius).
@@ -520,12 +559,10 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 
 			// Nearest sphere point's NDC depth = clip z / clip w of closestPoint, with the same
 			// motion margins as TestAABB.
-			const float mx = g_motionDelta * g_projSx / closestSpherePointW + g_motionAng;
-			const float my = g_motionDelta * g_projSy / closestSpherePointW + g_motionAng;
 			const float zSafe = g_projF - g_projNF / std::max(closestSpherePointW - g_motionDelta, g_nearZ);
-			return HiZTestRect(xyMins.m128_f32[0] - mx, xyMins.m128_f32[1] - my,
-				xyMaxs.m128_f32[0] + mx, xyMaxs.m128_f32[1] + my,
-				std::min(zSafe, closestPoint.m128_f32[2] / closestSpherePointW));
+			return HiZTestRect(xyMins.m128_f32[0], xyMins.m128_f32[1],
+				xyMaxs.m128_f32[0], xyMaxs.m128_f32[1],
+				std::min(zSafe, closestPoint.m128_f32[2] / closestSpherePointW), closestSpherePointW);
 		}
 
 		bool TestSphere(RE::NiAVObject* a_object)
@@ -598,22 +635,6 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 		if (g_kickCounter.fetch_add(1, std::memory_order_relaxed) < g_settleUntilKick.load(std::memory_order_relaxed))
 			return false;
 
-		// Shadow draw budget: one controller step per frame, on last frame's kept-caster count.
-		// Multiplicative attack, slow decay, hard ceiling; the boost adds to the user's slope.
-		{
-			const std::uint32_t kept = g_shadowKeptGeom.exchange(0, std::memory_order_relaxed);
-			float               boost = g_dynSlopeBoost.load(std::memory_order_relaxed);
-			if (CullSmallShadows && ShadowDrawBudget > 0.0f) {
-				if (static_cast<float>(kept) > ShadowDrawBudget)
-					boost = std::min(boost * 1.15f + 0.002f, 0.30f);
-				else if (static_cast<float>(kept) < ShadowDrawBudget * 0.85f)
-					boost = std::max(boost * 0.90f - 0.0005f, 0.0f);
-			} else {
-				boost = 0.0f;
-			}
-			g_dynSlopeBoost.store(boost, std::memory_order_relaxed);
-		}
-
 		// Once per frame: CAS-claim the frame so exactly ONE of the concurrent main-scene culls
 		// loads the snapshot. Losers report whether a completed load for this frame is published.
 		auto*               gfxState = globals::game::graphicsState;
@@ -621,6 +642,31 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 		std::uint32_t       claimed = g_buildClaim.load(std::memory_order_relaxed);
 		if (claimed == frame || !g_buildClaim.compare_exchange_strong(claimed, frame, std::memory_order_relaxed))
 			return g_buildDone.load(std::memory_order_acquire) == frame;
+
+		// Shadow draw budget: one controller step per frame, on the whole frame's kept-caster
+		// count. This block used to sit above the frame claim, and the render camera runs
+		// several cull passes a frame: each took a step on a count the previous one had just
+		// zeroed, so the threshold rose on one pass, fell on the others, and the shadows of
+		// casters near it blinked. It now also only relaxes once the scene is well under the
+		// budget, and slowly, so a view that sits near the budget settles instead of hunting.
+		{
+			constexpr float kAttack = 1.05f, kAttackStep = 0.001f;
+			constexpr float kRelease = 0.98f, kReleaseStep = 0.0002f;
+			constexpr float kReleaseBelow = 0.70f;  // fraction of the budget under which it relaxes
+			constexpr float kMaxBoost = 0.30f;
+
+			const std::uint32_t kept = g_shadowKeptGeom.exchange(0, std::memory_order_relaxed);
+			float               boost = g_dynSlopeBoost.load(std::memory_order_relaxed);
+			if (CullSmallShadows && ShadowDrawBudget > 0.0f) {
+				if (static_cast<float>(kept) > ShadowDrawBudget)
+					boost = std::min(boost * kAttack + kAttackStep, kMaxBoost);
+				else if (static_cast<float>(kept) < ShadowDrawBudget * kReleaseBelow)
+					boost = std::max(boost * kRelease - kReleaseStep, 0.0f);
+			} else {
+				boost = 0.0f;
+			}
+			g_dynSlopeBoost.store(boost, std::memory_order_relaxed);
+		}
 
 		// The game's own depth IS the occluder set (built + read back on the render thread in
 		// HiZPrepass). Load the published snapshot's matrices into the shared test globals so
