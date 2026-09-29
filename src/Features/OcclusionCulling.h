@@ -39,6 +39,9 @@ struct OcclusionCulling : Feature
 		// Target kept shadow casters per frame; the cull slope auto-raises above the value set
 		// here until the scene fits. 0 disables the controller.
 		float ShadowDrawBudget = 8000.0f;
+		// Objects covering fewer texels than this on a reflection cubemap face are left out of
+		// the reflection (0 = off). Only the cubemap loses them.
+		float ReflectionMinTexels = 3.0f;
 	};
 
 	Settings settings;

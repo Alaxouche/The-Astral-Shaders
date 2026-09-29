@@ -49,6 +49,7 @@ namespace MOC
 	// decays back toward the user's slope. Converts "Utility explodes in dense scenes" into a
 	// bounded cost, spending the shadow detail on the nearest casters first.
 	float ShadowDrawBudget = 8000.0f;
+	float ReflectionMinTexels = 3.0f;
 
 	namespace
 	{
@@ -114,6 +115,10 @@ namespace MOC
 		// Shadow-budget controller state: kept caster geometries this frame, and the slope
 		// boost the controller currently applies on top of the user slope.
 		std::atomic<std::uint32_t> g_shadowKeptGeom{ 0 };
+		// Reflection cubemap cull: face size in texels, and counters for the periodic report.
+		std::atomic<std::uint32_t> g_reflectionFaceSize{ 256 };
+		std::atomic<std::uint32_t> g_reflectionTested{ 0 };
+		std::atomic<std::uint32_t> g_reflectionCulled{ 0 };
 		std::atomic<float>         g_dynSlopeBoost{ 0.0f };
 
 		constexpr std::uint32_t          kMaxShadowCams = 64;
@@ -706,6 +711,32 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 		if (!ctx || !HiZEnsureInit())
 			return;
 
+		// Reflection cull bookkeeping: the cube face size follows the game's reflection target,
+		// and a report every few thousand frames shows in the log what the cull removes.
+		{
+			const auto& cubemap = globals::game::renderer->GetRendererData().cubemapRenderTargets[RE::RENDER_TARGETS_CUBEMAP::kREFLECTIONS];
+			if (cubemap.texture) {
+				D3D11_TEXTURE2D_DESC desc{};
+				cubemap.texture->GetDesc(&desc);
+				if (desc.Width)
+					g_reflectionFaceSize.store(desc.Width, std::memory_order_relaxed);
+			}
+
+			static std::uint32_t reportFrames = 0;
+			constexpr std::uint32_t kReportInterval = 3600;
+			if (++reportFrames >= kReportInterval) {
+				reportFrames = 0;
+				const std::uint32_t tested = g_reflectionTested.exchange(0, std::memory_order_relaxed);
+				const std::uint32_t culled = g_reflectionCulled.exchange(0, std::memory_order_relaxed);
+				logger::info("[MOC] reflection cull over {} frames: {:.0f} objects tested per frame, {:.0f} dropped ({:.0f}%), face {} px, threshold {:.1f} texels",
+					kReportInterval,
+					static_cast<float>(tested) / kReportInterval,
+					static_cast<float>(culled) / kReportInterval,
+					tested ? 100.0f * static_cast<float>(culled) / static_cast<float>(tested) : 0.0f,
+					g_reflectionFaceSize.load(std::memory_order_relaxed), ReflectionMinTexels);
+			}
+		}
+
 		// 1. Harvest the NEWEST ring slot whose copy has retired (DO_NOT_WAIT; on a typical GPU
 		//    the copy queued last frame has). doodlum harvested the oldest slot, which pinned
 		//    every test to a depth kHizRing frames stale -- three frames of camera motion was
@@ -891,6 +922,49 @@ void main(uint2 gid : SV_GroupID, uint2 tid : SV_GroupThreadID)
 			if (g_shadowCams[i].load(std::memory_order_relaxed) == a_camera)
 				return true;
 		return false;
+	}
+
+	bool IsReflectionCullCamera(const RE::NiCamera* a_camera)
+	{
+		if (!a_camera)
+			return false;
+		// BSCubeMapCamera is its own class, so the vtable pointer identifies it with one read and
+		// no bookkeeping of which cameras the cubemap renders used.
+		static const std::uintptr_t cubeMapVtable = REL::Relocation<std::uintptr_t>(RE::VTABLE_BSCubeMapCamera[0]).address();
+		return *reinterpret_cast<const std::uintptr_t*>(a_camera) == cubeMapVtable;
+	}
+
+	bool TestReflectionSmall(RE::NiAVObject* a_object, const RE::NiCamera* a_camera)
+	{
+		if (ReflectionMinTexels <= 0.0f || !a_object || !a_camera)
+			return true;
+
+		const auto fl = a_object->GetFlags().underlying();
+		if ((fl & 0x800) || (fl & 0x1000))  // kAlwaysDraw / shortcut -> never cull
+			return true;
+		if (auto* ref = a_object->GetUserData(); ref && ref->formType == RE::FormType::ActorCharacter)
+			return true;
+
+		const auto& bound = a_object->worldBound;
+		if (bound.radius <= 0.0f)
+			return true;
+
+		const auto& eye = a_camera->world.translate;
+		const float dx = bound.center.x - eye.x;
+		const float dy = bound.center.y - eye.y;
+		const float dz = bound.center.z - eye.z;
+		const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+		g_reflectionTested.fetch_add(1, std::memory_order_relaxed);
+
+		// A cube face spans 90 degrees, so its focal length is half its size and an object of
+		// radius r at distance d covers r * faceSize / d texels across.
+		const float faceSize = static_cast<float>(g_reflectionFaceSize.load(std::memory_order_relaxed));
+		if (dist > bound.radius && bound.radius * faceSize < ReflectionMinTexels * dist) {
+			g_reflectionCulled.fetch_add(1, std::memory_order_relaxed);
+			return false;
+		}
+		return true;
 	}
 
 	bool TestShadowCasterSmall(RE::NiAVObject* a_object)

@@ -22,7 +22,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	CullSmallShadows,
 	SmallShadowMinSize,
 	SmallShadowSlope,
-	ShadowDrawBudget)
+	ShadowDrawBudget,
+	ReflectionMinTexels)
 
 namespace
 {
@@ -83,6 +84,15 @@ namespace
 		// renders in the main view, only its shadow is dropped. Pure size math; no depth
 		// buffer is involved for shadows.
 		if (!bracketed && a_object && MOC::IsShadowCullCamera(a_self->camera) && !MOC::TestShadowCasterSmall(a_object)) {
+			MarkCulledLikeEngine(a_self, a_object);
+			return;
+		}
+
+		// REFLECTION cubemaps (water, dynamic cubemaps): each face is a few hundred texels wide
+		// yet draws the scene with the full lighting shaders, twice a frame. Objects that would
+		// cover only a texel or two of a face are dropped from the reflection alone.
+		if (!bracketed && a_object && globals::features::occlusionCulling.IsActive() &&
+			MOC::IsReflectionCullCamera(a_self->camera) && !MOC::TestReflectionSmall(a_object, a_self->camera)) {
 			MarkCulledLikeEngine(a_self, a_object);
 			return;
 		}
@@ -242,6 +252,7 @@ void OcclusionCulling::SyncSettingsToMOC()
 	MOC::SmallShadowMinSize = settings.SmallShadowMinSize;
 	MOC::SmallShadowSlope = settings.SmallShadowSlope;
 	MOC::ShadowDrawBudget = settings.ShadowDrawBudget;
+	MOC::ReflectionMinTexels = std::clamp(settings.ReflectionMinTexels, 0.0f, 16.0f);
 }
 
 void OcclusionCulling::DrawSettings()
@@ -292,6 +303,12 @@ void OcclusionCulling::DrawSettings()
 			ImGui::Text("%s", T("feature.occlusion_culling.shadow_budget_tooltip",
 				"Target number of shadow-casting meshes per frame. In scenes that submit more, the cull threshold rises automatically until the count fits, dropping the smallest and most distant shadows first. 0 disables the budget."));
 		}
+	}
+
+	changed |= ImGui::SliderFloat(T("feature.occlusion_culling.reflection_min_texels", "Reflection Min Size (texels)"), &settings.ReflectionMinTexels, 0.0f, 16.0f, "%.1f");
+	if (auto _tt = Util::HoverTooltipWrapper()) {
+		ImGui::Text("%s", T("feature.occlusion_culling.reflection_min_texels_tooltip",
+			"Objects that would cover fewer texels than this on a face of the reflection cubemap are left out of the reflection only. The cubemap is small and drawn twice a frame with the full lighting shaders, so this removes draw calls nobody can see. Actors are never dropped. 0 disables."));
 	}
 
 	ImGui::EndDisabled();

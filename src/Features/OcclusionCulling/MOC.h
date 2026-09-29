@@ -39,6 +39,7 @@ namespace MOC
 	extern float SmallShadowMinSize;      // shadow cull: base bound-radius threshold at the camera
 	extern float SmallShadowSlope;        // shadow cull: threshold growth per unit of camera distance
 	extern float ShadowDrawBudget;        // target kept caster geometries per frame; 0 disables the controller
+	extern float ReflectionMinTexels;     // reflection cubemap projected-diameter cull threshold, texels; 0 = off
 
 	/** @brief Mark the occlusion feature live. Hi-Z GPU resources are created lazily. */
 	void Init();
@@ -87,4 +88,14 @@ namespace MOC
 
 	/** @brief Small-caster shadow cull -- drops the shadow only (keep=true; never actors/kAlwaysDraw). */
 	bool TestShadowCasterSmall(RE::NiAVObject* a_object);
+
+	/** @brief True when the cull walk belongs to a cubemap render (water and dynamic cubemap reflections). */
+	bool IsReflectionCullCamera(const RE::NiCamera* a_camera);
+
+	/**
+	 * @brief Reflection cubemap size cull: drops objects that would cover fewer texels of a cube
+	 *        face than ReflectionMinTexels. Only the reflection loses them.
+	 * @return true to keep the object; never culls actors or kAlwaysDraw objects.
+	 */
+	bool TestReflectionSmall(RE::NiAVObject* a_object, const RE::NiCamera* a_camera);
 }
