@@ -861,6 +861,13 @@ void Deferred::Hooks::Main_RenderWorld_BlendedDecals::thunk(RE::BSShaderAccumula
 		// Defer terrain rendering until after everything else
 		if (terrainBlending.loaded && terrainBlending.IsActive()) {
 			terrainBlending.RenderTerrainBlendingPasses();
+		} else if (terrainBlending.loaded) {
+			// Gated by Dynamic Terrain Deformation: there are no terrain passes to draw, but
+			// RenderTerrainBlendingPasses is also what hands the scene depth views back to the
+			// game at this point of the frame. Without it the prepass-only, render-rectangle-only
+			// blended depth stayed bound as the scene depth for every later pass, where the
+			// ungated feature gives them the real depth.
+			terrainBlending.RestoreSceneDepthSRVs();
 		}
 	}
 
