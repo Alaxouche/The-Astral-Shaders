@@ -519,6 +519,13 @@ void Upscaling::DrawSettings()
 		neuralRendering.DrawSettings(settings.neuralRenderingEnabled, settings.neuralRenderingAllowUnvalidated, settings.neuralRenderingTuning);
 		ImGui::TreePop();
 	}
+
+	if (ImGui::Button(T(TKEY("seam_probe_run"), "Run Seam Probe")))
+		SeamProbe::Rearm();
+	if (auto _tt = Util::HoverTooltipWrapper()) {
+		ImGui::Text("%s", T(TKEY("seam_probe_run_tooltip"),
+							  "Diagnostic. Measures six frames for a straight seam along the edge of the render rectangle, at every stage from the upscaler to the back buffer, and writes the result to CommunityShaders.log with images in the SeamProbe folder beside it. Close the menu and keep playing for about thirty seconds."));
+	}
 }
 
 void Upscaling::SaveSettings(json& o_json)
@@ -1870,7 +1877,7 @@ void Upscaling::Main_PostProcessing::thunk(RE::ImageSpaceManager* a_this, uint32
 		upscaling.ApplySharpening();
 
 	if (SeamProbe::IsSampling())
-		SeamProbe::Measure("2 kMAIN after upscale", renderTargets[RE::RENDER_TARGETS::kMAIN].texture);
+		SeamProbe::Measure("2 kMAIN after upscale", renderTargets[RE::RENDER_TARGETS::kMAIN].texture, true);
 
 	Util::SetTemporal(upscaleMethod == UpscaleMethod::kTAA);
 
@@ -1886,7 +1893,7 @@ void Upscaling::Main_PostProcessing::thunk(RE::ImageSpaceManager* a_this, uint32
 		SeamProbe::Measure("8 kMAIN after imagespace", renderTargets[RE::RENDER_TARGETS::kMAIN].texture);
 		if (static_cast<uint32_t>(a_target) < static_cast<uint32_t>(RE::RENDER_TARGETS::kTOTAL))
 			SeamProbe::Measure("9 imagespace target", static_cast<ID3D11View*>(renderTargets[a_target].RTV));
-		SeamProbe::Measure("9 framebuffer before UI", static_cast<ID3D11View*>(renderTargets[RE::RENDER_TARGETS::kFRAMEBUFFER].RTV));
+		SeamProbe::Measure("9 framebuffer before UI", static_cast<ID3D11View*>(renderTargets[RE::RENDER_TARGETS::kFRAMEBUFFER].RTV), true);
 	}
 
 	// Restore kFRAMEBUFFER after ISHDR — hdrTexture now has the HDR scene

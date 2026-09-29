@@ -233,7 +233,13 @@ HRESULT DX12SwapChain::Present(UINT SyncInterval, UINT Flags)
 	// Last stage of the seam probe: the image handed to the swap chain, UI included.
 	if (SeamProbe::IsSampling()) {
 		if (swapChainBufferWrapped)
-			SeamProbe::Measure("10 back buffer at present", swapChainBufferWrapped->resource11);
+			SeamProbe::Measure("10 back buffer at present", swapChainBufferWrapped->resource11, true);
+		// The interface buffer is composited over the frame, generated frames included, so both
+		// what it adds and where it covers matter.
+		if (uiBufferWrapped) {
+			SeamProbe::Measure("11 UI buffer colour", uiBufferWrapped->resource11, true);
+			SeamProbe::Measure("11 UI buffer alpha", uiBufferWrapped->resource11, true, SeamProbe::Channel::kAlpha);
+		}
 		SeamProbe::EndFrame();
 	}
 
