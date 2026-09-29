@@ -296,6 +296,12 @@ public:
 
 	bool inWorld = false;
 	bool activeReflections = false;
+	// Frame the world was last rendered in. inWorld is only true inside Main_RenderWorld, so
+	// passes that run later in the frame compare this with frameCount instead.
+	uint32_t lastWorldFrame = UINT32_MAX;
+
+	/** @brief True when the engine rendered the world earlier in the current frame. */
+	bool WorldRenderedThisFrame() const { return lastWorldFrame == frameCount; }
 
 	// Cached menu open states, updated once per frame in Reset().
 	// Avoids repeated IsMenuOpen calls (each constructs a BSFixedString).

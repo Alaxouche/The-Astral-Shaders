@@ -3,6 +3,7 @@
 #include "Feature.h"
 #include "Upscaling/DX12SwapChain.h"
 #include "Upscaling/FidelityFX.h"
+#include "Upscaling/NeuralRendering.h"
 #include "Upscaling/RCAS/RCAS.h"
 #include "Upscaling/Streamline.h"
 #include <d3d11_4.h>
@@ -64,6 +65,12 @@ public:
 		bool sharpnessEnabledDLSS = false;
 		float sharpnessDLSS = 0.0f;
 		uint presetDLSS = 0;  // 0=Default, 1=J, 2=K, 3=L, 4=M
+		// DLSS Neural Rendering (NGX Feature 18). Off by default: it needs a runtime DLL the
+		// player supplies.
+		bool neuralRenderingEnabled = false;
+		// Accept a 310.8 runtime build outside the validated list.
+		bool neuralRenderingAllowUnvalidated = false;
+		NR::Tuning neuralRenderingTuning;
 		bool reflexLowLatencyMode = false;
 		bool reflexLowLatencyBoost = false;
 		bool reflexUseMarkersToOptimize = false;
@@ -104,6 +111,9 @@ public:
 
 	ConstantBuffer* jitterCB = nullptr;
 	ConstantBuffer* upscalingDataCB = nullptr;
+
+	/** @brief DLSS Neural Rendering pass, evaluated before upscaling. */
+	NeuralRendering neuralRendering;
 
 	// Runtime state
 	bool isWindowed = false;

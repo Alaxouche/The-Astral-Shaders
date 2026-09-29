@@ -128,6 +128,14 @@ foreach(_dir IN LISTS FEATURE_SHADER_DIRS)
     )
 endforeach()
 
+# NGX headers for the DLSS Neural Rendering pass, which talks to the NGX runtime directly.
+target_include_directories(
+    ${PROJECT_NAME}
+    SYSTEM
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/extern/Streamline-DX12/external/ngx-sdk/include"
+)
+
 target_include_directories(
     ${PROJECT_NAME}
     PRIVATE
@@ -160,6 +168,7 @@ target_link_libraries(
         Tracy::TracyClient
         Streamline
         d3d12.lib
+        bcrypt.lib
         Microsoft::DirectX-Headers
         ${DETOURS_LIBRARY}
         Microsoft::Effects11

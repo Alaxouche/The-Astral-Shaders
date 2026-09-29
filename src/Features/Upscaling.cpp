@@ -23,6 +23,11 @@
 
 #define I18N_KEY_PREFIX "feature.upscaling."
 
+namespace NR
+{
+	NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Tuning, intensity, localToneStrength, localStructureStrength, skinStructureStrength, style, useAutoMask);
+}
+
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	Upscaling::Settings,
 	upscaleMethod,
@@ -37,6 +42,9 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	sharpnessEnabledDLSS,
 	sharpnessDLSS,
 	presetDLSS,
+	neuralRenderingEnabled,
+	neuralRenderingAllowUnvalidated,
+	neuralRenderingTuning,
 	reflexLowLatencyMode,
 	reflexLowLatencyBoost,
 	reflexUseMarkersToOptimize,
@@ -506,6 +514,11 @@ void Upscaling::DrawSettings()
 		Util::DrawDllVersionTable("NVIDIA Streamline DLLs (click to open folder)", Streamline::PluginDir, Streamline::dllVersions, "sl_dll_versions");
 		ImGui::TreePop();
 	}
+
+	if (ImGui::TreeNodeEx(std::format("{} {}###NeuralRendering", T(TKEY("neural_rendering.header"), "DLSS Neural Rendering"), Feature::GetReleaseStageTag(Feature::ReleaseStage::Alpha)).c_str())) {
+		neuralRendering.DrawSettings(settings.neuralRenderingEnabled, settings.neuralRenderingAllowUnvalidated, settings.neuralRenderingTuning);
+		ImGui::TreePop();
+	}
 }
 
 void Upscaling::SaveSettings(json& o_json)
@@ -527,6 +540,8 @@ void Upscaling::LoadSettings(json& o_json)
 	// detect absence explicitly so a pre-existing config still runs the migration.
 	const bool hadFsr4SchemaVersion = o_json.contains("fsr4RuntimeSelectionSchemaVersion");
 	settings = o_json;
+	settings.neuralRenderingTuning.Sanitize();
+	neuralRendering.ResetHistory();
 	if (!hadFsr4SchemaVersion)
 		settings.fsr4RuntimeSelectionSchemaVersion = 0;
 	ApplyLegacyFsr4RuntimeSelectionMigration(settings, fidelityFX.GetFsr4AdapterSupport());
@@ -573,6 +588,7 @@ void Upscaling::LoadSettings(json& o_json)
 void Upscaling::RestoreDefaultSettings()
 {
 	settings = {};
+	neuralRendering.ResetHistory();
 }
 
 void Upscaling::DataLoaded()
@@ -1043,6 +1059,7 @@ void Upscaling::ConfigureUpscaling(RE::BSGraphics::State* a_viewport)
 void Upscaling::SetupResources()
 {
 	QueryPerformanceFrequency(&qpf);
+	neuralRendering.SetupResources();
 
 	// Latch the restart-gated runtime-FSR4 opt-in here, not in LoadSettings: LoadSettings can
 	// run before the D3D11 device hook, so the adapter probe would report Unsupported and the
@@ -1115,6 +1132,7 @@ void Upscaling::SetupResources()
 
 void Upscaling::ClearShaderCache()
 {
+	neuralRendering.ClearShaderCache();
 	for (int i = 0; i < 4; ++i) {
 		encodeTexturesCS[i] = nullptr;  // com_ptr automatically releases
 	}
@@ -1824,10 +1842,21 @@ void Upscaling::Main_PostProcessing::thunk(RE::ImageSpaceManager* a_this, uint32
 		upscaling.frameGenerationPrepared = upscaling.CopySharedD3D12Resources();
 	}
 
+	const bool worldRendered = globals::state->WorldRenderedThisFrame();
+
+	// Neural Rendering works on the render-resolution scene, so it runs before the upscaler and
+	// before frame generation copies its inputs. The ratios are still the render ratios here.
+	{
+		const float2 screenSize{ (float)globals::game::graphicsState->screenWidth, (float)globals::game::graphicsState->screenHeight };
+		upscaling.neuralRendering.DrawBeforeUpscaling(upscaling.loaded && upscaling.settings.neuralRenderingEnabled,
+			upscaling.settings.neuralRenderingAllowUnvalidated, upscaling.settings.neuralRenderingTuning,
+			Util::ConvertToDynamic(screenSize, true), worldRendered);
+	}
+
 	// Seam probe: a few sampled frames locate the pass that leaves a discontinuity along the
 	// render rectangle. The render fraction is read here because the upscale resets it.
 	auto& renderTargets = globals::game::renderer->GetRuntimeData().renderTargets;
-	SeamProbe::BeginFrame(upscaling.resolutionScale, upscaling.IsUpscalingActive() && globals::state->inWorld);
+	SeamProbe::BeginFrame(upscaling.resolutionScale, upscaling.IsUpscalingActive() && worldRendered);
 	if (SeamProbe::IsSampling()) {
 		// Inside the render rectangle the same defect shows at the squared fraction: a pass that
 		// applies the dynamic ratio twice only covers that part of the scene.
