@@ -10,6 +10,7 @@
 #include "Features/ExtendedTranslucency.h"
 #include "Features/FoliageLighting.h"
 #include "Features/GrassLighting.h"
+#include "Features/HairBacklighting.h"
 #include "Features/HairSpecular.h"
 #include "Features/HorizonFix.h"
 #include "Features/SoftShadows.h"
@@ -97,5 +98,6 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 		globals::features::volumetricLighting.GetCommonBufferData(),
 		globals::features::nightSky.GetCommonBufferData(),
 		globals::features::horizonFix.GetCommonBufferData(),
+		globals::features::hairBacklighting.settings,
 		globals::features::softShadows.GetCommonBufferData());
 }

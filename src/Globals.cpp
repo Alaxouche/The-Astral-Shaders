@@ -13,6 +13,7 @@
 #include "Features/GrassCollision.h"
 #include "Features/GrassLighting.h"
 #include "Features/GrassOptimizations.h"
+#include "Features/HairBacklighting.h"
 #include "Features/HDRDisplay.h"
 #include "Features/HairSpecular.h"
 #include "Features/HorizonFix.h"
@@ -123,6 +124,7 @@ namespace globals
 		Skin skin{};
 		SnowCover snowCover{};
 		FootstepParticles footstepParticles{};
+		HairBacklighting hairBacklighting{};
 
 		namespace llf
 		{

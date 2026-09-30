@@ -16,6 +16,7 @@
 #include "Features/GrassCollision.h"
 #include "Features/GrassLighting.h"
 #include "Features/GrassOptimizations.h"
+#include "Features/HairBacklighting.h"
 #include "Features/HDRDisplay.h"
 #include "Features/HairSpecular.h"
 #include "Features/HorizonFix.h"
@@ -245,7 +246,8 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::livingWindows,
 		&globals::features::skin,
 		&globals::features::snowCover,
-		&globals::features::footstepParticles
+		&globals::features::footstepParticles,
+		&globals::features::hairBacklighting
 	};
 
 	return features;

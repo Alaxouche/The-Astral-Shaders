@@ -52,6 +52,7 @@ struct ScreenshotFeature;
 struct Skin;
 struct SnowCover;
 struct FootstepParticles;
+struct HairBacklighting;
 
 class State;
 class Deferred;
@@ -156,6 +157,7 @@ namespace globals
 		extern Skin skin;
 		extern SnowCover snowCover;
 		extern FootstepParticles footstepParticles;
+		extern HairBacklighting hairBacklighting;
 
 	}
 

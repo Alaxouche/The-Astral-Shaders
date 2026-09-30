@@ -731,6 +731,20 @@ namespace SharedData
 		float3 pad;
 	};
 
+	struct HairBacklightingSettings
+	{
+		uint Enable;
+		float Strength;
+		float ScatterWidth;
+		float EdgeFalloff;
+		float InteriorGlow;
+		float Absorption;
+		float DarkBoost;
+		float DarkThreshold;
+		float HeadOcclusion;
+		uint3 pad;
+	};
+
 	// Mirrors SoftShadows::GPUSettings (src/Features/SoftShadows.h).
 	struct PCSSSettings
 	{
@@ -771,6 +785,7 @@ namespace SharedData
 		VolumetricLightingSettings volumetricLightingSettings;
 		NightSkySettings nightSkySettings;
 		HorizonFixSettings horizonFixSettings;
+		HairBacklightingSettings hairBacklightingSettings;
 		PCSSSettings pcssSettings;
 	};
 
