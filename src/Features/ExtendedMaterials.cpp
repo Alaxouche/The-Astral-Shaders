@@ -91,51 +91,9 @@ void ExtendedMaterials::DrawSettings()
 								  "This applies to all directional and point lights. "));
 		}
 
-		ImGui::Checkbox(T(TKEY("enable_normal_map_shadows"), "Enable Normal Mapping Shadows"), (bool*)&settings.EnableNormalMapShadows);
-		if (auto _tt = Util::HoverTooltipWrapper()) {
-			ImGui::Text("%s", T(TKEY("enable_normal_map_shadows_tooltip"),
-								  "Self-shadowing traced from the normal map. "
-								  "Applies to the sun and point lights."));
-		}
+		// Normal mapping shadows are compiled out in this fork (see Lighting.hlsl, EMAT_NMS); their
+		// controls are not shown and the setting is forced off when loaded.
 
-		if (settings.EnableNormalMapShadows) {
-			{
-				auto _disabled = Util::DisableGuard(!settings.EnableShadows);
-				const char* heightMapShadowModeNames[] = {
-					T(TKEY("height_map_shadow_mode_parallax"), "Parallax Soft Shadows"),
-					T(TKEY("height_map_shadow_mode_normal_map"), "Normal Mapping Shadows"),
-					T(TKEY("height_map_shadow_mode_both"), "Both")
-				};
-				int heightMapShadowMode = static_cast<int>(settings.HeightMapShadowMode);
-				if (ImGui::Combo(T(TKEY("height_map_shadow_mode"), "Height-Mapped Surfaces"), &heightMapShadowMode, heightMapShadowModeNames, IM_ARRAYSIZE(heightMapShadowModeNames))) {
-					settings.HeightMapShadowMode = static_cast<uint>(heightMapShadowMode);
-				}
-			}
-			if (auto _tt = Util::HoverTooltipWrapper()) {
-				ImGui::Text("%s", T(TKEY("height_map_shadow_mode_tooltip"),
-									  "Shadow technique for surfaces that have a height map (parallax, complex material, PBR displacement, terrain parallax).\n"
-									  "Parallax Soft Shadows: cheapest. Darkens crevices from the height map at any light angle.\n"
-									  "Normal Mapping Shadows: sharp shadows cast by normal map detail. Strongest when the light is low, subtle when it is high.\n"
-									  "Both: parallax soft shadows combined with normal mapping shadows. Highest GPU cost.\n"
-									  "When Enable Shadows is off, height-mapped surfaces always use Normal Mapping Shadows."));
-			}
-
-			ImGui::SliderFloat(T(TKEY("normal_map_shadow_height_scale"), "Normal Shadow Height Scale"), &settings.NormalMapShadowHeightScale, MinNormalMapShadowHeightScale, MaxNormalMapShadowHeightScale, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
-			if (auto _tt = Util::HoverTooltipWrapper()) {
-				ImGui::Text("%s", T(TKEY("normal_map_shadow_height_scale_tooltip"),
-									  "Scales the relief reconstructed from normal map slopes. 1.00x matches the shading normals."));
-			}
-			ImGui::SliderFloat(T(TKEY("normal_map_shadow_length"), "Normal Shadow Length"), &settings.NormalMapShadowLength, MinNormalMapShadowLength, MaxNormalMapShadowLength, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-			if (auto _tt = Util::HoverTooltipWrapper()) {
-				ImGui::Text("%s", T(TKEY("normal_map_shadow_length_tooltip"),
-									  "Maximum trace distance toward the light, in texture UV units."));
-			}
-			ImGui::SliderFloat(T(TKEY("normal_map_shadow_hardness"), "Normal Shadow Hardness"), &settings.NormalMapShadowHardness, MinNormalMapShadowHardness, MaxNormalMapShadowHardness, "%.1f", ImGuiSliderFlags_AlwaysClamp);
-			if (auto _tt = Util::HoverTooltipWrapper()) {
-				ImGui::Text("%s", T(TKEY("normal_map_shadow_hardness_tooltip"),
-									  "Higher values give sharper, darker shadow edges."));
-			}
-		}
 
 		ImGui::Spacing();
 		ImGui::Spacing();
@@ -157,6 +115,7 @@ void ExtendedMaterials::LoadSettings(json& o_json)
 	settings.NormalMapShadowLength = sanitize(settings.NormalMapShadowLength, MinNormalMapShadowLength, MaxNormalMapShadowLength, defaults.NormalMapShadowLength);
 	settings.NormalMapShadowHardness = sanitize(settings.NormalMapShadowHardness, MinNormalMapShadowHardness, MaxNormalMapShadowHardness, defaults.NormalMapShadowHardness);
 	settings.HeightMapShadowMode = std::min(settings.HeightMapShadowMode, 2u);
+	settings.EnableNormalMapShadows = 0;
 }
 
 void ExtendedMaterials::SaveSettings(json& o_json)

@@ -833,7 +833,11 @@ float GetSnowParameterY(float texProjTmp, float alpha)
 #		define EMAT_ENVMAP
 #	endif
 
-#	if defined(EXTENDED_MATERIALS) && !defined(LOD) && !defined(MODELSPACENORMALS) && !defined(TREE_ANIM) && !defined(SKIN) && !defined(HAIR) && !defined(EYE) && !defined(FACEGEN) && !defined(FACEGEN_RGB_TINT)
+	// Normal mapping shadows (Bottle Shaders 1.0.4) are left out of this fork: the jittered
+	// normal-map trace flickered at low sun angles and broke up close to surfaces. EMAT_NMS is
+	// never defined, so the code below it compiles out and the parallax shadows keep their own
+	// path. Restore the define here to bring it back.
+#	if 0
 #		define EMAT_NMS
 #	endif
 
