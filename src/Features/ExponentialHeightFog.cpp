@@ -601,7 +601,6 @@ void ExponentialHeightFog::Prepass()
 		return;
 	}
 
-	// Shaders ignore the fog volume while suppressed, so skip building it but keep the resources
 	if (IsSuppressed())
 		return;
 

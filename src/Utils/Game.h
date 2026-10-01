@@ -81,8 +81,11 @@ namespace Util
 		{
 			if (!std::isfinite(degrees))
 				return 0.0f;
-			while (degrees < 0.0f) degrees += 360.0f;
-			while (degrees >= 360.0f) degrees -= 360.0f;
+			degrees = std::fmod(degrees, 360.0f);
+			if (degrees < 0.0f)
+				degrees += 360.0f;
+			if (degrees >= 360.0f)
+				degrees -= 360.0f;
 			return degrees;
 		}
 
@@ -90,8 +93,11 @@ namespace Util
 		{
 			if (!std::isfinite(degrees))
 				return 0.0f;
-			while (degrees > 180.0f) degrees -= 360.0f;
-			while (degrees < -180.0f) degrees += 360.0f;
+			degrees = std::fmod(degrees, 360.0f);
+			if (degrees > 180.0f)
+				degrees -= 360.0f;
+			if (degrees < -180.0f)
+				degrees += 360.0f;
 			return degrees;
 		}
 

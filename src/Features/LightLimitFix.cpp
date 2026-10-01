@@ -1066,13 +1066,14 @@ void LightLimitFix::AddParticleLightsToBuffer(eastl::vector<LightData>& a_lights
 
 		LightData light{};
 		constexpr float invPI = 1.f / std::numbers::pi_v<float>;
-		light.color.x = pl.color.red * invPI;
-		light.color.y = pl.color.green * invPI;
-		light.color.z = pl.color.blue * invPI;
-		light.color *= pl.color.alpha;
+		light.color.x = pl.color.red;
+		light.color.y = pl.color.green;
+		light.color.z = pl.color.blue;
 
 		if (effects11.enableEffect)
 			effects11.OverridePointLightColor(light.color);
+
+		light.color *= invPI * pl.color.alpha;
 
 		light.radius = pl.radius * 0.5f;
 
@@ -1232,8 +1233,9 @@ void LightLimitFix::ScheduleLocalShadowCasters()
 	if (!loaded || REL::Module::IsVR())
 		return;
 
-	MatchShadowDistanceToLightFade(settings.EnableLocalShadows && Util::IsInterior());
-	if (!settings.EnableLocalShadows)
+	const bool cacheActive = settings.EnableLocalShadows && localShadowCache;
+	MatchShadowDistanceToLightFade(cacheActive && Util::IsInterior());
+	if (!cacheActive)
 		return;
 
 	auto smState = globals::game::smState;
