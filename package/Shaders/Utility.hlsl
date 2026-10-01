@@ -321,51 +321,6 @@ float SampleShadowPCF(Texture2DArray<float4> tex, SamplerComparisonState samp, f
 	return visibility / 8.0;
 }
 
-#	if defined(RENDER_SHADOWMASK)
-// PCSS for the sun cascades. The blocker search uses the comparison sampler as the blocker
-// predicate (a tap that would shadow the receiver IS a blocker) and abs() for the depth gap,
-// so it is agnostic to the depth orientation of the shadow maps and needs no Reverse Z
-// special case. Both the search and the filter are bounded by MaxPenumbraTexels.
-float SampleShadowPCSS(float4x3 lightProjectionMatrix, float2 baseUV, float layerIndex, float compareValue, float2x2 rotationMatrix)
-{
-	// Orthographic cascade scales, straight from the projection: uv per world unit and
-	// shadow-depth per world unit. Their ratio converts a depth gap into a uv penumbra.
-	const float uvPerWorld = length(float3(lightProjectionMatrix[0][0], lightProjectionMatrix[1][0], lightProjectionMatrix[2][0]));
-	const float depthPerWorld = max(length(float3(lightProjectionMatrix[0][2], lightProjectionMatrix[1][2], lightProjectionMatrix[2][2])), 1e-8);
-
-	const float texelSize = 1.0 / ShadowSampleParam.w;
-	const float maxRadius = SharedData::pcssSettings.MaxPenumbraTexels * texelSize;
-
-	// Blocker search over the widest possible penumbra.
-	float blockerGapSum = 0.0;
-	float blockerCount = 0.0;
-	[unroll] for (int i = 0; i < 8; i++)
-	{
-		const float2 uv = baseUV + mul(Random::SpiralSampleOffsets8[i], rotationMatrix) * maxRadius;
-		const float lit = TexShadowMapSamplerComp.SampleCmpLevelZero(SampShadowMapSamplerComp, float3(uv, layerIndex), compareValue).x;
-		if (lit < 0.5) {
-			const float depth = TexShadowMapSampler.SampleLevel(SampShadowMapSampler, float3(uv, layerIndex), 0).x;
-			blockerGapSum += abs(compareValue - depth);
-			blockerCount += 1.0;
-		}
-	}
-	if (blockerCount == 0.0)
-		return 1.0;  // nothing shadows the neighbourhood: fully lit, skip the filter
-
-	// Penumbra width: sun angular radius times the receiver-to-blocker distance, in uv.
-	const float avgGapWorld = (blockerGapSum / blockerCount) / depthPerWorld;
-	const float penumbra = SharedData::pcssSettings.TanSunRadius * avgGapWorld * uvPerWorld;
-	const float radius = clamp(penumbra, texelSize, maxRadius);
-
-	float visibility = 0.0;
-	[unroll] for (int j = 0; j < 8; j++)
-	{
-		const float2 uv = baseUV + mul(Random::SpiralSampleOffsets8[j], rotationMatrix) * radius;
-		visibility += TexShadowMapSamplerComp.SampleCmpLevelZero(SampShadowMapSamplerComp, float3(uv, layerIndex), compareValue).x;
-	}
-	return visibility / 8.0;
-}
-#	endif
 
 float SampleShadow3x3(Texture2DArray<float4> tex, SamplerComparisonState samp, float2 baseUV, float layerIndex, float compareValue, float2 texelSize)
 {
@@ -542,10 +497,7 @@ PS_OUTPUT main(PS_INPUT input)
 #			elif SHADOWFILTER == 2
 		shadowVisibility = SampleShadow3x3(TexShadowMapSamplerComp, SampShadowMapSamplerComp, positionLS.xy, cascadeIndex, shadowMapCompareValue, ShadowSampleParam.zw);
 #			elif SHADOWFILTER == 4 || SHADOWFILTER == 8
-		if (SharedData::pcssSettings.Enabled)
-			shadowVisibility = SampleShadowPCSS(lightProjectionMatrix, positionLS.xy, cascadeIndex, shadowMapCompareValue, rotationMatrix);
-		else
-			shadowVisibility = SampleShadowPCF(TexShadowMapSamplerComp, SampShadowMapSamplerComp, positionLS.xy, cascadeIndex, shadowMapCompareValue, rotationMatrix, ShadowSampleParam.z);
+		shadowVisibility = SampleShadowPCF(TexShadowMapSamplerComp, SampShadowMapSamplerComp, positionLS.xy, cascadeIndex, shadowMapCompareValue, rotationMatrix, ShadowSampleParam.z);
 #			endif
 
 		if (cascadeIndex < 1 && StartSplitDistances.y < shadowMapDepth) {
@@ -564,10 +516,7 @@ PS_OUTPUT main(PS_INPUT input)
 #			elif SHADOWFILTER == 2
 			cascade1ShadowVisibility = SampleShadow3x3(TexShadowMapSamplerComp, SampShadowMapSamplerComp, cascade1PositionLS.xy, 1, cascade1ShadowMapCompareValue, ShadowSampleParam.zw);
 #			elif SHADOWFILTER == 4 || SHADOWFILTER == 8
-			if (SharedData::pcssSettings.Enabled)
-				cascade1ShadowVisibility = SampleShadowPCSS(ShadowMapProj[1], cascade1PositionLS.xy, 1, cascade1ShadowMapCompareValue, rotationMatrix);
-			else
-				cascade1ShadowVisibility = SampleShadowPCF(TexShadowMapSamplerComp, SampShadowMapSamplerComp, cascade1PositionLS.xy, 1, cascade1ShadowMapCompareValue, rotationMatrix, ShadowSampleParam.z);
+			cascade1ShadowVisibility = SampleShadowPCF(TexShadowMapSamplerComp, SampShadowMapSamplerComp, cascade1PositionLS.xy, 1, cascade1ShadowMapCompareValue, rotationMatrix, ShadowSampleParam.z);
 #			endif
 
 			float cascade1BlendFactor = smoothstep(0, 1, (shadowMapDepth - StartSplitDistances.y) / (EndSplitDistances.x - StartSplitDistances.y));

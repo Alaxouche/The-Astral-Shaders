@@ -23,6 +23,8 @@ cbuffer JitterCB : register(b0)
 	float2 jitter;
 	float useWideKernel;
 	float pad0;
+	float2 renderFraction;
+	float2 pad1;
 };
 
 float SampleMinDepth2x2(float2 uv)
@@ -50,13 +52,15 @@ PS_OUTPUT main(PS_INPUT input)
 {
 	PS_OUTPUT psout;
 
-	float2 originalUV = FrameBuffer::GetDynamicResolutionAdjustedScreenPosition(input.TexCoord);
+	// The source holds the scene in its top-left render-resolution rectangle; map the display
+	// position into it with the fraction the upscaler passed, not the per-frame parameters.
+	float2 originalUV = input.TexCoord * renderFraction;
 
 	// Remove jitter offset to get the correct sampling coordinates
 	float2 uv = originalUV - (jitter * SharedData::BufferDim.zw);
 
-	// Clamp within dynamic-resolution bounds.
-	uv = FrameBuffer::ClampDynamicResolutionAdjustedScreenPosition(uv, input.TexCoord);
+	// Clamp within the render rectangle (half a texel inside its edge).
+	uv = clamp(uv, 0.0, renderFraction - 0.5 * SharedData::BufferDim.zw);
 
 	// Upscale using linear sampling
 	psout.RefractionNormals = RefractionNormals.SampleLevel(LinearSampler, uv, 0);

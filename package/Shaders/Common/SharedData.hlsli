@@ -745,14 +745,6 @@ namespace SharedData
 		uint3 pad;
 	};
 
-	// Mirrors SoftShadows::GPUSettings (src/Features/SoftShadows.h).
-	struct PCSSSettings
-	{
-		uint Enabled;
-		float TanSunRadius;       // tangent of the sun's angular radius
-		float MaxPenumbraTexels;  // blur and blocker-search ceiling, shadowmap texels
-		float padPCSS;
-	};
 
 	cbuffer FeatureData : register(b6)
 	{
@@ -786,7 +778,6 @@ namespace SharedData
 		NightSkySettings nightSkySettings;
 		HorizonFixSettings horizonFixSettings;
 		HairBacklightingSettings hairBacklightingSettings;
-		PCSSSettings pcssSettings;
 	};
 
 	Texture2D<float4> DepthTexture : register(t17);

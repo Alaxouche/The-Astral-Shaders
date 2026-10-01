@@ -50,7 +50,6 @@
 #include "Features/VolumetricLighting.h"
 #include "Features/VolumetricShadows.h"
 #include "Features/OcclusionCulling.h"
-#include "Features/SoftShadows.h"
 #include "Features/ReverseZ.h"
 #include "Features/WaterEffects.h"
 #include "Features/WetnessEffects.h"
@@ -228,7 +227,6 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::ibl,
 		&globals::features::extendedTranslucency,
 		&globals::features::occlusionCulling,
-		&globals::features::softShadows,
 		&globals::features::reverseZ,
 		&globals::features::upscaling,
 		&globals::features::renderDoc,

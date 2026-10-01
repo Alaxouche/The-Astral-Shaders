@@ -7,6 +7,7 @@
 #include "Features/ProceduralSun.h"
 #include "Features/ReverseZ.h"
 #include "Features/SkySync.h"
+#include "Features/TerrainBlending.h"
 #include "Features/Upscaling/SeamProbe.h"
 #include "Globals.h"
 #include "Menu.h"
@@ -500,6 +501,25 @@ bool EffectManager::ExecuteEffects(RE::BSGraphics::RenderTargetData& a_input, RE
 		SeamProbe::Measure("3 E11 colour correction (kMAIN)", textureOriginal.texture);
 		if (auto* depthSRV = GetEffectDepthSRV())
 			SeamProbe::Measure("4 E11 depth input", static_cast<ID3D11View*>(depthSRV));
+		// Which texture the scene depth view points at: the game's depth (typeless) or a
+		// feature's R32 substitute that only covers the render rectangle.
+		if (auto* sceneDepthSRV = globals::game::renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV) {
+			D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+			sceneDepthSRV->GetDesc(&srvDesc);
+			winrt::com_ptr<ID3D11Resource> resource;
+			sceneDepthSRV->GetResource(resource.put());
+			D3D11_TEXTURE2D_DESC texDesc{};
+			if (winrt::com_ptr<ID3D11Texture2D> texture; resource && resource.try_as(texture) && texture)
+				texture->GetDesc(&texDesc);
+			const auto& terrainBlending = globals::features::terrainBlending;
+			const char* owner = "unknown";
+			if (terrainBlending.loaded && sceneDepthSRV == terrainBlending.depthSRVBackup)
+				owner = "game depth (Terrain Blending backup)";
+			else if (terrainBlending.loaded && terrainBlending.blendedDepthTexture && sceneDepthSRV == terrainBlending.blendedDepthTexture->srv.get())
+				owner = "Terrain Blending blended depth";
+			logger::info("[SeamProbe]   4 E11 scene depth SRV {:p}: view fmt {}, texture {}x{} fmt {}, {}",
+				static_cast<void*>(sceneDepthSRV), static_cast<int>(srvDesc.Format), texDesc.Width, texDesc.Height, static_cast<int>(texDesc.Format), owner);
+		}
 	}
 
 	ExecuteEffect(enbDepthOfField, ids.useDepthOfField);
@@ -513,6 +533,7 @@ bool EffectManager::ExecuteEffects(RE::BSGraphics::RenderTargetData& a_input, RE
 	ExecuteEffect(enbLens, ids.useLens);
 	ExecuteEffect(enbAdaptation, ids.useAdaptation);
 	if (probing) {
+		SeamProbe::Measure("6 E11 downsampled scene", static_cast<ID3D11View*>(textureManager.GetDownsampleTexture()));
 		probeCommon("6 E11 bloom", "TextureBloom");
 		probeCommon("6 E11 lens", "TextureLens");
 	}

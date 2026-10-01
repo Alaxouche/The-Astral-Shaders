@@ -115,6 +115,10 @@ public:
 		float2 jitter;
 		float useWideKernel;
 		float pad0;
+		// Render size over display size. Passed explicitly so the upscale passes do not depend
+		// on the per-frame DynamicResolutionParams, which the lock can already have forced to 1.
+		float2 renderFraction;
+		float2 pad1;
 	};
 
 	struct UpscalingDataCB

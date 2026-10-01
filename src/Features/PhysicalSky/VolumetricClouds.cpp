@@ -4,6 +4,7 @@
 #include "Deferred.h"
 #include "Features/Effects11/D3D11StateBackup.h"
 #include "Features/TerrainShadows.h"
+#include "Features/Upscaling.h"
 #include "Features/VolumetricShadows.h"
 #include "State.h"
 #include "Util.h"
@@ -617,8 +618,12 @@ void PhysicalSky::RenderVolumetricClouds(VolumetricCloudPass a_pass)
 	// while elevated clouds are still sunlit. Trace their actual solar column.
 	if (cbData.volCloudUseSun != 0)
 		cloudLightDir = cbData.sunDir;
+	// The cached per-frame buffer can carry the locked parameters (1.0) rather than the size the
+	// scene is rendered at; the upscaler's own scale is authoritative while it is active.
 	const auto& frameBuffer = globals::game::frameBufferCached;
-	const auto& resolutionScale = frameBuffer.GetDynamicResolutionParams1();
+	float2 resolutionScale = { frameBuffer.GetDynamicResolutionParams1().x, frameBuffer.GetDynamicResolutionParams1().y };
+	if (const auto& upscaling = globals::features::upscaling; upscaling.loaded && upscaling.IsUpscalingActive())
+		resolutionScale = upscaling.resolutionScale;
 	const float2 textureDim = { static_cast<float>(texVolTr->desc.Width), static_cast<float>(texVolTr->desc.Height) };
 	const float2 frameDim = {
 		std::clamp(textureDim.x * resolutionScale.x, 1.0f, textureDim.x),

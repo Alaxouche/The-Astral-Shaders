@@ -1852,6 +1852,16 @@ void Upscaling::UpscaleDepth()
 
 		jitterData.useWideKernel = depthUpscaleUseWideKernel ? 1.0f : 0.0f;
 		jitterData.pad0 = 0.0f;
+		jitterData.renderFraction = { std::clamp(resolutionScale.x, FLT_EPSILON, 1.0f), std::clamp(resolutionScale.y, FLT_EPSILON, 1.0f) };
+		jitterData.pad1 = { 0.0f, 0.0f };
+	}
+
+	if (SeamProbe::IsSampling()) {
+		const auto& runtimeData = globals::game::graphicsState->GetRuntimeData();
+		logger::info("[SeamProbe] depth upscale: render fraction {:.4f}x{:.4f}, ratios {:.4f}x{:.4f}, lock {}, wide kernel {}",
+			jitterData.renderFraction.x, jitterData.renderFraction.y,
+			runtimeData.dynamicResolutionWidthRatio, runtimeData.dynamicResolutionHeightRatio,
+			runtimeData.dynamicResolutionLock, depthUpscaleUseWideKernel);
 	}
 
 	jitterCB->Update(jitterData);

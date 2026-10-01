@@ -8,7 +8,7 @@ struct HairBacklighting : Feature
 {
 	struct alignas(16) Settings
 	{
-		uint Enable = 1;
+		uint Enable = 0;  // Alpha: off until its look is validated on this fork
 		float Strength = 2.0f;
 		float ScatterWidth = 0.5f;
 		float EdgeFalloff = 3.2f;

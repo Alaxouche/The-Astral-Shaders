@@ -21,19 +21,21 @@ cbuffer JitterCB : register(b0)
 	float2 jitter;
 	float useWideKernel;
 	float pad0;
+	float2 renderFraction;
+	float2 pad1;
 };
 
 PS_OUTPUT main(PS_INPUT input)
 {
 	PS_OUTPUT psout;
 
-	float2 originalUV = FrameBuffer::GetDynamicResolutionAdjustedScreenPosition(input.TexCoord);
+	float2 originalUV = input.TexCoord * renderFraction;
 
 	// Remove jitter offset to get the correct sampling coordinates
 	float2 uv = originalUV - (jitter * SharedData::BufferDim.zw);
 
 	// Clamp within bounds
-	uv = clamp(uv, 0.0, FrameBuffer::DynamicResolutionParams1.xy);
+	uv = clamp(uv, 0.0, renderFraction - 0.5 * SharedData::BufferDim.zw);
 
 	// Upscale using linear sampling with jitter-corrected coordinates
 	psout.UnderwaterMask = UnderwaterMask.SampleLevel(LinearSampler, uv, 0);
