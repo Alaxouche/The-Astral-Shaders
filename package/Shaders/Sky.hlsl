@@ -4,6 +4,7 @@
 #include "Common/FrameBuffer.hlsli"
 #include "Common/Math.hlsli"
 #include "Common/Permutation.hlsli"
+#include "Common/Random.hlsli"
 #include "Common/SharedData.hlsli"
 
 struct VS_INPUT
@@ -211,7 +212,7 @@ cbuffer AlphaTestRefCB : register(b11)
 #		include "CloudShadows/CloudShadows.hlsli"
 #	endif
 
-#	if defined(EFFECTS11) && (defined(HORIZFADE) || (defined(TEX) && !defined(DITHER) && !defined(CLOUDS) && !defined(MOONMASK)))
+#	if defined(EFFECTS11) && (defined(HORIZFADE) || (defined(TEX) && !defined(DITHER) && !defined(CLOUDS)))
 #		define EFFECTS11_CELESTIAL_EXTINCTION
 #	endif
 
@@ -250,6 +251,28 @@ cbuffer AlphaTestRefCB : register(b11)
 #	endif
 
 Texture2D<float> TexDepthSampler : register(t17);
+
+#	if defined(EFFECTS11) && (defined(HORIZFADE) || defined(MOONMASK))
+float3 ShadeStars(float4 starTexel, float2 uv)
+{
+	float3 color = starTexel.xyz;
+	[branch] if (SharedData::enbSettings.EnableAnimatedStars) {
+		float2 textureSize;
+		TexBaseSampler.GetDimensions(textureSize.x, textureSize.y);
+		uint seed = Random::iqint3(uint2(floor(frac(uv) * textureSize)));
+		float2 star = Random::f2(seed);
+		float4 quad = TexBaseSampler.GatherAlpha(SampBaseSampler, uv);
+		float isolation = max(max(quad.x, quad.y), max(quad.z, quad.w)) - dot(quad, 0.25);
+		float mask = saturate(isolation * SharedData::enbSettings.StarsAnimationDensity - 0.5);
+		float rate = SharedData::enbSettings.StarsAnimationTime * (2.0 + 6.0 * star.y);
+		float wave = 0.5 + 0.5 * sin(Math::TAU * frac(SharedData::Timer * rate + star.x));
+		color *= 1.0 + wave * wave * mask * SharedData::enbSettings.StarsAnimationIntensity * 0.3;
+	}
+	float3 squared = color * color;
+	color = lerp(color, squared * squared, SharedData::enbSettings.StarsCurve);
+	return max(color, 0.0) * SharedData::enbSettings.StarsIntensity;
+}
+#	endif
 
 #	if defined(PHYSICAL_SKY)
 float GetPhysSkyCloudShadow(float3 viewDir, uint2 pxCoord)
@@ -305,6 +328,17 @@ PS_OUTPUT main(PS_INPUT input)
 #	ifndef OCCLUSION
 #		ifndef TEXLERP
 	float4 baseColor = TexBaseSampler.Sample(SampBaseSampler, input.TexCoord0.xy);
+#			if defined(EFFECTS11) && (defined(HORIZFADE) || defined(MOONMASK))
+	[branch] if (SharedData::enbSettings.Enable)
+		baseColor.xyz = ShadeStars(baseColor, input.TexCoord0.xy);
+#			elif defined(EFFECTS11) && defined(TEX) && !defined(DITHER) && !defined(CLOUDS)
+	[branch] if (SharedData::enbSettings.Enable && (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::IsMoon)) {
+		float2 edge = abs(input.TexCoord0.xy * 2.0 - 1.0);
+		baseColor.xyz = pow(max(baseColor.xyz, 0.0), SharedData::enbSettings.MoonCurve);
+		if (max(edge.x, edge.y) > 0.985)
+			baseColor.xyz = 0.0;
+	}
+#			endif
 	baseColor.xyz = Color::Sky(baseColor.xyz);
 #			ifdef TEXFADE
 	baseColor.w *= PParams.x;
@@ -437,7 +471,16 @@ PS_OUTPUT main(PS_INPUT input)
 #				endif
 	psout.Color.xyz = Color::Sky(skyGradientColor) + skyScale;
 
+#				if defined(EFFECTS11)
+	[branch] if (SharedData::enbSettings.Enable && !SharedData::enbSettings.FixBlackCrush) {
+		float3 additiveDither = psout.Color.xyz + noiseGrad * 0.1;
+		psout.Color.xyz = lerp(additiveDither, psout.Color.xyz * (1.0 + noiseGrad), saturate(dot(psout.Color.xyz, 8.0)));
+	} else {
+		psout.Color.xyz *= 1.0 + noiseGrad;
+	}
+#				else
 	psout.Color.xyz *= 1.0 + noiseGrad;
+#				endif
 	psout.Color.w = input.Color.w;
 #				if defined(NIGHT_SKY)
 	psout.Color.xyz += nightSkyRadiance;
@@ -452,6 +495,10 @@ PS_OUTPUT main(PS_INPUT input)
 	}
 
 #		elif defined(HORIZFADE)
+#			if defined(EFFECTS11)
+	if (SharedData::enbSettings.Enable)
+		skyScale = 0.0;
+#			endif
 	psout.Color.xyz = float3(1.5, 1.5, 1.5) * (Color::Sky(input.Color.xyz) * baseColor.xyz + skyScale);
 	psout.Color.w = input.TexCoord2.x * (baseColor.w * input.Color.w);
 #			if defined(NIGHT_SKY)

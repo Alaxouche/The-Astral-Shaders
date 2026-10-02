@@ -1025,6 +1025,10 @@ PS_OUTPUT main(PS_INPUT input)
 #	else
 	finalColor *= composeMedium ? 1.0 : fogMul;
 #	endif
+#	if defined(EFFECTS11) && defined(SKY_OBJECT)
+	[branch] if (SharedData::enbSettings.Enable && (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::IsAurora))
+		finalColor.xyz = pow(max(finalColor.xyz, 0.0), SharedData::enbSettings.AuroraCurve) * SharedData::enbSettings.AuroraIntensity;
+#	endif
 	psout.Diffuse = finalColor;
 
 #	if defined(LIGHTING) && defined(LIGHT_LIMIT_FIX) && defined(LLFDEBUG)
