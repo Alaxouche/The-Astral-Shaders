@@ -7,7 +7,6 @@
 #include "I18n/I18n.h"
 #include "Menu.h"
 #include "State.h"
-#include "BrandLogo.h"
 
 // Static member definitions
 bool SetupRenderer::isFirstTimeSetupShown = false;
@@ -59,19 +58,6 @@ void SetupRenderer::RenderFirstTimeSetupDialog()
 	drawList->PopClipRect();
 
 	auto menu = Menu::GetSingleton();
-
-	// The logo as a faint watermark behind the dialog copy
-	if (BrandLogo::IsAvailable()) {
-		const ImVec2 windowPos = ImGui::GetWindowPos();
-		const ImVec2 windowSize = ImGui::GetWindowSize();
-		const float logoHeight = LOGO_WATERMARK_HEIGHT * uiScale;
-		const float logoWidth = logoHeight * BrandLogo::Aspect();
-
-		BrandLogo::Draw(ImGui::GetWindowDrawList(),
-			ImVec2(windowPos.x + (windowSize.x - logoWidth) * 0.5f, windowPos.y + (windowSize.y - logoHeight) * 0.5f),
-			logoHeight,
-			ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, WATERMARK_ALPHA)));
-	}
 
 	// Center all content
 	float windowWidth = ImGui::GetWindowWidth();

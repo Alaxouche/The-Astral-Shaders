@@ -15,37 +15,19 @@
 #include "Util.h"
 #include "Utils/UI.h"
 #include "Utils/VectorIcons.h"
-#include "BrandLogo.h"
 
 namespace
 {
-	// Logo height relative to the title line, and the gap between logo and title.
-	constexpr float kLogoHeightRatio = 1.9f;
-	constexpr float kLogoTextGapRatio = 0.45f;
-
-	/** @brief Draws the logo followed by the product title on one line. */
+	/** @brief Draws the product title line. */
 	void RenderTitleRow()
 	{
 		auto title = std::format("{} {}", Plugin::DISPLAY_NAME, Fork::GetVersionString());
 
 		MenuFonts::FontRoleGuard titleFont(Menu::FontRole::Title);
-
-		const float fontSize = ImGui::GetFontSize();
-		const float logoHeight = fontSize * kLogoHeightRatio;
-		const float rowHeight = ImMax(logoHeight, ImGui::GetTextLineHeight());
-
-		const ImVec2 origin = ImGui::GetCursorScreenPos();
-		const float logoWidth = BrandLogo::Draw(ImGui::GetWindowDrawList(), ImVec2(origin.x, origin.y + (rowHeight - logoHeight) * 0.5f), logoHeight);
-		const float gap = logoWidth > 0.0f ? fontSize * kLogoTextGapRatio : 0.0f;
-
-		ImGui::SetCursorScreenPos(ImVec2(origin.x + logoWidth + gap, origin.y + (rowHeight - ImGui::GetTextLineHeight()) * 0.5f));
 		ImGui::TextUnformatted(title.c_str());
 		// Build detail: the git describe of this exact binary, dimmed beside the version.
 		ImGui::SameLine();
 		ImGui::TextDisabled("%s", Plugin::BUILD_DESCRIBE.data());
-
-		ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + rowHeight));
-		ImGui::Dummy(ImVec2(0.0f, 0.0f));
 	}
 }
 

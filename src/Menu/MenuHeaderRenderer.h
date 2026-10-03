@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @brief Renders the menu header: logo, title and global action buttons.
+ * @brief Renders the text-only menu header: title and global action buttons.
  *
  * When the window is docked the title bar already names the window, so only the
  * action row is drawn.
