@@ -7,7 +7,7 @@
 #include "I18n/I18n.h"
 #include "Menu.h"
 #include "State.h"
-#include "Utils/VectorIcons.h"
+#include "BrandLogo.h"
 
 // Static member definitions
 bool SetupRenderer::isFirstTimeSetupShown = false;
@@ -60,20 +60,17 @@ void SetupRenderer::RenderFirstTimeSetupDialog()
 
 	auto menu = Menu::GetSingleton();
 
-	// Bottle logo as a faint watermark behind the dialog copy
-	{
+	// The logo as a faint watermark behind the dialog copy
+	if (BrandLogo::IsAvailable()) {
 		const ImVec2 windowPos = ImGui::GetWindowPos();
 		const ImVec2 windowSize = ImGui::GetWindowSize();
 		const float logoHeight = LOGO_WATERMARK_HEIGHT * uiScale;
-		const float logoWidth = logoHeight * Util::Icons::kBottleAspect;
+		const float logoWidth = logoHeight * BrandLogo::Aspect();
 
-		ImVec4 watermarkColor = menu->GetSettings().Theme.Palette.Text;
-		watermarkColor.w = WATERMARK_ALPHA;
-
-		Util::Icons::DrawBottle(ImGui::GetWindowDrawList(),
+		BrandLogo::Draw(ImGui::GetWindowDrawList(),
 			ImVec2(windowPos.x + (windowSize.x - logoWidth) * 0.5f, windowPos.y + (windowSize.y - logoHeight) * 0.5f),
 			logoHeight,
-			ImGui::GetColorU32(watermarkColor));
+			ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, WATERMARK_ALPHA)));
 	}
 
 	// Center all content

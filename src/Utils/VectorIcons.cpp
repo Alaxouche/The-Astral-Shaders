@@ -7,34 +7,11 @@
 
 namespace
 {
-	// Bottle outline, normalised so height == 1; width == kBottleAspect.
-	constexpr std::array<ImVec2, 33> kBottleOutline = { {
-		ImVec2(0.2438f, 0.0098f), ImVec2(0.2586f, 0.0465f), ImVec2(0.2594f, 0.1682f),
-		ImVec2(0.2646f, 0.2165f), ImVec2(0.2825f, 0.2437f), ImVec2(0.3452f, 0.2961f),
-		ImVec2(0.3612f, 0.3322f), ImVec2(0.3684f, 0.3958f), ImVec2(0.3689f, 0.4821f),
-		ImVec2(0.3668f, 0.7342f), ImVec2(0.3602f, 0.8924f), ImVec2(0.3481f, 0.9448f),
-		ImVec2(0.3373f, 0.9595f), ImVec2(0.3179f, 0.9739f), ImVec2(0.2518f, 0.9932f),
-		ImVec2(0.1429f, 0.9992f), ImVec2(0.0859f, 0.9881f), ImVec2(0.0390f, 0.9710f),
-		ImVec2(0.0132f, 0.9481f), ImVec2(0.0034f, 0.9233f), ImVec2(0.0007f, 0.8587f),
-		ImVec2(0.0173f, 0.6572f), ImVec2(0.0101f, 0.4469f), ImVec2(0.0144f, 0.3723f),
-		ImVec2(0.0200f, 0.3267f), ImVec2(0.0286f, 0.3073f), ImVec2(0.0917f, 0.2513f),
-		ImVec2(0.1094f, 0.2197f), ImVec2(0.1139f, 0.0568f), ImVec2(0.1267f, 0.0232f),
-		ImVec2(0.1412f, 0.0095f), ImVec2(0.1624f, 0.0020f), ImVec2(0.2137f, 0.0007f) } };
-
-	constexpr std::array<ImVec2, 8> kBottleCap = { {
-		ImVec2(0.1592f, 0.0560f), ImVec2(0.1621f, 0.0422f), ImVec2(0.1714f, 0.0331f),
-		ImVec2(0.2160f, 0.0314f), ImVec2(0.2122f, 0.0490f), ImVec2(0.2019f, 0.0580f),
-		ImVec2(0.1803f, 0.0606f), ImVec2(0.1592f, 0.0560f) } };
-
 	// The action icons are transcribed from 24x24 artwork with a 2px stroke.
 	constexpr float kSourceGrid = 24.0f;
 	constexpr float kSourceStroke = 2.0f;
 
 	constexpr float kIconStrokeRatio = kSourceStroke / kSourceGrid;
-	constexpr float kBottleStrokeRatio = 0.075f;
-
-	// Below this height the cap detail collapses into a blob, so it is dropped.
-	constexpr float kBottleCapMinHeight = 40.0f;
 
 	float ResolveThickness(float thickness, float reference, float ratio)
 	{
@@ -119,26 +96,6 @@ namespace
 
 namespace Util::Icons
 {
-	void DrawBottle(ImDrawList* drawList, const ImVec2& topLeft, float height, ImU32 color, float thickness)
-	{
-		if (!drawList || height <= 0.0f)
-			return;
-
-		const float stroke = ResolveThickness(thickness, height, kBottleStrokeRatio);
-
-		std::array<ImVec2, kBottleOutline.size()> outline{};
-		for (size_t i = 0; i < kBottleOutline.size(); ++i)
-			outline[i] = ImVec2(topLeft.x + kBottleOutline[i].x * height, topLeft.y + kBottleOutline[i].y * height);
-		StrokePolyline(drawList, outline.data(), static_cast<int>(outline.size()), color, stroke, true);
-
-		if (height >= kBottleCapMinHeight) {
-			std::array<ImVec2, kBottleCap.size()> cap{};
-			for (size_t i = 0; i < kBottleCap.size(); ++i)
-				cap[i] = ImVec2(topLeft.x + kBottleCap[i].x * height, topLeft.y + kBottleCap[i].y * height);
-			StrokePolyline(drawList, cap.data(), static_cast<int>(cap.size()), color, stroke * 0.8f, true);
-		}
-	}
-
 	void Draw(ImDrawList* drawList, Kind kind, const ImVec2& topLeft, float size, ImU32 color, float thickness)
 	{
 		if (!drawList || size <= 0.0f || kind == Kind::None)

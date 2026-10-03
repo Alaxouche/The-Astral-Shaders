@@ -1,10 +1,10 @@
 #pragma once
 
 /**
- * @brief Renders the compact text-only menu header: title and global action buttons.
+ * @brief Renders the menu header: logo, title and global action buttons.
  *
- * The header carries no imagery. When the window is docked the title bar already
- * names the window, so only the action row is drawn.
+ * When the window is docked the title bar already names the window, so only the
+ * action row is drawn.
  */
 class MenuHeaderRenderer
 {

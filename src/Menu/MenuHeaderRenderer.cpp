@@ -15,6 +15,7 @@
 #include "Util.h"
 #include "Utils/UI.h"
 #include "Utils/VectorIcons.h"
+#include "BrandLogo.h"
 
 namespace
 {
@@ -22,7 +23,7 @@ namespace
 	constexpr float kLogoHeightRatio = 1.9f;
 	constexpr float kLogoTextGapRatio = 0.45f;
 
-	/** @brief Draws the bottle logo followed by the product title on one line. */
+	/** @brief Draws the logo followed by the product title on one line. */
 	void RenderTitleRow()
 	{
 		auto title = std::format("{} {}", Plugin::DISPLAY_NAME, Fork::GetVersionString());
@@ -31,33 +32,13 @@ namespace
 
 		const float fontSize = ImGui::GetFontSize();
 		const float logoHeight = fontSize * kLogoHeightRatio;
-		const float logoWidth = logoHeight * Util::Icons::kBottleAspect;
-		const float gap = fontSize * kLogoTextGapRatio;
 		const float rowHeight = ImMax(logoHeight, ImGui::GetTextLineHeight());
 
 		const ImVec2 origin = ImGui::GetCursorScreenPos();
-		// The Astral logo, loaded once; the alpha channel carries the glow so it sits on any
-		// theme. Falls back to the bottle line art when the asset is missing.
-		static ID3D11ShaderResourceView* astralLogo = nullptr;
-		static ImVec2                    astralLogoSize{};
-		static bool                      astralLogoTried = false;
-		if (!astralLogoTried) {
-			astralLogoTried = true;
-			Util::LoadTextureFromFile(globals::d3d::device, "Data/SKSE/Plugins/CommunityShaders/AstralLogo.png", &astralLogo, astralLogoSize);
-		}
-		if (astralLogo) {
-			const float side = logoHeight;
-			ImGui::GetWindowDrawList()->AddImage(reinterpret_cast<ImTextureID>(astralLogo),
-				ImVec2(origin.x, origin.y + (rowHeight - side) * 0.5f),
-				ImVec2(origin.x + side, origin.y + (rowHeight - side) * 0.5f + side));
-		} else
-			Util::Icons::DrawBottle(ImGui::GetWindowDrawList(),
-			ImVec2(origin.x, origin.y + (rowHeight - logoHeight) * 0.5f),
-			logoHeight,
-			ImGui::GetColorU32(ImGuiCol_Text));
+		const float logoWidth = BrandLogo::Draw(ImGui::GetWindowDrawList(), ImVec2(origin.x, origin.y + (rowHeight - logoHeight) * 0.5f), logoHeight);
+		const float gap = logoWidth > 0.0f ? fontSize * kLogoTextGapRatio : 0.0f;
 
-		const float drawnLogoWidth = astralLogo ? logoHeight : logoWidth;
-		ImGui::SetCursorScreenPos(ImVec2(origin.x + drawnLogoWidth + gap, origin.y + (rowHeight - ImGui::GetTextLineHeight()) * 0.5f));
+		ImGui::SetCursorScreenPos(ImVec2(origin.x + logoWidth + gap, origin.y + (rowHeight - ImGui::GetTextLineHeight()) * 0.5f));
 		ImGui::TextUnformatted(title.c_str());
 		// Build detail: the git describe of this exact binary, dimmed beside the version.
 		ImGui::SameLine();

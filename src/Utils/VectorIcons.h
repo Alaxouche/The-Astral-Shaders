@@ -20,19 +20,6 @@ namespace Util::Icons
 		Refresh,  /**< @brief Cycle arrows in a ring — rebuild/clear a cache. */
 	};
 
-	/** @brief Bottle logo width divided by its height. */
-	inline constexpr float kBottleAspect = 0.3689f;
-
-	/**
-	 * @brief Draws the bottle logo as line art.
-	 * @param drawList Target draw list.
-	 * @param topLeft Top-left corner of the logo's bounding box.
-	 * @param height Logo height in pixels; width follows from kBottleAspect.
-	 * @param color Stroke colour.
-	 * @param thickness Stroke width; <= 0 picks a width proportional to height.
-	 */
-	void DrawBottle(ImDrawList* drawList, const ImVec2& topLeft, float height, ImU32 color, float thickness = 0.0f);
-
 	/**
 	 * @brief Draws one of the line-art action icons inside a square box.
 	 * @param drawList Target draw list.
