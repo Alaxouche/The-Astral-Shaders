@@ -8,6 +8,8 @@
 #include "State.h"
 #include "Utils/D3D.h"
 
+#include <winrt/base.h>
+
 #define I18N_KEY_PREFIX "feature.terrain_blending."
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
@@ -297,22 +299,80 @@ void TerrainBlending::ClearShaderCache()
 	}
 }
 
+namespace
+{
+	// Shader resource view format for a depth texture, including the float layouts Reverse Z
+	// converts the targets to.
+	DXGI_FORMAT DepthViewFormat(DXGI_FORMAT a_texture)
+	{
+		switch (a_texture) {
+		case DXGI_FORMAT_R24G8_TYPELESS:
+			return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+		case DXGI_FORMAT_R32G8X24_TYPELESS:
+			return DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+		case DXGI_FORMAT_R32_TYPELESS:
+			return DXGI_FORMAT_R32_FLOAT;
+		default:
+			return a_texture;
+		}
+	}
+
+	ID3D11Resource* ResourceOf(ID3D11View* a_view)
+	{
+		if (!a_view)
+			return nullptr;
+		winrt::com_ptr<ID3D11Resource> resource;
+		a_view->GetResource(resource.put());
+		return resource.get();  // the texture outlives this call; only the identity is used
+	}
+}
+
+void TerrainBlending::RefreshSceneDepthBackup(RE::BSGraphics::DepthStencilData& a_target, ID3D11ShaderResourceView*& a_backup, winrt::com_ptr<ID3D11ShaderResourceView>& a_owned, const char* a_label)
+{
+	if (!a_target.texture)
+		return;
+
+	ID3D11ShaderResourceView* blended = blendedDepthTexture ? blendedDepthTexture->srv.get() : nullptr;
+
+	// The game (or Reverse Z, which rebuilds the depth targets with a float format after
+	// SetupResources ran) can replace the texture behind this target. A view of the previous
+	// texture, whether the backup or the one currently bound, reads data nothing writes any more.
+	if (a_backup && ResourceOf(a_backup) == a_target.texture)
+		return;
+
+	if (a_target.depthSRV && a_target.depthSRV != blended && ResourceOf(a_target.depthSRV) == a_target.texture) {
+		logger::info("[Terrain Blending] {} depth view changed ({:p} -> {:p}); backup refreshed from the bound view", a_label, static_cast<void*>(a_backup), static_cast<void*>(a_target.depthSRV));
+		a_backup = a_target.depthSRV;
+		return;
+	}
+
+	// Nothing bound on the live texture: make our own view of it.
+	D3D11_TEXTURE2D_DESC texDesc{};
+	a_target.texture->GetDesc(&texDesc);
+	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+	srvDesc.Format = DepthViewFormat(texDesc.Format);
+	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	srvDesc.Texture2D.MostDetailedMip = 0;
+	srvDesc.Texture2D.MipLevels = 1;
+	winrt::com_ptr<ID3D11ShaderResourceView> view;
+	if (FAILED(globals::d3d::device->CreateShaderResourceView(a_target.texture, &srvDesc, view.put()))) {
+		logger::error("[Terrain Blending] {} depth texture changed but no view could be created (texture format {})", a_label, static_cast<int>(texDesc.Format));
+		return;
+	}
+	Util::SetResourceName(view.get(), "TerrainBlending::%s SceneDepth SRV", a_label);
+	logger::info("[Terrain Blending] {} depth texture changed (format {}); backup replaced by a new view {:p}", a_label, static_cast<int>(texDesc.Format), static_cast<void*>(view.get()));
+	a_owned = view;
+	a_backup = a_owned.get();
+	if (a_target.depthSRV != blended)
+		a_target.depthSRV = a_backup;
+}
+
 void TerrainBlending::RefreshSceneDepthBackups()
 {
 	auto renderer = globals::game::renderer;
-	auto& mainDepth = renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN];
-	auto& zPrepassCopy = renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kPOST_ZPREPASS_COPY];
-	ID3D11ShaderResourceView* blended = blendedDepthTexture ? blendedDepthTexture->srv.get() : nullptr;
-
-	// Whatever the game binds that is not our own blended texture is the current scene depth.
-	if (mainDepth.depthSRV && mainDepth.depthSRV != blended && mainDepth.depthSRV != depthSRVBackup) {
-		logger::info("[Terrain Blending] Scene depth view changed ({:p} -> {:p}); backup refreshed", static_cast<void*>(depthSRVBackup), static_cast<void*>(mainDepth.depthSRV));
-		depthSRVBackup = mainDepth.depthSRV;
-	}
-	if (zPrepassCopy.depthSRV && zPrepassCopy.depthSRV != blended && zPrepassCopy.depthSRV != prepassSRVBackup) {
-		logger::info("[Terrain Blending] Prepass depth view changed ({:p} -> {:p}); backup refreshed", static_cast<void*>(prepassSRVBackup), static_cast<void*>(zPrepassCopy.depthSRV));
-		prepassSRVBackup = zPrepassCopy.depthSRV;
-	}
+	auto& depthStencils = renderer->GetDepthStencilData().depthStencils;
+	RefreshSceneDepthBackup(depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN], depthSRVBackup, ownedSceneDepthSRV, "Scene");
+	RefreshSceneDepthBackup(depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kPOST_ZPREPASS_COPY], prepassSRVBackup, ownedPrepassDepthSRV, "Prepass");
 }
 
 void TerrainBlending::Hooks::Main_RenderDepth::thunk(bool a1, bool a2)

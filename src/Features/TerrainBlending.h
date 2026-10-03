@@ -1,5 +1,7 @@
 #pragma once
 
+#include <winrt/base.h>
+
 #include "Utils/VersionedRelocation.h"
 
 /** @brief Provides seamless depth-based blending between terrain and objects to eliminate harsh transitions. */
@@ -121,6 +123,13 @@ public:
 	 * game no longer renders into, and every pass that runs after the restore reads stale depth.
 	 */
 	void RefreshSceneDepthBackups();
+
+	/** @brief One target of RefreshSceneDepthBackups: re-points a_backup at a view of the live texture. */
+	void RefreshSceneDepthBackup(RE::BSGraphics::DepthStencilData& a_target, ID3D11ShaderResourceView*& a_backup, winrt::com_ptr<ID3D11ShaderResourceView>& a_owned, const char* a_label);
+
+	// Views this feature created itself when no view of the live depth texture was left to adopt.
+	winrt::com_ptr<ID3D11ShaderResourceView> ownedSceneDepthSRV;
+	winrt::com_ptr<ID3D11ShaderResourceView> ownedPrepassDepthSRV;
 
 	/** @brief Blends the main and terrain depth buffers using a compute shader dispatch. */
 	void BlendPrepassDepths();
