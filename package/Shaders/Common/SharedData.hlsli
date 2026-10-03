@@ -111,6 +111,7 @@ namespace SharedData
 		float4 LODShadowAxisZ;
 		float4 LODShadowCascades[3];
 		float4 LODShadowDepthBias;
+		float4 LODShadowNear;  // xyz camera position, w = start distance of the near fade
 	};
 
 	struct LightLimitFixSettings

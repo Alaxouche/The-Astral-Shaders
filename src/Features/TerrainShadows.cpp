@@ -138,7 +138,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	TerrainShadows::Settings,
 	EnableTerrainShadow,
 	EnableLODShadow,
-	LODShadowResolution)
+	LODShadowResolution,
+	LODShadowStartDistance)
 
 namespace
 {
@@ -195,6 +196,9 @@ void TerrainShadows::GameLoaded()
 void TerrainShadows::LoadSettings(json& o_json)
 {
 	settings = o_json;
+	if (!std::isfinite(settings.LODShadowStartDistance))
+		settings.LODShadowStartDistance = Settings{}.LODShadowStartDistance;
+	settings.LODShadowStartDistance = std::clamp(settings.LODShadowStartDistance, 0.0f, 65536.0f);
 }
 
 void TerrainShadows::SaveSettings(json& o_json)
@@ -213,6 +217,8 @@ void TerrainShadows::DrawSettings()
 		int resolutionIndex = GetLODShadowResolutionIndex(settings.LODShadowResolution);
 		if (ImGui::Combo(T(TKEY("lod_shadow_resolution"), "LOD Shadow Resolution"), &resolutionIndex, resolutionNames, IM_ARRAYSIZE(resolutionNames)))
 			settings.LODShadowResolution = kLODShadowResolutions[resolutionIndex];
+		ImGui::SliderFloat(T(TKEY("lod_shadow_start_distance"), "LOD Shadow Start Distance"), &settings.LODShadowStartDistance, 0.0f, 65536.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+		Util::HelpMarker(T(TKEY("lod_shadow_start_distance_tooltip"), "Distance from the camera, in game units, before LOD shadows start to apply. The LOD geometry they are captured from is coarser than the real ground nearby and would shadow your own surroundings, which the regular shadow maps already cover."));
 	}
 
 	if (ImGui::CollapsingHeader(T(TKEY("debug"), "Debug"))) {
@@ -407,6 +413,8 @@ TerrainShadows::PerFrame TerrainShadows::GetCommonBufferData()
 	for (uint32_t cascade = 0; cascade < LODShadowMap::kCascadeCount; ++cascade)
 		data.LODShadowCascades[cascade] = lodShadow.cascades[cascade];
 	data.LODShadowDepthBias = lodShadow.depthBias;
+	const auto eye = Util::GetEyePosition();
+	data.LODShadowNear = { eye.x, eye.y, eye.z, settings.LODShadowStartDistance };
 
 	return data;
 }

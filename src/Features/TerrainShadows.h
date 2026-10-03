@@ -34,6 +34,10 @@ public:
 		bool EnableTerrainShadow = true;
 		bool EnableLODShadow = true;
 		uint32_t LODShadowResolution = 2048;
+		// Receivers closer than this to the camera take no LOD shadow (game units); the LOD
+		// geometry captured from the reflection cubemap sits above the real ground nearby and
+		// would shadow the player's own surroundings, which the shadow maps already cover.
+		float LODShadowStartDistance = 12288.0f;
 	} settings;
 
 	LODShadowMap lodShadowMap;
@@ -81,6 +85,7 @@ public:
 		float4 LODShadowAxisZ;
 		float4 LODShadowCascades[LODShadowMap::kCascadeCount];
 		float4 LODShadowDepthBias;
+		float4 LODShadowNear;  // xyz camera position, w = start distance of the near fade
 	};
 	STATIC_ASSERT_ALIGNAS_16(PerFrame);
 

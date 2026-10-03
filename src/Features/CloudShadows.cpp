@@ -4,6 +4,7 @@
 #include "Effects11.h"
 #include "Effects11/SettingManager.h"
 #include "Globals.h"
+#include "PhysicalSky.h"
 #include "State.h"
 #include "Utils/D3D.h"
 
@@ -53,6 +54,16 @@ CloudShadows::Settings CloudShadows::GetCommonBufferData()
 		return settings;
 
 	auto data = settings;
+
+	// The occlusion cubemap is drawn from the vanilla cloud decks. When Physical Sky hides them
+	// (volumetric clouds instead), their shadows would come from clouds nobody sees, and the
+	// cubemap's face-by-face refresh then shows up as a flickering square in the sky: the
+	// volumetric cloud shadow volume is the only cloud shadow in that mode.
+	const auto& physicalSky = globals::features::physicalSky;
+	if (physicalSky.loaded && physicalSky.cbData.enabled && !physicalSky.settings.enableVanillaClouds) {
+		data.Opacity = 0.0f;
+		return data;
+	}
 
 	if (globals::features::effects11.loaded) {
 		auto& enb = globals::features::effects11;

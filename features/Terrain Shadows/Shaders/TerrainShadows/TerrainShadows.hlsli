@@ -43,7 +43,15 @@ namespace TerrainShadows
 
 	float GetLODShadow(const float3 worldPos, SamplerState samp)
 	{
-		const float strength = SharedData::terraOccSettings.LODShadowStrength;
+		float strength = SharedData::terraOccSettings.LODShadowStrength;
+		if (strength <= 0.0)
+			return 1.0;
+
+		// The capture is LOD geometry, coarser than the ground around the camera; it only
+		// shadows receivers beyond the start distance, fading in over 4096 units.
+		const float4 near = SharedData::terraOccSettings.LODShadowNear;
+		const float cameraDistance = length(worldPos - near.xyz);
+		strength *= saturate((cameraDistance - near.w) / 4096.0);
 		if (strength <= 0.0)
 			return 1.0;
 

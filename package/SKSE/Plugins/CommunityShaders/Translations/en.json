@@ -2725,6 +2725,8 @@
     "feature.terrain_shadows.key_feature_5": "Integration with existing shadow systems",
     "feature.terrain_shadows.lod_shadow_cascades": "LOD Shadow Cascades",
     "feature.terrain_shadows.lod_shadow_resolution": "LOD Shadow Resolution",
+    "feature.terrain_shadows.lod_shadow_start_distance": "LOD Shadow Start Distance",
+    "feature.terrain_shadows.lod_shadow_start_distance_tooltip": "Distance from the camera, in game units, before LOD shadows start to apply. The LOD geometry they are captured from is coarser than the real ground nearby and would shadow your own surroundings, which the regular shadow maps already cover.",
     "feature.terrain_shadows.name": "Terrain Shadows",
     "feature.terrain_variation.always_enabled_note": "Terrain Variation is always enabled when installed. To turn it off, use Disable at Boot.",
     "feature.terrain_variation.apply_to_lod_terrain": "Apply to LOD Terrain",
