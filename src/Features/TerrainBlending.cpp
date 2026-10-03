@@ -297,11 +297,30 @@ void TerrainBlending::ClearShaderCache()
 	}
 }
 
+void TerrainBlending::RefreshSceneDepthBackups()
+{
+	auto renderer = globals::game::renderer;
+	auto& mainDepth = renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN];
+	auto& zPrepassCopy = renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kPOST_ZPREPASS_COPY];
+	ID3D11ShaderResourceView* blended = blendedDepthTexture ? blendedDepthTexture->srv.get() : nullptr;
+
+	// Whatever the game binds that is not our own blended texture is the current scene depth.
+	if (mainDepth.depthSRV && mainDepth.depthSRV != blended && mainDepth.depthSRV != depthSRVBackup) {
+		logger::info("[Terrain Blending] Scene depth view changed ({:p} -> {:p}); backup refreshed", static_cast<void*>(depthSRVBackup), static_cast<void*>(mainDepth.depthSRV));
+		depthSRVBackup = mainDepth.depthSRV;
+	}
+	if (zPrepassCopy.depthSRV && zPrepassCopy.depthSRV != blended && zPrepassCopy.depthSRV != prepassSRVBackup) {
+		logger::info("[Terrain Blending] Prepass depth view changed ({:p} -> {:p}); backup refreshed", static_cast<void*>(prepassSRVBackup), static_cast<void*>(zPrepassCopy.depthSRV));
+		prepassSRVBackup = zPrepassCopy.depthSRV;
+	}
+}
+
 void TerrainBlending::Hooks::Main_RenderDepth::thunk(bool a1, bool a2)
 {
 	ZoneScopedS(8);
 
 	auto& singleton = globals::features::terrainBlending;
+	singleton.RefreshSceneDepthBackups();
 	auto shaderCache = globals::shaderCache;
 	auto renderer = globals::game::renderer;
 

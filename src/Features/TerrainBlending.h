@@ -113,6 +113,15 @@ public:
 	 */
 	void RestoreSceneDepthSRVs();
 
+	/**
+	 * @brief Re-reads the game's scene depth views into the backups when they were rebuilt.
+	 *
+	 * Reverse Z converts the depth targets to a float format after SetupResources, and a
+	 * resolution change recreates them; the backups taken at setup then point at textures the
+	 * game no longer renders into, and every pass that runs after the restore reads stale depth.
+	 */
+	void RefreshSceneDepthBackups();
+
 	/** @brief Blends the main and terrain depth buffers using a compute shader dispatch. */
 	void BlendPrepassDepths();
 
