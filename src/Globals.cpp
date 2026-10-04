@@ -21,6 +21,7 @@
 #include "Features/InteriorSun.h"
 #include "Features/InverseSquareLighting.h"
 #include "Features/LODBlending.h"
+#include "Features/LandscapeSeams.h"
 #include "Features/LightLimitFix.h"
 #include "Features/LinearLighting.h"
 #include "Features/PerformanceOverlay.h"
@@ -123,6 +124,7 @@ namespace globals
 		SnowCover snowCover{};
 		FootstepParticles footstepParticles{};
 		HairBacklighting hairBacklighting{};
+		LandscapeSeams landscapeSeams{};
 
 		namespace llf
 		{

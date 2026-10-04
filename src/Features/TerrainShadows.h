@@ -79,11 +79,8 @@ public:
 		float ZBlur;  // world-space half-width of the shadow transition
 		float LODShadowStrength;
 		float LODShadowResolution;
-		float pad0;
-		float4 LODShadowAxisX;
-		float4 LODShadowAxisY;
-		float4 LODShadowAxisZ;
-		float4 LODShadowCascades[LODShadowMap::kCascadeCount];
+		float LODShadowBlend;
+		LODShadowMap::ReceiverCapture LODShadowCaptures[LODShadowMap::kCaptureCount];
 		float4 LODShadowDepthBias;
 		float4 LODShadowNear;  // xyz camera position, w = start distance of the near fade
 	};

@@ -1092,6 +1092,13 @@ DiffuseOutput GetWaterDiffuseColor(PS_INPUT input, float3 normal, float3 viewDir
 	float3 refractionColor = RefractionTex.Sample(RefractionSampler, refractionUV).xyz;
 	float4 refractionAlphaColor = AlphaOnlyTex.Sample(RefractionSampler, refractionAlphaUV);
 	refractionColor = (1.0 - refractionAlphaColor.w) * refractionColor + refractionAlphaColor.xyz * refractionAlphaColor.w;
+
+#				if defined(UNDERWATER)
+	float refractionMul = 0;
+#				else
+	float refractionMul = 1 - pow(saturate((-distanceMul.x * FogParam.z + FogParam.z) / FogParam.w), FogNearColor.w);
+#				endif
+
 	float3 refractionDiffuseColor;
 
 	if (SharedData::enbSettings.EnableWater) {
@@ -1102,17 +1109,11 @@ DiffuseOutput GetWaterDiffuseColor(PS_INPUT input, float3 normal, float3 viewDir
 		else
 			shallowColor = 1.0;
 
-		shallowColor = lerp(shallowColor.xyz * refractionColor, ShallowColor.xyz, SharedData::enbSettings.WaterMuddiness);
+		shallowColor = lerp(shallowColor.xyz * refractionColor, ShallowColor.xyz, lerp(SharedData::enbSettings.WaterMuddiness, 1.0, refractionMul));
 		refractionDiffuseColor = lerp(Color::Water(shallowColor.xyz), Color::Water(DeepColor.xyz), distanceMul.y);
 	} else {
 		refractionDiffuseColor = lerp(Color::Water(ShallowColor.xyz), Color::Water(DeepColor.xyz), distanceMul.y);
 	}
-
-#				if defined(UNDERWATER)
-	float refractionMul = 0;
-#				else
-	float refractionMul = 1 - pow(saturate((-distanceMul.x * FogParam.z + FogParam.z) / FogParam.w), FogNearColor.w);
-#				endif
 
 	DiffuseOutput output;
 	output.refractionColor = refractionColor;

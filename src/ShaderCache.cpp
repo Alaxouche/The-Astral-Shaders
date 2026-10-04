@@ -154,6 +154,9 @@ namespace SIE
 					defines[lastIndex++] = { "GLINT", nullptr };
 				}
 			}
+			if ((descriptor & static_cast<uint32_t>(ShaderCache::LightingShaderFlags::LandscapeSeams)) != 0) {
+				defines[lastIndex++] = { "LANDSCAPE_SEAMS", nullptr };
+			}
 
 			// Living Windows only acts on materials that can mark their glass: glow maps, multilayer parallax
 			// (low diffuse alpha) and TruePBR (emissive map). Compiling its window code into every other

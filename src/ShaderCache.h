@@ -652,6 +652,7 @@ namespace SIE
 			// Astral Shaders start
 			TruePbr = 1 << 3,
 			Deferred = 1 << 4,
+			LandscapeSeams = 1 << 5,
 			// Astral Shaders end
 			Specular = 1 << 9,
 			SoftLighting = 1 << 10,
