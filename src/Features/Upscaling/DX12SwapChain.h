@@ -64,11 +64,11 @@ public:
 class DX12SwapChain
 {
 public:
-	// DLSS-G holds one back buffer for composition per generated frame; sized for 4x.
-	static constexpr UINT kMaxBackBuffers = 5;
-
 	winrt::com_ptr<ID3D12Device> d3d12Device;
 	winrt::com_ptr<ID3D12CommandQueue> commandQueue;
+
+	static constexpr UINT kMaxBackBuffers = 5;
+
 	winrt::com_ptr<ID3D12CommandAllocator> commandAllocators[kMaxBackBuffers];
 	winrt::com_ptr<ID3D12GraphicsCommandList4> commandLists[kMaxBackBuffers];
 
@@ -96,31 +96,20 @@ public:
 
 	UINT64 frameFenceValues[kMaxBackBuffers] = {};
 
-	// True when the swap chain was created directly for DLSS-G rather than through the
-	// FidelityFX frame-generation swap chain.
-	bool useDLSSG = false;
-
-	// Buffer count the live swap chain was created or resized with (<= kMaxBackBuffers).
-	UINT backBufferCount = 2;
-
 	LARGE_INTEGER qpf;
 
 	double refreshRate = 0;
 
 	DXGISwapChainProxy* swapChainProxy = nullptr;
 
+	bool useDLSSG = false;
+	UINT backBufferCount = 2;
+
 	// Returns the current frame time (in seconds) for accurate FPS calculation when frame generation is active
 	float GetFrameTime() const;
 
-	/** @brief Creates the D3D12 device, queue and per-buffer command lists once; later calls keep the existing device. */
 	void CreateD3D12Device(IDXGIAdapter* a_adapter);
-	/** @brief Creates the FidelityFX frame-generation swap chain (FSR3 FG). */
 	void CreateSwapChain(IDXGIAdapter* adapter, DXGI_SWAP_CHAIN_DESC swapChainDesc);
-	/**
-	 * @brief Creates a plain DXGI swap chain on the SL-upgraded factory for DLSS-G.
-	 *
-	 * Streamline's own present hook interpolates on it; no FidelityFX context is involved.
-	 */
 	void CreateSwapChainDirect(IDXGIAdapter* adapter, DXGI_SWAP_CHAIN_DESC swapChainDesc);
 
 	void CreateInterop();

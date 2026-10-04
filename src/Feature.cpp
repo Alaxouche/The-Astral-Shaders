@@ -13,6 +13,7 @@
 #include "Features/ExtendedTranslucency.h"
 #include "Features/FoliageLighting.h"
 #include "Features/FootstepParticles.h"
+#include "Features/FurShells.h"
 #include "Features/GrassCollision.h"
 #include "Features/GrassLighting.h"
 #include "Features/GrassOptimizations.h"
@@ -247,6 +248,7 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::snowCover,
 		&globals::features::footstepParticles,
 		&globals::features::hairBacklighting,
+		&globals::features::furShells,
 		&globals::features::landscapeSeams
 	};
 

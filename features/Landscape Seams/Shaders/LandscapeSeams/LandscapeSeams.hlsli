@@ -48,10 +48,10 @@ namespace LandscapeSeams
 	Texture2D<float4> Aux2 : register(t99);
 	Texture2D<float4> Displacement2 : register(t101);
 
-	Texture2D<float4> Color3 : register(t122);
-	Texture2D<float4> Normal3 : register(t123);
-	Texture2D<float4> Aux3 : register(t124);
-	Texture2D<float4> Displacement3 : register(t125);
+	Texture2D<float4> Color3 : register(t123);
+	Texture2D<float4> Normal3 : register(t124);
+	Texture2D<float4> Aux3 : register(t125);
+	Texture2D<float4> Displacement3 : register(t126);
 
 	static QuadData Data;
 	static float4 ExtraWeights = 0;

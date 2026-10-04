@@ -1,6 +1,7 @@
 #include "DX12SwapChain.h"
 
 #include <FidelityFX/api/include/dx12/ffx_api_dx12.hpp>
+#include <algorithm>
 #include <dxgi1_6.h>
 
 #include "../HDRDisplay.h"
@@ -12,8 +13,6 @@
 
 void DX12SwapChain::CreateD3D12Device(IDXGIAdapter* a_adapter)
 {
-	// The DLSS-G probe binds Streamline to this device before the swap chain is chosen; a
-	// second call from either creation path must not replace it under that binding.
 	if (d3d12Device)
 		return;
 
@@ -26,7 +25,6 @@ void DX12SwapChain::CreateD3D12Device(IDXGIAdapter* a_adapter)
 	queueDesc.NodeMask = 0;
 
 	DX::ThrowIfFailed(d3d12Device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&commandQueue)));
-	commandQueue->SetName(L"DX12SwapChain::CommandQueue");
 
 	for (UINT i = 0; i < kMaxBackBuffers; i++) {
 		DX::ThrowIfFailed(d3d12Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocators[i])));
@@ -73,7 +71,7 @@ void DX12SwapChain::CreateSwapChain(IDXGIAdapter* adapter, DXGI_SWAP_CHAIN_DESC 
 	swapChainDesc.SampleDesc.Count = 1;
 	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	backBufferCount = 2;
-	swapChainDesc.BufferCount = backBufferCount;
+	swapChainDesc.BufferCount = 2;
 	swapChainDesc.SwapEffect = a_swapChainDesc.SwapEffect;
 	swapChainDesc.Flags = a_swapChainDesc.Flags;
 
@@ -113,8 +111,6 @@ void DX12SwapChain::CreateSwapChainDirect(IDXGIAdapter* adapter, DXGI_SWAP_CHAIN
 	IDXGIFactory4* factoryRaw{};
 	DX::ThrowIfFailed(adapter->GetParent(IID_PPV_ARGS(&factoryRaw)));
 
-	// CreateSwapChainForHwnd must go through the SL-upgraded factory (a mandatory manual
-	// hook), or Streamline never recognizes the swap chain as its own.
 	auto& streamlineDX12 = globals::features::upscaling.streamlineDX12;
 	if (streamlineDX12.slUpgradeInterface)
 		streamlineDX12.slUpgradeInterface((void**)&factoryRaw);
@@ -149,14 +145,9 @@ void DX12SwapChain::CreateSwapChainDirect(IDXGIAdapter* adapter, DXGI_SWAP_CHAIN
 	swapChainDesc.Format = negotiatedFormat;
 	swapChainDesc.SampleDesc.Count = 1;
 	swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	// The SL pacer holds one back buffer for composition while flipping generated frames; a
-	// two-buffer chain leaves it no slack. Sized from the hardware multiplier, not the live
-	// setting, because this runs before user settings are loaded.
 	backBufferCount = std::clamp<UINT>(streamlineDX12.dlssgMaxFramesToGenerate + 2, 3, kMaxBackBuffers);
 	swapChainDesc.BufferCount = backBufferCount;
 	swapChainDesc.SwapEffect = a_swapChainDesc.SwapEffect;
-	// No FRAME_LATENCY_WAITABLE_OBJECT: waiting on it serializes presents to one in flight,
-	// which makes the SL pacer drop every interpolated frame.
 	swapChainDesc.Flags = a_swapChainDesc.Flags & ~DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
 	winrt::com_ptr<IDXGISwapChain1> swapChain1;
@@ -276,28 +267,19 @@ HRESULT DX12SwapChain::ResizeBuffers(UINT bufferCount, UINT width, UINT height, 
 		return DXGI_ERROR_UNSUPPORTED;
 	}
 
-	// These references are to the provider's buffers (FidelityFX replacements or DXGI's own).
-	// They must not keep the old generation alive across the resize, and must be refreshed
+	// These references are to FidelityFX replacement buffers. They must not keep
+	// the old generation alive across the provider's resize, and must be refreshed
 	// before CS records another copy.
 	for (UINT i = 0; i < backBufferCount; i++)
 		swapChainBuffers[i] = nullptr;
 	const HRESULT result = swapChain->ResizeBuffers(effectiveBufferCount, width, height, format, flags);
-	if (FAILED(result)) {
-		// The resize did not take effect, so the pre-resize buffers should still be valid.
-		for (UINT i = 0; i < backBufferCount; i++)
-			swapChain->GetBuffer(i, IID_PPV_ARGS(swapChainBuffers[i].put()));
+	if (FAILED(result))
 		return result;
-	}
 
 	DXGI_SWAP_CHAIN_DESC1 resizedDesc{};
 	const HRESULT descResult = swapChain->GetDesc1(&resizedDesc);
-	if (FAILED(descResult)) {
-		// The resize succeeded; only the description query failed. Re-fetch the resized
-		// buffers so Present is not left with nulls.
-		for (UINT i = 0; i < backBufferCount; i++)
-			swapChain->GetBuffer(i, IID_PPV_ARGS(swapChainBuffers[i].put()));
+	if (FAILED(descResult))
 		return descResult;
-	}
 
 	const bool wrappedResourcesChanged = resizedDesc.Width != swapChainDesc.Width ||
 	                                     resizedDesc.Height != swapChainDesc.Height ||
@@ -354,11 +336,6 @@ HRESULT DX12SwapChain::Present(UINT SyncInterval, UINT Flags)
 	{
 		auto fakeSwapChain = swapChainBufferWrapped->resource.get();
 		auto realSwapChain = swapChainBuffers[frameIndex].get();
-		// Null only after a resize failure severe enough that even the pre-resize buffers
-		// could not be re-fetched (device removed): skip the frame rather than pass a null
-		// resource to D3D12.
-		if (!realSwapChain)
-			return DXGI_ERROR_DEVICE_REMOVED;
 		{
 			std::vector<D3D12_RESOURCE_BARRIER> barriers;
 			barriers.push_back(CD3DX12_RESOURCE_BARRIER::Transition(fakeSwapChain, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE));
@@ -379,12 +356,8 @@ HRESULT DX12SwapChain::Present(UINT SyncInterval, UINT Flags)
 	if (useDLSSG) {
 		auto& streamlineDX12 = upscaling.streamlineDX12;
 		streamlineDX12.EnsureFrameToken();
-		// The full per-frame PCL marker sequence is structural for interpolation
-		// (eSimulationStart is emitted at the Reflex sleep site).
 		streamlineDX12.EmitPCLMarker(sl::PCLMarker::eSimulationEnd);
 		streamlineDX12.EmitPCLMarker(sl::PCLMarker::eRenderSubmitStart);
-		// Without valid per-frame constants DLSS-G would interpolate against stale or
-		// default camera data, so it is turned off for the frame instead.
 		if (streamlineDX12.CheckFrameConstants(streamlineDX12.viewport)) {
 			streamlineDX12.TagDX12Resources(commandLists[frameIndex].get(),
 				depthBufferShared12 ? depthBufferShared12->resource.get() : nullptr,

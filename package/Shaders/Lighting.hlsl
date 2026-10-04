@@ -39,6 +39,10 @@
 #	endif
 #endif
 
+#if defined(FUR_SHELLS)
+#	include "FurShells/FurShells.hlsli"
+#endif
+
 struct VS_INPUT
 {
 	float4 Position: POSITION0;
@@ -98,6 +102,9 @@ struct VS_OUTPUT
 	float4 FogParam: COLOR1;
 
 	float3 ModelPosition: TEXCOORD12;
+#if defined(FUR_SHELLS)
+	nointerpolation float FurShell: TEXCOORD13;
+#endif
 };
 #ifdef VSHADER
 
@@ -151,7 +158,11 @@ float2 GetTreeShiftVector(float4 position, float4 color)
 }
 #	endif  // TREE_ANIM
 
+#	if defined(FUR_SHELLS)
+VS_OUTPUT main(VS_INPUT input, uint instanceID : SV_InstanceID)
+#	else
 VS_OUTPUT main(VS_INPUT input)
+#	endif
 {
 	VS_OUTPUT vsout;
 
@@ -162,6 +173,17 @@ VS_OUTPUT main(VS_INPUT input)
 #	endif  // defined(LODLANDNOISE) || defined(LODLANDSCAPE)                                                                   \
 
 	precise float4 previousInputPosition = inputPosition;
+
+#	if defined(FUR_SHELLS)
+#		if !defined(MODELSPACENORMALS)
+	float furShell = FurShells::GetShell(instanceID);
+	float3 furOffset = (input.Normal.xyz * 2.0 - 1.0) * (FurShells::Length * furShell);
+	inputPosition.xyz += furOffset;
+	previousInputPosition.xyz += furOffset;
+#		else
+	float furShell = 0.0;
+#		endif
+#	endif
 
 #	if defined(TREE_ANIM)
 	precise float2 treeShiftVector = GetTreeShiftVector(input.Position, input.Color);
@@ -182,6 +204,12 @@ VS_OUTPUT main(VS_INPUT input)
 	float3x4 worldMatrix = Skinned::GetBoneTransformMatrix(Bones, actualIndices, BonesPivot, input.BoneWeights);
 	precise float4 worldPosition = float4(mul(inputPosition, transpose(worldMatrix)), 1);
 
+#		if defined(FUR_SHELLS)
+	float furDroop = FurShells::Droop * furShell * furShell;
+	worldPosition.z -= furDroop;
+	previousWorldPosition.z -= furDroop;
+#		endif
+
 	float4 viewPos = mul(ViewProj, worldPosition);
 #	else   // !SKINNED
 	precise float4 previousWorldPosition = float4(mul(PreviousWorld, inputPosition), 1);
@@ -189,6 +217,13 @@ VS_OUTPUT main(VS_INPUT input)
 	precise float4x4 world4x4 = float4x4(World[0], World[1], World[2], float4(0, 0, 0, 1));
 	precise float4x4 modelView = mul(ViewProj, world4x4);
 	float4 viewPos = mul(modelView, inputPosition);
+
+#		if defined(FUR_SHELLS)
+	float furDroop = FurShells::Droop * furShell * furShell;
+	worldPosition.z -= furDroop;
+	previousWorldPosition.z -= furDroop;
+	viewPos -= furDroop * float4(ViewProj[0].z, ViewProj[1].z, ViewProj[2].z, ViewProj[3].z);
+#		endif
 #	endif  // SKINNED
 
 	const bool reverseProjection = FrameBuffer::IsReverseProjection(Proj);
@@ -288,6 +323,10 @@ VS_OUTPUT main(VS_INPUT input)
 	vsout.FogParam.w = fogColorParam;
 
 	vsout.ModelPosition = input.Position.xyz;
+
+#	if defined(FUR_SHELLS)
+	vsout.FurShell = furShell;
+#	endif
 
 	return vsout;
 }
@@ -1006,9 +1045,10 @@ bool UseSkylightingShadowVisibility()
 #		include "Common/ViewMedium.hlsli"
 #	endif
 
-// Living Windows only ever runs on static architecture permutations.
+// Living Windows only ever runs on static architecture permutations. Fur shell passes are excluded:
+// they never draw glass, and Fur Shells' per-pass data shares cbuffer bank b13 with the window list.
 #	if defined(LIVING_WINDOWS) && !defined(LANDSCAPE) && !defined(LODLANDSCAPE) && !defined(LOD) && !defined(SKINNED) && \
-		!defined(HAIR) && !defined(EYE) && !defined(TREE_ANIM) && !defined(WORLD_MAP) && !defined(FACEGEN)
+		!defined(HAIR) && !defined(EYE) && !defined(TREE_ANIM) && !defined(WORLD_MAP) && !defined(FACEGEN) && !defined(FUR_SHELLS)
 #		define LIVING_WINDOWS_ACTIVE
 #		include "LivingWindows/LivingWindows.hlsli"
 #	endif
@@ -1018,12 +1058,10 @@ bool UseSkylightingShadowVisibility()
 #		include "WetnessEffects/CharacterRainLighting.hlsli"
 #	endif
 
-#	if defined(OIT)
+#	if defined(OIT) || (defined(FUR_SHELLS) && !defined(FUR_SHELLS_DEPTH))
 [earlydepthstencil]
+#	endif
 PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
-#else
-PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
-#endif
 {
 	PS_OUTPUT psout;
 
@@ -1094,6 +1132,12 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 	float2 uv = input.TexCoord0.xy;
 	float2 uvOriginal = uv;
+
+#	if defined(FUR_SHELLS)
+	float4 furSample = FurShells::TexShell.SampleBias(SampColorSampler, uv, SharedData::MipBias);
+	if (input.FurShell > 0.0 && furSample.w < lerp(FurShells::RootThreshold, FurShells::TipThreshold, input.FurShell))
+		discard;
+#	endif
 
 	// Lattice cell comes from the geometric UV, before the parallax block below rewrites uv.
 #	if !defined(LANDSCAPE) && (defined(TERRAIN_VARIATION_MESH) || defined(EMAT) || defined(EMAT_NMS))
@@ -1551,6 +1595,10 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	else  // Non-landscape code
 	float4 rawBaseColor;
 	MESH_TV_SAMPLE_BIAS(rawBaseColor, TexColorSampler, SampColorSampler, diffuseUv);
+#		if defined(FUR_SHELLS)
+	if (input.FurShell > 0.0)
+		rawBaseColor.rgb = lerp(rawBaseColor.rgb, furSample.rgb, FurShells::ShellColor) * lerp(FurShells::RootDarkening, 1.0, input.FurShell);
+#		endif
 	baseColor = float4(Color::Diffuse(rawBaseColor.rgb), rawBaseColor.a);
 	float4 normalColor;
 	MESH_TV_SAMPLE_BIAS(normalColor, TexNormalSampler, SampNormalSampler, uv);
@@ -3717,6 +3765,10 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	psout.Diffuse = OIT_Capture(int2(input.Position.xy), psout.Diffuse, input.Position.z);
 #endif
 #endif
+#	if defined(FUR_SHELLS_DEPTH)
+	psout = (PS_OUTPUT)0;
+#	endif
+
 	return psout;
 }
 #endif  // PSHADER

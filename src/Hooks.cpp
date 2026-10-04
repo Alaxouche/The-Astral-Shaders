@@ -562,10 +562,10 @@ struct BSInputDeviceManager_PollInputDevices
 		// Reflex sleep/cap runs here by design: this executes before rendering work for the frame.
 		// UpdateReflex() enforces "once per frame" internally in case this hook is hit multiple times.
 		auto& upscaling = globals::features::upscaling;
-		upscaling.streamline.UpdateReflex();
-		// DLSS-G needs Reflex on its own (D3D12) instance; the D3D11 one stands down meanwhile.
 		if (upscaling.UsesDLSSGFrameGen() && upscaling.streamlineDX12.featureReflex)
 			upscaling.streamlineDX12.UpdateReflex();
+		else
+			upscaling.streamline.UpdateReflex();
 
 		bool blockedDevice = true;
 

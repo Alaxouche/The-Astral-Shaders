@@ -20,31 +20,21 @@
 #include <sl_version.h>
 #pragma warning(pop)
 
-/**
- * @brief Manages one NVIDIA Streamline instance.
- *
- * Upscaling owns two: a D3D11 instance for DLSS upscaling, Reflex and PCL, and a D3D12 instance
- * for DLSS Frame Generation (DLSS-G), which only exists in D3D12 and therefore runs on the
- * frame-generation proxy swap chain. Each instance loads its own interposer from its own plugin
- * directory; the API-specific behaviour is selected by `renderAPI`.
- */
+/** @brief Manages NVIDIA Streamline integration for DLSS upscaling and Reflex latency reduction. */
 class Streamline
 {
 public:
-	static constexpr const wchar_t* PluginDir = L"Data\\Shaders\\Upscaling\\Streamline";
-	static constexpr const wchar_t* PluginDirDX12 = L"Data\\Shaders\\Upscaling\\StreamlineDX12";
-	static constexpr UINT kNvidiaVendorId = 0x10DE;
-
 	Streamline() = default;
 
 	/** @brief Returns the short identifier used for logging. */
 	inline std::string GetShortName() { return "Streamline"; }
 
-	// Instance configuration, set before LoadInterposer.
+	static constexpr UINT kNvidiaVendorId = 0x10DE;
+
 	sl::RenderAPI renderAPI = sl::RenderAPI::eD3D11;
-	const wchar_t* pluginDir = PluginDir;
-	// Appended to the "[Streamline" log prefix: "" for the D3D11 instance, " DX12" for the other.
-	const char* logSuffix = "";
+	std::wstring pluginDir = L"Data\\Shaders\\Upscaling\\Streamline";
+	std::wstring interposerDllName = L"sl.interposer.dll";
+	std::string instanceTag = "DX11";
 
 	bool enabledAtBoot = false;
 	bool initialized = false;
@@ -52,14 +42,13 @@ public:
 
 	bool featureDLSS = false;
 	bool featureDLSSG = false;
-	bool featureReflex = false;
-	bool featurePCL = false;
-	bool reflexSupportedOnCurrentAdapter = false;
-
-	// DLSS-G (D3D12 instance only).
+	bool dlssgResourcesRetained = false;
 	uint32_t dlssgMaxFramesToGenerate = 1;
 	sl::DLSSGStatus lastDLSSGStatus = sl::DLSSGStatus::eOk;
 	uint32_t lastDLSSGFramesPresented = 0;
+	bool featureReflex = false;
+	bool featurePCL = false;
+	bool reflexSupportedOnCurrentAdapter = false;
 
 	sl::ViewportHandle viewport{ 0 };
 	static constexpr uint32_t MAX_RESOLUTION = 8192;
@@ -90,7 +79,6 @@ public:
 	PFun_slDLSSGetState* slDLSSGetState{};
 	PFun_slDLSSSetOptions* slDLSSSetOptions{};
 
-	// DLSS-G specific functions
 	PFun_slDLSSGGetState* slDLSSGGetState{};
 	PFun_slDLSSGSetOptions* slDLSSGSetOptions{};
 
@@ -133,37 +121,34 @@ public:
 		ID3D11Resource* mvec, ID3D11Resource* reactiveMask, ID3D11Resource* transparencyMask,
 		const sl::Extent& extentIn, const sl::Extent& extentOut, uint32_t outputWidth);
 
-	// Cached DLL version info for the D3D11 Streamline plugin directory
+	// Cached DLL version info for Streamline plugin directory
 	static std::vector<std::pair<std::string, std::string>> dllVersions;
 
 	/** @brief Loads the Streamline interposer DLL and initializes the SDK with feature preferences. */
 	void LoadInterposer();
 
 	/**
-	 * @brief Queries available Streamline features (DLSS or DLSS-G, Reflex, PCL) on the given adapter.
+	 * @brief Queries available Streamline features (DLSS, Reflex, PCL) on the given adapter.
 	 * @param a_adapter The DXGI adapter to check feature support against.
 	 */
 	void CheckFeatures(IDXGIAdapter* a_adapter);
 
-	/** @brief Binds the feature functions after the D3D device is created. */
+	void SetD3DDevice12(ID3D12Device* a_device);
+	static void EnsureDriverProfileAllowsDLSSG();
+	static bool IsSmoothMotionEnabledForProfile();
+
+	/** @brief Binds DLSS and Reflex feature functions after the D3D device is created. */
 	void PostDevice();
 
-	/**
-	 * @brief Binds the D3D12 device to the D3D12 instance.
-	 * @param a_device The device DLSS-G runs on; must be the one the swap chain is created on.
-	 */
-	void SetD3DDevice12(ID3D12Device* a_device);
+	bool BindFeatureFunction(sl::Feature a_feature, const char* a_functionName, void*& a_function);
+	void RequestFeatureLoad(sl::Feature a_feature, const char* a_featureName);
+	void BindReflexAndPCL();
 
-	/**
-	 * @brief Clears the driver-profile key with which the NVIDIA App disables DLSS-G for the game.
-	 *
-	 * With that key set, sl.dlss_g reports eOk and generates nothing. Runs before any D3D device
-	 * exists; a no-op without an NVIDIA driver or without the key.
-	 */
-	static void EnsureDriverProfileAllowsDLSSG();
-
-	/** @brief True when the driver's own frame generation (Smooth Motion) is on for the game's profile. */
-	static bool IsSmoothMotionEnabledForProfile();
+	void ConfigureDLSSG(bool enabled);
+	void EmitPCLMarker(sl::PCLMarker a_marker);
+	void TagDX12Resources(ID3D12GraphicsCommandList* cmdList,
+		ID3D12Resource* depth, ID3D12Resource* mvec, ID3D12Resource* hudLessColor,
+		ID3D12Resource* uiColorAndAlpha, uint32_t width, uint32_t height);
 
 	/** @brief Acquires a new frame token from Streamline for the current frame. */
 	bool EnsureFrameToken();
@@ -199,43 +184,6 @@ public:
 	/** @brief Updates Reflex latency reduction state and performs the Reflex sleep call. */
 	void UpdateReflex();
 
-	/**
-	 * @brief Emits a PCL latency marker for the current frame token.
-	 *
-	 * DLSS-G needs the full simulation/render/present marker sequence every frame to pace its
-	 * generated frames; a missing marker leaves the interpolated frames dropped.
-	 */
-	void EmitPCLMarker(sl::PCLMarker a_marker);
-
-	/**
-	 * @brief Turns DLSS-G on or off for this frame and reads back its status.
-	 * @param a_enabled False keeps the feature loaded but presents only rendered frames.
-	 */
-	void ConfigureDLSSG(bool a_enabled);
-
-	/**
-	 * @brief Tags the D3D12 inputs DLSS-G interpolates from.
-	 * @param a_cmdList Command list the tags are recorded on.
-	 * @param a_depth Shared depth, valid in the render-resolution sub-rectangle.
-	 * @param a_mvec Shared motion vectors, same extent as depth.
-	 * @param a_hudLessColor Scene without interface, display sized.
-	 * @param a_uiColorAndAlpha Interface with alpha, or null when no UI buffer exists this frame.
-	 * @param a_width Display width.
-	 * @param a_height Display height.
-	 */
-	void TagDX12Resources(ID3D12GraphicsCommandList* a_cmdList,
-		ID3D12Resource* a_depth, ID3D12Resource* a_mvec, ID3D12Resource* a_hudLessColor,
-		ID3D12Resource* a_uiColorAndAlpha, uint32_t a_width, uint32_t a_height);
-
 	/** @brief Frees DLSS viewport resources through the Streamline SDK. */
 	void DestroyDLSSResources();
-
-private:
-	// Persistent per instance: slInit keeps the pointer for the duration of the call.
-	std::wstring pluginDirAbsoluteW;
-	const wchar_t* pluginPaths[1]{};
-
-	/** @brief Requests Reflex/PCL loading and binds their entry points; shared by both instances. */
-	void BindReflexAndPCL();
-	bool BindFeatureFunction(sl::Feature a_feature, const char* a_functionName, void*& a_function);
 };

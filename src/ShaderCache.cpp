@@ -157,6 +157,12 @@ namespace SIE
 			if ((descriptor & static_cast<uint32_t>(ShaderCache::LightingShaderFlags::LandscapeSeams)) != 0) {
 				defines[lastIndex++] = { "LANDSCAPE_SEAMS", nullptr };
 			}
+			if ((descriptor & static_cast<uint32_t>(ShaderCache::LightingShaderFlags::FurShells)) != 0) {
+				defines[lastIndex++] = { "FUR_SHELLS", nullptr };
+				if ((descriptor & static_cast<uint32_t>(ShaderCache::LightingShaderFlags::FurShellsDepth)) != 0) {
+					defines[lastIndex++] = { "FUR_SHELLS_DEPTH", nullptr };
+				}
+			}
 
 			// Living Windows only acts on materials that can mark their glass: glow maps, multilayer parallax
 			// (low diffuse alpha) and TruePBR (emissive map). Compiling its window code into every other

@@ -5,13 +5,14 @@ Upscaling can drive frame generation with either AMD FSR3 (any vendor) or NVIDIA
 (`DX12SwapChain`); which provider owns it is decided once at boot, in the
 `D3D11CreateDeviceAndSwapChain` hook, and reported by `Upscaling::GetFrameGenMethod()`.
 
-The DLSS-G path is a port of Open Shaders' implementation (two-instance Streamline design).
+The DLSS-G path is Bottle Shaders' implementation (`961463d67`, 2026-10-04), which follows Open
+Shaders' two-instance Streamline design. It replaced this fork's own port of the same design.
 
 ## Status
 
 Untested on this fork's development machine (RTX 3090, which cannot run DLSS-G). On that
 hardware the probe reports the feature unsupported and the FSR3 path is taken unchanged. The
-reference implementation was validated in game by Open Shaders on RTX 40 hardware.
+upstream implementations were validated in game on RTX 40 hardware.
 
 ## Two Streamline instances
 
@@ -26,12 +27,13 @@ Reflex, PCL) is D3D11. `Upscaling` therefore owns two `Streamline` objects:
 Each loads its own `sl.interposer.dll` (Windows keeps them apart because the paths differ) and
 calls `slInit` with its own `renderAPI`. The D3D12 instance also sets
 `eUseFrameBasedResourceTagging`, since its inputs are tagged per frame token with
-`slSetTagForFrame` on the present command list. `Streamline::logSuffix` distinguishes the two in
-`CommunityShaders.log` (`[Streamline]` and `[Streamline DX12]`).
+`slSetTagForFrame` on the present command list. `Streamline::instanceTag` distinguishes the two in
+`CommunityShaders.log` (`[Streamline DX11]` and `[Streamline DX12]`).
 
 The `StreamlineDX12` directory ships `sl.common`, `sl.interposer`, `sl.pcl`, `sl.reflex`,
-`sl.dlss_g` and `nvngx_dlssg`, all from the same Streamline SDK release as the D3D11 directory
-(2.10.3). Keep the two directories on the same SDK version.
+`sl.dlss_g` and `nvngx_dlssg` as shipped by Bottle: Streamline 2.12.0 runtime (nvngx_dlssg 310.7),
+while the D3D11 directory and the headers in `extern/Streamline-DX12` stay on 2.10.3. Each
+instance loads only its own directory, so the two versions do not mix inside one interposer.
 
 ## Boot sequence
 

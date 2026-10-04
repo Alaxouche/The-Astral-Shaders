@@ -41,20 +41,19 @@ public:
 
 	float2 jitter = { 0, 0 };
 
+	enum class FrameGenMethod
+	{
+		kNone,
+		kFSR,
+		kDLSSG
+	};
+
 	enum class UpscaleMethod
 	{
 		kNONE,
 		kTAA,
 		kFSR,
 		kDLSS
-	};
-
-	/** @brief Which frame-generation provider owns the D3D12 swap chain this session. */
-	enum class FrameGenMethod
-	{
-		kNone,
-		kFSR,
-		kDLSSG
 	};
 
 	static constexpr uint32_t kFsr4RuntimeSelectionSchemaVersion = 1;
@@ -68,13 +67,9 @@ public:
 		uint frameGenerationMode = 1;
 		uint frameGenerationForceEnable = 0;
 		bool frameGenerationAllowInMenus = false;
-		// Use FSR3 frame generation even when DLSS-G is available (restart). Escape hatch for
-		// setups where DLSS-G initializes but presents no generated frames.
 		bool preferFSRFrameGen = false;
-		// Generated frames per rendered frame with DLSS-G (1 = 2x); clamped at runtime to the
-		// hardware-reported DLSSGState::numFramesToGenerateMax.
-		uint dlssgFramesToGenerate = 1;
-		uint streamlineLogLevel = 0;  // 0=Off, 1=Default, 2=Verbose
+		uint dlssgFramesToGenerate = 1;  // Generated frames per real frame (1=2x)
+		uint streamlineLogLevel = 0;     // 0=Off, 1=Default, 2=Verbose
 		float sharpnessFSR = 0.0f;
 		bool sharpnessEnabledDLSS = false;
 		float sharpnessDLSS = 0.0f;
@@ -153,13 +148,6 @@ public:
 	bool ShouldPrepareFrameGeneration() const;
 	/** @brief Returns the frame-generation decision made in post-processing, held until the frame is presented. */
 	bool ShouldUseFrameGenerationThisFrame() const;
-	float GetFrameGenerationFrameTime() const;
-	/** @brief The provider behind the active D3D12 swap chain, kNone without one. */
-	FrameGenMethod GetFrameGenMethod() const;
-	/** @brief True when DLSS-G drives frame generation on the active swap chain. */
-	bool UsesDLSSGFrameGen() const;
-	/** @brief Displayed frames per rendered frame: 2 for FSR3, the clamped setting + 1 for DLSS-G. */
-	uint GetFrameGenerationMultiplier() const;
 	bool IsUpscalingActive() const;
 
 	// Feature interface overrides
@@ -179,6 +167,9 @@ public:
 	virtual void SetupResources() override;
 
 	UpscaleMethod GetUpscaleMethod() const;
+	FrameGenMethod GetFrameGenMethod() const;
+	bool UsesDLSSGFrameGen() const;
+	uint GetFrameGenerationMultiplier() const;
 
 	void CheckResources(UpscaleMethod a_upscalemethod);
 	void CreateUpscalingTextureResources(UpscaleMethod a_upscalemethod);
@@ -219,9 +210,9 @@ public:
 	virtual void ClearShaderCache() override;
 
 	// Static instances instead of singletons
-	static inline Streamline streamline;      ///< D3D11 instance: DLSS upscaling, Reflex, PCL
-	static inline Streamline streamlineDX12;  ///< D3D12 instance: DLSS-G frame generation
-	static inline FidelityFX fidelityFX;      ///< Only for frame generation
+	static inline Streamline streamline;
+	static inline Streamline streamlineDX12;  ///< DLSS-G frame generation
+	static inline FidelityFX fidelityFX;      ///< AMD FSR frame generation
 	static inline DX12SwapChain dx12SwapChain;
 	static inline RCAS rcas;  ///< Standalone RCAS sharpening for DLSS
 

@@ -2,6 +2,7 @@
 
 #include "Buffer.h"
 #include "Features/ReverseZ.h"
+#include "Features/Upscaling.h"
 #include "Globals.h"
 #include "I18n/I18n.h"
 #include "NeuralRendering/D3D12Interop.h"
@@ -145,9 +146,9 @@ struct NeuralRendering::Impl
 		guidesBuffer = std::make_unique<ConstantBuffer>(ConstantBufferDesc<GuidesData>(), "NeuralRendering::Guides CB");
 
 		std::error_code pathError;
-		auto directory = std::filesystem::absolute(std::filesystem::path(Streamline::PluginDir), pathError);
+		auto directory = std::filesystem::absolute(std::filesystem::path(globals::features::upscaling.streamline.pluginDir), pathError);
 		if (pathError)
-			directory = std::filesystem::path(Streamline::PluginDir);
+			directory = std::filesystem::path(globals::features::upscaling.streamline.pluginDir);
 		runtime.Initialize(interop.Device(), directory, allowUnvalidatedBuild);
 		ready = true;
 	}
