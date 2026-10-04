@@ -74,10 +74,20 @@ namespace SeamProbe
 		uint32_t sampledFrame = 0;
 		std::vector<StageResult> results;
 
+		/** @brief Depth-stencil layouts the probe reads through a whole-resource copy. */
+		bool IsDepthFormat(DXGI_FORMAT a_format)
+		{
+			return a_format == DXGI_FORMAT_R32G8X24_TYPELESS || a_format == DXGI_FORMAT_R24G8_TYPELESS || a_format == DXGI_FORMAT_R32_TYPELESS;
+		}
+
 		/** @brief Bytes per texel for the formats the probe can decode, 0 otherwise. */
 		uint32_t BytesPerTexel(DXGI_FORMAT a_format)
 		{
 			switch (a_format) {
+			case DXGI_FORMAT_R32G8X24_TYPELESS:
+				return 8;
+			case DXGI_FORMAT_R24G8_TYPELESS:
+				return 4;
 			case DXGI_FORMAT_R16G16B16A16_TYPELESS:
 			case DXGI_FORMAT_R16G16B16A16_FLOAT:
 				return 8;
@@ -157,8 +167,14 @@ namespace SeamProbe
 				}
 			case DXGI_FORMAT_R32_TYPELESS:
 			case DXGI_FORMAT_R32_FLOAT:
+			case DXGI_FORMAT_R32G8X24_TYPELESS:  // depth float in the first four bytes
 				{
 					const float value = *reinterpret_cast<const float*>(a_texel);
+					return { value, value, value, 1.0f };
+				}
+			case DXGI_FORMAT_R24G8_TYPELESS:  // 24-bit unorm depth in the low bits
+				{
+					const float value = static_cast<float>(*reinterpret_cast<const uint32_t*>(a_texel) & 0xFFFFFFu) / 16777215.0f;
 					return { value, value, value, 1.0f };
 				}
 			case DXGI_FORMAT_R16_TYPELESS:
@@ -216,11 +232,26 @@ namespace SeamProbe
 			stagingDesc.Usage = D3D11_USAGE_STAGING;
 			stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 
+			// Depth-stencil resources can only be copied whole.
+			const bool depth = IsDepthFormat(a_desc.Format);
+			const uint32_t regionWidth = stagingDesc.Width;
+			const uint32_t regionHeight = stagingDesc.Height;
+			uint32_t originX = 0, originY = 0;
+			if (depth) {
+				stagingDesc.Width = a_desc.Width;
+				stagingDesc.Height = a_desc.Height;
+				originX = a_box.left;
+				originY = a_box.top;
+			}
+
 			winrt::com_ptr<ID3D11Texture2D> staging;
 			if (FAILED(device->CreateTexture2D(&stagingDesc, nullptr, staging.put())))
 				return false;
 
-			context->CopySubresourceRegion(staging.get(), 0, 0, 0, 0, a_source, 0, &a_box);
+			if (depth)
+				context->CopyResource(staging.get(), a_source);
+			else
+				context->CopySubresourceRegion(staging.get(), 0, 0, 0, 0, a_source, 0, &a_box);
 
 			D3D11_MAPPED_SUBRESOURCE mapped{};
 			if (FAILED(context->Map(staging.get(), 0, D3D11_MAP_READ, 0, &mapped)))
@@ -228,11 +259,11 @@ namespace SeamProbe
 
 			const uint32_t texelSize = BytesPerTexel(a_desc.Format);
 			const auto* base = static_cast<const uint8_t*>(mapped.pData);
-			a_texels.resize(static_cast<size_t>(stagingDesc.Width) * stagingDesc.Height);
-			for (uint32_t y = 0; y < stagingDesc.Height; y++) {
-				const auto* row = base + static_cast<size_t>(y) * mapped.RowPitch;
-				for (uint32_t x = 0; x < stagingDesc.Width; x++)
-					a_texels[static_cast<size_t>(y) * stagingDesc.Width + x] = DecodeTexel(row + static_cast<size_t>(x) * texelSize, a_desc.Format);
+			a_texels.resize(static_cast<size_t>(regionWidth) * regionHeight);
+			for (uint32_t y = 0; y < regionHeight; y++) {
+				const auto* row = base + static_cast<size_t>(y + originY) * mapped.RowPitch;
+				for (uint32_t x = 0; x < regionWidth; x++)
+					a_texels[static_cast<size_t>(y) * regionWidth + x] = DecodeTexel(row + static_cast<size_t>(x + originX) * texelSize, a_desc.Format);
 			}
 
 			context->Unmap(staging.get(), 0);
@@ -492,7 +523,7 @@ namespace SeamProbe
 		result.height = desc.Height;
 		result.format = desc.Format;
 
-		if (desc.SampleDesc.Count > 1 || (desc.BindFlags & D3D11_BIND_DEPTH_STENCIL) || BytesPerTexel(desc.Format) == 0) {
+		if (desc.SampleDesc.Count > 1 || ((desc.BindFlags & D3D11_BIND_DEPTH_STENCIL) && !IsDepthFormat(desc.Format)) || BytesPerTexel(desc.Format) == 0) {
 			result.note = "format not probed";
 			results.push_back(std::move(result));
 			return;

@@ -482,7 +482,9 @@ bool EffectManager::ExecuteEffects(RE::BSGraphics::RenderTargetData& a_input, RE
 	if (probing) {
 		SeamProbe::Measure("3 E11 colour correction (kMAIN)", textureOriginal.texture);
 		if (auto* depthSRV = GetEffectDepthSRV())
-			SeamProbe::Measure("4 E11 depth input", static_cast<ID3D11View*>(depthSRV));
+			SeamProbe::Measure("4 E11 depth input", static_cast<ID3D11View*>(depthSRV), true);
+		if (auto* sceneDepthSRV = globals::game::renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV)
+			SeamProbe::Measure("4a scene depth texture read by E11", static_cast<ID3D11View*>(sceneDepthSRV), true);
 		// Which texture the scene depth view points at: the game's depth (typeless) or a
 		// feature's R32 substitute that only covers the render rectangle.
 		if (auto* sceneDepthSRV = globals::game::renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN].depthSRV) {
@@ -499,8 +501,8 @@ bool EffectManager::ExecuteEffects(RE::BSGraphics::RenderTargetData& a_input, RE
 				owner = "game depth (Terrain Blending backup)";
 			else if (terrainBlending.loaded && terrainBlending.blendedDepthTexture && sceneDepthSRV == terrainBlending.blendedDepthTexture->srv.get())
 				owner = "Terrain Blending blended depth";
-			logger::info("[SeamProbe]   4 E11 scene depth SRV {:p}: view fmt {}, texture {}x{} fmt {}, {}",
-				static_cast<void*>(sceneDepthSRV), static_cast<int>(srvDesc.Format), texDesc.Width, texDesc.Height, static_cast<int>(texDesc.Format), owner);
+			logger::info("[SeamProbe]   4 E11 scene depth SRV {:p} on texture {:p}: view fmt {}, texture {}x{} fmt {}, {}",
+				static_cast<void*>(sceneDepthSRV), static_cast<void*>(resource.get()), static_cast<int>(srvDesc.Format), texDesc.Width, texDesc.Height, static_cast<int>(texDesc.Format), owner);
 		}
 	}
 

@@ -9,6 +9,7 @@
 #include "TerrainBlending.h"
 #include "Upscaling/DX12SwapChain.h"
 #include "Upscaling/FidelityFX.h"
+#include "ReverseZ.h"
 #include "Upscaling/SeamProbe.h"
 #include "Upscaling/Streamline.h"
 #include "Utils/Game.h"
@@ -1897,6 +1898,38 @@ void Upscaling::UpscaleDepth()
 		globals::profiler->BeginPass("Upscaling::DepthUpscale");
 		context->Draw(3, 0);
 		globals::profiler->EndPass();
+
+		if (SeamProbe::IsSampling()) {
+			const auto resourceOf = [](ID3D11View* a_view) -> void* {
+				if (!a_view)
+					return nullptr;
+				winrt::com_ptr<ID3D11Resource> resource;
+				a_view->GetResource(resource.put());
+				return resource.get();
+			};
+			const auto formatOf = [](ID3D11Texture2D* a_texture) {
+				D3D11_TEXTURE2D_DESC desc{};
+				if (a_texture)
+					a_texture->GetDesc(&desc);
+				return static_cast<int>(desc.Format);
+			};
+			bool reverseBound = false, projectionReversed = false;
+			ReverseZ::GetFlipState(reverseBound, projectionReversed);
+			ID3D11DepthStencilView* boundDSV = nullptr;
+			ID3D11RenderTargetView* boundRTVs[2]{};
+			context->OMGetRenderTargets(2, boundRTVs, &boundDSV);
+			logger::info("[SeamProbe] depth upscale targets: kMAIN tex {:p} fmt {} | views[0] on {:p} | bound DSV {:p} on {:p} | kMAIN_COPY tex {:p} fmt {}, its SRV on {:p} | scene SRV on {:p} | reverse bound {} projection reversed {}",
+				static_cast<void*>(depth.texture), formatOf(depth.texture), resourceOf(depth.views[0]), static_cast<void*>(boundDSV), resourceOf(boundDSV),
+				static_cast<void*>(depthCopy.texture), formatOf(depthCopy.texture), resourceOf(depthCopy.depthSRV), resourceOf(depth.depthSRV), reverseBound, projectionReversed);
+			if (boundDSV)
+				boundDSV->Release();
+			for (auto* rtv : boundRTVs) {
+				if (rtv)
+					rtv->Release();
+			}
+			SeamProbe::Measure("2a kMAIN_COPY depth (upscale source)", depthCopy.texture, true);
+			SeamProbe::Measure("2b kMAIN depth after depth upscale", depth.texture, true);
+		}
 	}
 
 	{

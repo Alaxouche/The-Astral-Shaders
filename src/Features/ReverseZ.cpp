@@ -846,6 +846,12 @@ void ReverseZ::InstallRuntimeHooks()
 	logger::info("ReverseZ: installed depth-state, depth-clear and state read-back hooks");
 }
 
+void ReverseZ::GetFlipState(bool& a_reverseTargetBound, bool& a_projectionReversed)
+{
+	a_reverseTargetBound = g_reverseTargetBound;
+	a_projectionReversed = g_projectionReversed;
+}
+
 void ReverseZ::SetHookPassthrough(bool a_passthrough)
 {
 	g_hookPassthrough = a_passthrough;

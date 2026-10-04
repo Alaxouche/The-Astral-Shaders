@@ -60,6 +60,9 @@ struct ReverseZ : Feature
 
 	static void SetHookPassthrough(bool a_passthrough);
 
+	/** @brief Seam probe: whether the bound depth view counts as reversed and the published projection is reversed. */
+	static void GetFlipState(bool& a_reverseTargetBound, bool& a_projectionReversed);
+
 private:
 	bool bootLatched = false;
 	bool activeThisBoot = false;
