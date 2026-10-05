@@ -33,7 +33,7 @@ struct FurShells : Feature
 		bool SkinFur = true;
 		uint32_t SkinShellCount = 6;
 		float SkinLength = 0.45f;
-		float SkinDensity = 0.3f;
+		float SkinDensity = 0.25f;
 		float SkinClothedScale = 0.35f;
 	} settings;
 

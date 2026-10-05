@@ -381,9 +381,10 @@ bool FurShells::GetSkinFur(RE::BSGeometry* a_geometry, uint32_t a_pixelDescripto
 		// helmet or hood sits right on the head: no fur under either.
 		if (!hasHead || wornOver(30) || wornOver(31))
 			return false;
-		a_skinFur.uvScale = 0.75f;
+		a_skinFur.uvScale = 1.0f;
 	} else {
-		a_skinFur.uvScale = hasHands ? 1.0f : 3.0f;
+		// Same strand pitch as the hand-made 2x2-texel shells on 2048 bodies and 1024 hands.
+		a_skinFur.uvScale = hasHands ? 2.0f : 4.0f;
 	}
 
 	// Skin that is part of an outfit's mesh borders the cloth: keep its fur short enough not to
@@ -556,12 +557,12 @@ void FurShells::BeginPass(RE::BSShader* a_shader, RE::BSRenderPass* a_pass)
 	PerPass perPass{ settings.Length, static_cast<float>(shells), settings.Droop, settings.RootThreshold, settings.TipThreshold, settings.RootDarkening, settings.ShellColor, 1.0f };
 	if (generated) {
 		// Strand values are uniform in [0, 1): a cutoff of 1 - density keeps that share of strands
-		// at the root, and the tips keep about a third of them so the coat thins outward.
+		// on every shell, so the coat is as dense at the tips as at the root.
 		const float density = std::clamp(settings.SkinDensity, 0.01f, 1.0f);
 		perPass.Length = length;
 		perPass.Droop = settings.Droop * length / std::max(settings.Length, 0.01f);
 		perPass.RootThreshold = 1.0f - density;
-		perPass.TipThreshold = 1.0f - density * 0.35f;
+		perPass.TipThreshold = perPass.RootThreshold;
 		perPass.ShellColor = 0.0f;
 		perPass.UVScale = skinFur.uvScale;
 	}
