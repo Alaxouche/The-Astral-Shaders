@@ -82,6 +82,9 @@ private:
 	ankerl::unordered_dense::map<RE::NiSourceTexture*, Entry> entries;
 	ankerl::unordered_dense::set<std::string> missingShells;
 	RE::NiSourceTexture* lastDiffuse = nullptr;
+	// Shapes that draw their own fur layers this frame (see HasOwnFurLayers in FurShells.cpp).
+	ankerl::unordered_dense::map<RE::BSGeometry*, bool> ownLayers;
+	uint32_t ownLayersFrame = UINT32_MAX;
 	RE::NiSourceTexture* lastShell = nullptr;
 	PerPass lastPerPass{};
 	winrt::com_ptr<ID3D11VertexShader> savedVertexShader;

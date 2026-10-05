@@ -55,6 +55,7 @@ namespace
 		switch (static_cast<SIE::ShaderCache::LightingShaderTechniques>((a_descriptor >> 24) & 0x3F)) {
 		case None:
 		case Envmap:
+		case FacegenRGBTint:  // character bodies and hands (skin), e.g. a khajiit body with a _shell.dds
 		case Glowmap:
 		case Parallax:
 		case ParallaxOcc:
@@ -63,6 +64,53 @@ namespace
 		default:
 			return false;
 		}
+	}
+
+	bool IsShellTexturePath(const char* a_path)
+	{
+		if (!a_path)
+			return false;
+		std::string_view path(a_path);
+		constexpr std::string_view suffix = "_shell.dds";
+		if (path.size() < suffix.size())
+			return false;
+		const auto tail = path.substr(path.size() - suffix.size());
+		return std::ranges::equal(tail, suffix, [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == b; });
+	}
+
+	bool UsesShellTexture(RE::NiAVObject* a_object)
+	{
+		auto* geometry = a_object ? a_object->AsGeometry() : nullptr;
+		if (!geometry)
+			return false;
+		auto* property = netimmerse_cast<RE::BSLightingShaderProperty*>(geometry->GetGeometryRuntimeData().shaderProperty.get());
+		auto* material = property ? static_cast<RE::BSLightingShaderMaterialBase*>(property->material) : nullptr;
+		return material && material->textureSet && IsShellTexturePath(material->textureSet->GetTexturePath(RE::BSTextureSet::Texture::kDiffuse));
+	}
+
+	/**
+	 * Fluffy mesh mods ship their fur as extra shapes textured with the _shell.dds, next to the
+	 * shape they cover. Drawing shader shells on that shape as well would double the fur, so a
+	 * shape with such a sibling (or a sibling node holding one) keeps the mod's own layers only.
+	 */
+	bool HasOwnFurLayers(RE::BSGeometry* a_geometry)
+	{
+		auto* parent = a_geometry->parent;
+		if (!parent)
+			return false;
+		for (auto& child : parent->GetChildren()) {
+			if (!child || child.get() == a_geometry)
+				continue;
+			if (UsesShellTexture(child.get()))
+				return true;
+			if (auto* node = child->AsNode()) {
+				for (auto& grandchild : node->GetChildren()) {
+					if (grandchild && UsesShellTexture(grandchild.get()))
+						return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	uint32_t GetResolvableShells(float a_length, float a_distance)
@@ -195,7 +243,7 @@ void FurShells::GenerateShaderPermutations(RE::BSShader* a_shader)
 		return;
 
 	constexpr uint32_t vertexColor = static_cast<uint32_t>(Flags::VC);
-	constexpr std::array techniques{ Techniques::None, Techniques::Envmap };
+	constexpr std::array techniques{ Techniques::None, Techniques::Envmap, Techniques::FacegenRGBTint };
 	constexpr std::array alphaTestFlags{ 0u, static_cast<uint32_t>(Flags::DoAlphaTest) };
 	constexpr std::array deferredFlags{ 0u, static_cast<uint32_t>(Flags::Deferred) };
 	constexpr std::array vertexColorFlags{ 0u, vertexColor };
@@ -295,6 +343,21 @@ void FurShells::BeginPass(RE::BSShader* a_shader, RE::BSRenderPass* a_pass)
 	auto* shellView = shell && shell->rendererTexture ? shell->rendererTexture->resourceView : nullptr;
 	if (!shellView)
 		return;
+
+	// The scene graph around a shape does not change between its passes; checking it once per
+	// shape and frame keeps the sibling walk off the per-pass path.
+	{
+		const uint32_t frame = state->frameCount;
+		if (ownLayersFrame != frame) {
+			ownLayersFrame = frame;
+			ownLayers.clear();
+		}
+		auto [it, inserted] = ownLayers.try_emplace(geometry, false);
+		if (inserted)
+			it->second = HasOwnFurLayers(geometry);
+		if (it->second)
+			return;
+	}
 
 	shells = std::min(shells, GetResolvableShells(settings.Length, distance));
 
