@@ -181,7 +181,13 @@ VS_OUTPUT main(VS_INPUT input)
 	inputPosition.xyz += furOffset;
 	previousInputPosition.xyz += furOffset;
 #		else
-	float furShell = 0.0;
+	// Model-space normal meshes (character bodies and hands) carry no vertex normal: the shell
+	// direction comes from the model-space normal map, which Fur Shells binds to the VS for them.
+	float furShell = FurShells::GetShell(instanceID);
+	float3 furNormal = FurShells::GetModelSpaceNormal(input.TexCoord0.xy * TexcoordOffset.zw + TexcoordOffset.xy);
+	float3 furOffset = furNormal * (FurShells::Length * furShell);
+	inputPosition.xyz += furOffset;
+	previousInputPosition.xyz += furOffset;
 #		endif
 #	endif
 

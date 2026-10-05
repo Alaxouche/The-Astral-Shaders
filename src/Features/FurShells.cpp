@@ -29,10 +29,13 @@ namespace
 	constexpr uint32_t FurFlag = static_cast<uint32_t>(SIE::ShaderCache::LightingShaderFlags::FurShells);
 	constexpr uint32_t FurDepthFlag = FurFlag | static_cast<uint32_t>(SIE::ShaderCache::LightingShaderFlags::FurShellsDepth);
 	constexpr uint32_t ModelSpaceNormalsFlag = static_cast<uint32_t>(SIE::ShaderCache::LightingShaderFlags::ModelSpaceNormals);
+	constexpr uint32_t SkinnedFlag = static_cast<uint32_t>(SIE::ShaderCache::LightingShaderFlags::Skinned);
 	constexpr uint32_t ReflectionsFlag = static_cast<uint32_t>(State::ExtraShaderDescriptors::IsReflections);
 
 	constexpr uint32_t MaxShells = 32;
 	constexpr uint32_t ShellTextureSlot = 122;
+	constexpr uint32_t ModelSpaceNormalVSSlot = 122;  // VS stage; the PS keeps the shell there
+	constexpr uint32_t NormalMapPSSlot = 1;           // Lighting.hlsl TexNormalSampler
 	constexpr uint32_t PerPassSlot = 13;
 	constexpr uint32_t ResolvesPerFrame = 16;
 	constexpr size_t MaxEntries = 8192;
@@ -262,6 +265,18 @@ void FurShells::GenerateShaderPermutations(RE::BSShader* a_shader)
 				std::ignore = shaderCache->GetVertexShader(*a_shader, type | color | skinned | FurFlag);
 	}
 
+	// Skin (bodies and hands): skinned model-space normal meshes with vertex colours.
+	{
+		constexpr uint32_t skin = (static_cast<uint32_t>(Techniques::FacegenRGBTint) << 24) | ModelSpaceNormalsFlag | SkinnedFlag;
+		for (const uint32_t alphaTest : alphaTestFlags)
+			for (const uint32_t deferred : deferredFlags) {
+				std::ignore = shaderCache->GetPixelShader(*a_shader, skin | vertexColor | alphaTest | deferred | FurFlag);
+				std::ignore = shaderCache->GetPixelShader(*a_shader, skin | vertexColor | alphaTest | deferred | FurDepthFlag);
+			}
+		for (const uint32_t color : vertexColorFlags)
+			std::ignore = shaderCache->GetVertexShader(*a_shader, skin | color | FurFlag);
+	}
+
 	if (globals::features::truePBR.loaded) {
 		for (const uint32_t alphaTest : alphaTestFlags)
 			for (const uint32_t deferred : deferredFlags) {
@@ -322,7 +337,14 @@ void FurShells::BeginPass(RE::BSShader* a_shader, RE::BSRenderPass* a_pass)
 		return;
 
 	auto* state = globals::state;
-	if ((state->permutationData.ExtraShaderDescriptor & ReflectionsFlag) != 0 || (state->modifiedVertexDescriptor & ModelSpaceNormalsFlag) != 0 || !IsFurTechnique(state->currentPixelDescriptor))
+	if ((state->permutationData.ExtraShaderDescriptor & ReflectionsFlag) != 0 || !IsFurTechnique(state->currentPixelDescriptor))
+		return;
+
+	// Character bodies and hands use model-space normal maps and carry no vertex normal; their
+	// shells take the direction from that map in the VS (see DrawShells). Only skinned ones: a
+	// static model-space normal mesh's map is not in the space the VS offsets in.
+	const bool modelSpace = (state->modifiedVertexDescriptor & ModelSpaceNormalsFlag) != 0;
+	if (modelSpace && (state->modifiedVertexDescriptor & SkinnedFlag) == 0)
 		return;
 
 	const auto depthMode = globals::game::shadowState->GetRuntimeData().depthStencilDepthMode;
@@ -388,6 +410,7 @@ void FurShells::BeginPass(RE::BSShader* a_shader, RE::BSRenderPass* a_pass)
 	context->PSSetConstantBuffers(PerPassSlot, 1, &buffer);
 	context->PSSetShaderResources(ShellTextureSlot, 1, &shellView);
 
+	modelSpaceNormals = modelSpace;
 	instanceCount = shells + 1;
 	++passCount;
 }
@@ -460,6 +483,19 @@ bool FurShells::DrawShells(UINT a_indexCount, UINT a_startIndexLocation, INT a_b
 	UINT sampleMask = 0;
 	context->OMGetBlendState(blendState.put(), blendFactor, &sampleMask);
 
+	// The game binds the material's textures when it flushes state right before this draw, so the
+	// normal map is only readable from the PS stage here, not in BeginPass.
+	winrt::com_ptr<ID3D11ShaderResourceView> modelSpaceNormalView;
+	if (modelSpaceNormals) {
+		context->PSGetShaderResources(NormalMapPSSlot, 1, modelSpaceNormalView.put());
+		if (!modelSpaceNormalView) {
+			EndPass();
+			return false;
+		}
+		ID3D11ShaderResourceView* view = modelSpaceNormalView.get();
+		context->VSSetShaderResources(ModelSpaceNormalVSSlot, 1, &view);
+	}
+
 	context->OMSetBlendState(noColorWrite.get(), nullptr, 0xFFFFFFFF);
 	context->OMSetDepthStencilState(states->prepass.get(), stencilRef);
 	context->PSSetShader(depthPixelShader, nullptr, 0);
@@ -471,6 +507,10 @@ bool FurShells::DrawShells(UINT a_indexCount, UINT a_startIndexLocation, INT a_b
 	context->DrawIndexedInstanced(a_indexCount, instanceCount, a_startIndexLocation, a_baseVertexLocation, 0);
 
 	context->OMSetDepthStencilState(depthState.get(), stencilRef);
+	if (modelSpaceNormalView) {
+		ID3D11ShaderResourceView* none = nullptr;
+		context->VSSetShaderResources(ModelSpaceNormalVSSlot, 1, &none);
+	}
 	return true;
 }
 

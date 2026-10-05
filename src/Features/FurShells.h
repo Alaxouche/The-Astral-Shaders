@@ -92,6 +92,7 @@ private:
 	ID3D11PixelShader* furPixelShader = nullptr;
 	ID3D11PixelShader* depthPixelShader = nullptr;
 	uint32_t instanceCount = 0;
+	bool modelSpaceNormals = false;  // current pass offsets shells along its model-space normal map
 	uint32_t resolveBudget = 0;
 	uint32_t passCount = 0;
 	uint32_t lastPassCount = 0;
