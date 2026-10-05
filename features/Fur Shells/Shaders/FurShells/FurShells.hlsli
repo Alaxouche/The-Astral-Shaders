@@ -12,7 +12,7 @@ namespace FurShells
 		float TipThreshold;
 		float RootDarkening;
 		float ShellColor;
-		float Pad;
+		float UVScale;
 	};
 
 #if defined(PSHADER)

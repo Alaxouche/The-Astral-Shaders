@@ -28,6 +28,13 @@ struct FurShells : Feature
 		float ShellColor = 1.0f;
 		float FadeStart = 700.0f;
 		float FadeEnd = 2500.0f;
+		// Khajiit skin fur: grown on the race's skin (body, hands, head) from a generated strand
+		// texture, coloured by the skin itself. See GetSkinFur in FurShells.cpp.
+		bool SkinFur = true;
+		uint32_t SkinShellCount = 6;
+		float SkinLength = 0.45f;
+		float SkinDensity = 0.3f;
+		float SkinClothedScale = 0.35f;
 	} settings;
 
 	virtual void DrawSettings() override;
@@ -56,7 +63,7 @@ private:
 		float TipThreshold;
 		float RootDarkening;
 		float ShellColor;
-		float Pad;
+		float UVScale;
 	};
 	static_assert(sizeof(PerPass) == 32);
 
@@ -73,11 +80,21 @@ private:
 		winrt::com_ptr<ID3D11DepthStencilState> shade;
 	};
 
+	struct SkinFur
+	{
+		float lengthScale = 1.0f;
+		float uvScale = 1.0f;
+	};
+
 	RE::NiSourceTexture* FindShell(RE::BSRenderPass* a_pass);
+	bool GetSkinFur(RE::BSGeometry* a_geometry, uint32_t a_pixelDescriptor, SkinFur& a_skinFur) const;
+	void CreateSkinStrands();
 	const DepthStates* GetDepthStates(ID3D11DepthStencilState* a_source);
 
 	eastl::unique_ptr<ConstantBuffer> perPassCB;
 	winrt::com_ptr<ID3D11BlendState> noColorWrite;
+	winrt::com_ptr<ID3D11Texture2D> skinStrands;
+	winrt::com_ptr<ID3D11ShaderResourceView> skinStrandsView;
 	ankerl::unordered_dense::map<ID3D11DepthStencilState*, DepthStates> depthStates;
 	ankerl::unordered_dense::map<RE::NiSourceTexture*, Entry> entries;
 	ankerl::unordered_dense::set<std::string> missingShells;
