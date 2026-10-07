@@ -25,9 +25,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	FadeStart,
 	FadeEnd,
 	HideCoveredFur,
-	OverlayFur,
-	KhajiitSkinFur,
-	KhajiitSkinDensity)
+	OverlayFur)
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	FurShells::ShellOverride,
@@ -47,13 +45,12 @@ namespace
 	constexpr uint32_t FurFlag = static_cast<uint32_t>(SIE::ShaderCache::LightingShaderFlags::FurShells);
 	constexpr uint32_t FurDepthFlag = FurFlag | static_cast<uint32_t>(SIE::ShaderCache::LightingShaderFlags::FurShellsDepth);
 	constexpr uint32_t ModelSpaceNormalsFlag = static_cast<uint32_t>(SIE::ShaderCache::LightingShaderFlags::ModelSpaceNormals);
-	constexpr uint32_t SkinnedFlag = static_cast<uint32_t>(SIE::ShaderCache::LightingShaderFlags::Skinned);
 	constexpr uint32_t ReflectionsFlag = static_cast<uint32_t>(State::ExtraShaderDescriptors::IsReflections);
 
 	constexpr uint32_t MaxShells = 32;
 	constexpr uint32_t ShellTextureSlot = 122;
 	constexpr uint32_t NormalTextureSlot = 122;
-	constexpr uint32_t DepthTextureSlot = 127;  // t123 is Landscape Seams' layer 3 colour in this fork
+	constexpr uint32_t DepthTextureSlot = 123;
 	constexpr uint32_t PerPassSlot = 13;
 	constexpr uint32_t ResolvesPerFrame = 16;
 	constexpr size_t MaxEntries = 8192;
@@ -96,69 +93,6 @@ namespace
 
 		const auto technique = static_cast<SIE::ShaderCache::LightingShaderTechniques>((a_descriptor >> 24) & 0x3F);
 		return technique == Facegen || technique == FacegenRGBTint;
-	}
-
-	constexpr RE::FormID KhajiitRace = 0x00013745;         // Skyrim.esm KhajiitRace
-	constexpr RE::FormID KhajiitRaceVampire = 0x00088845;  // Skyrim.esm KhajiitRaceVampire
-	constexpr uint32_t SkinStrandsSize = 256;
-
-	/** Strand map hash: a stable value in [0, 1) per texel. */
-	float StrandValue(uint32_t a_x, uint32_t a_y)
-	{
-		uint32_t h = a_x * 0x8da6b343u ^ a_y * 0xd8163841u ^ 0x9e3779b9u;
-		h ^= h >> 16;
-		h *= 0x7feb352du;
-		h ^= h >> 15;
-		h *= 0x846ca68bu;
-		h ^= h >> 16;
-		return static_cast<float>(h >> 8) / static_cast<float>(1u << 24);
-	}
-
-	bool IsShellTexturePath(const char* a_path)
-	{
-		if (!a_path)
-			return false;
-		std::string_view path(a_path);
-		constexpr std::string_view suffix = "_shell.dds";
-		if (path.size() < suffix.size())
-			return false;
-		const auto tail = path.substr(path.size() - suffix.size());
-		return std::ranges::equal(tail, suffix, [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == b; });
-	}
-
-	bool UsesShellTexture(RE::NiAVObject* a_object)
-	{
-		auto* geometry = a_object ? a_object->AsGeometry() : nullptr;
-		if (!geometry)
-			return false;
-		auto* property = netimmerse_cast<RE::BSLightingShaderProperty*>(geometry->GetGeometryRuntimeData().shaderProperty.get());
-		auto* material = property ? static_cast<RE::BSLightingShaderMaterialBase*>(property->material) : nullptr;
-		return material && material->textureSet && IsShellTexturePath(material->textureSet->GetTexturePath(RE::BSTextureSet::Texture::kDiffuse));
-	}
-
-	/**
-	 * Fluffy mesh mods ship their fur as extra shapes textured with the _shell.dds, next to the
-	 * shape they cover. Drawing shader shells on that shape as well would double the fur, so a
-	 * shape with such a sibling (or a sibling node holding one) keeps the mod's own layers only.
-	 */
-	bool HasOwnFurLayers(RE::BSGeometry* a_geometry)
-	{
-		auto* parent = a_geometry->parent;
-		if (!parent)
-			return false;
-		for (auto& child : parent->GetChildren()) {
-			if (!child || child.get() == a_geometry)
-				continue;
-			if (UsesShellTexture(child.get()))
-				return true;
-			if (auto* node = child->AsNode()) {
-				for (auto& grandchild : node->GetChildren()) {
-					if (grandchild && UsesShellTexture(grandchild.get()))
-						return true;
-				}
-			}
-		}
-		return false;
 	}
 
 	uint32_t GetResolvableShells(float a_length, float a_distance)
@@ -283,16 +217,6 @@ void FurShells::DrawSettings()
 	ImGui::SliderFloat(T(TKEY("body_length"), "Body Length"), &settings.BodyLength, 0.05f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 	if (auto _tt = Util::HoverTooltipWrapper())
 		ImGui::TextWrapped("%s", T(TKEY("body_length_tooltip"), "Fur length on skin, such as khajiit bodies and heads, in game units."));
-
-	ImGui::Checkbox(T(TKEY("khajiit_skin_fur"), "Khajiit Skin Fur"), &settings.KhajiitSkinFur);
-	if (auto _tt = Util::HoverTooltipWrapper())
-		ImGui::TextWrapped("%s", T(TKEY("khajiit_skin_fur_tooltip"), "Grows fur on khajiit bodies, hands and heads that have no shell texture, from built-in strands coloured by the skin. Uses Body Length."));
-	{
-		Util::DisableGuard disable(!settings.KhajiitSkinFur);
-		ImGui::SliderFloat(T(TKEY("khajiit_skin_density"), "Khajiit Fur Density"), &settings.KhajiitSkinDensity, 0.05f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-		if (auto _tt = Util::HoverTooltipWrapper())
-			ImGui::TextWrapped("%s", T(TKEY("khajiit_skin_density_tooltip"), "Share of the skin that grows a strand."));
-	}
 
 	ImGui::SliderFloat(T(TKEY("droop"), "Droop"), &settings.Droop, 0.0f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 	if (auto _tt = Util::HoverTooltipWrapper())
@@ -539,18 +463,6 @@ void FurShells::GenerateShaderPermutations(RE::BSShader* a_shader)
 				std::ignore = shaderCache->GetVertexShader(*a_shader, type | color | skinned | FurFlag);
 	}
 
-	// Skin (bodies, hands, heads): skinned model-space normal meshes with vertex colours.
-	for (const auto technique : { Techniques::FacegenRGBTint, Techniques::Facegen }) {
-		const uint32_t skin = (static_cast<uint32_t>(technique) << 24) | ModelSpaceNormalsFlag | SkinnedFlag;
-		for (const uint32_t alphaTest : alphaTestFlags)
-			for (const uint32_t deferred : deferredFlags) {
-				std::ignore = shaderCache->GetPixelShader(*a_shader, skin | vertexColor | alphaTest | deferred | FurFlag);
-				std::ignore = shaderCache->GetPixelShader(*a_shader, skin | vertexColor | alphaTest | deferred | FurDepthFlag);
-			}
-		for (const uint32_t color : vertexColorFlags)
-			std::ignore = shaderCache->GetVertexShader(*a_shader, skin | color | FurFlag);
-	}
-
 	if (globals::features::truePBR.loaded) {
 		for (const uint32_t alphaTest : alphaTestFlags)
 			for (const uint32_t deferred : deferredFlags) {
@@ -558,105 +470,6 @@ void FurShells::GenerateShaderPermutations(RE::BSShader* a_shader)
 				std::ignore = shaderCache->GetPixelShader(*a_shader, static_cast<uint32_t>(Flags::TruePbr) | vertexColor | alphaTest | deferred | FurDepthFlag);
 			}
 	}
-}
-
-bool FurShells::GetSkinStrandScale(RE::BSGeometry* a_geometry, uint32_t a_pixelDescriptor, float& a_uvScale) const
-{
-	if (!settings.KhajiitSkinFur || !skinStrandsView || !IsSkinTechnique(a_pixelDescriptor))
-		return false;
-
-	auto* ref = a_geometry->GetUserData();
-	auto* actor = ref ? ref->As<RE::Actor>() : nullptr;
-	auto* race = actor ? actor->GetRace() : nullptr;
-	if (!race || (race->GetFormID() != KhajiitRace && race->GetFormID() != KhajiitRaceVampire))
-		return false;
-
-	// The shape's dismember partitions name the body slots it covers: head (30/130/230), body
-	// (32), hands (33), forearms (34), feet (37), calves (38), tail (40).
-	auto* skin = netimmerse_cast<RE::BSDismemberSkinInstance*>(a_geometry->GetGeometryRuntimeData().skinInstance.get());
-	if (!skin)
-		return false;
-	const auto& partitions = skin->GetRuntimeData();
-	if (partitions.numPartitions <= 0 || !partitions.partitions)
-		return false;
-
-	bool hasHead = false;
-	bool hasHands = false;
-	for (int32_t i = 0; i < partitions.numPartitions; ++i) {
-		const uint32_t slot = partitions.partitions[i].slot % 100;
-		hasHead |= slot == 30;
-		hasHands |= slot == 33;
-	}
-
-	// Face-tinted shapes other than the head itself (fluff cards) keep their own look. The strand
-	// pitch matches hand-made 2x2-texel shells on 2048 bodies and 1024 hands.
-	const bool head = ((a_pixelDescriptor >> 24) & 0x3F) == static_cast<uint32_t>(SIE::ShaderCache::LightingShaderTechniques::Facegen);
-	if (head && !hasHead)
-		return false;
-	a_uvScale = head ? 1.0f : (hasHands ? 2.0f : 4.0f);
-	return true;
-}
-
-bool FurShells::HasOwnFurLayersCached(RE::BSGeometry* a_geometry)
-{
-	// The scene graph around a shape does not change between its passes; checking it once per
-	// shape and frame keeps the sibling walk off the per-pass path.
-	const uint32_t frame = globals::state->frameCount;
-	if (ownLayersFrame != frame) {
-		ownLayersFrame = frame;
-		ownLayers.clear();
-	}
-	auto [it, inserted] = ownLayers.try_emplace(a_geometry, false);
-	if (inserted)
-		it->second = HasOwnFurLayers(a_geometry);
-	return it->second;
-}
-
-void FurShells::CreateSkinStrands()
-{
-	skinStrandsView = nullptr;
-	skinStrands = nullptr;
-
-	// Mips are point-decimated, not averaged: every level keeps the same share of strands, so the
-	// coat stays as dense at a distance as up close instead of fading toward the alpha average.
-	uint32_t levels = 0;
-	for (uint32_t size = SkinStrandsSize; size > 0; size >>= 1)
-		++levels;
-
-	std::vector<std::vector<uint32_t>> mips(levels);
-	std::vector<D3D11_SUBRESOURCE_DATA> data(levels);
-	for (uint32_t level = 0; level < levels; ++level) {
-		const uint32_t size = SkinStrandsSize >> level;
-		auto& texels = mips[level];
-		texels.resize(static_cast<size_t>(size) * size);
-		for (uint32_t y = 0; y < size; ++y)
-			for (uint32_t x = 0; x < size; ++x) {
-				const auto alpha = static_cast<uint32_t>(StrandValue(x << level, y << level) * 255.0f + 0.5f);
-				texels[static_cast<size_t>(y) * size + x] = 0x00FFFFFFu | (alpha << 24);
-			}
-		data[level] = { texels.data(), size * 4u, 0 };
-	}
-
-	D3D11_TEXTURE2D_DESC desc{};
-	desc.Width = SkinStrandsSize;
-	desc.Height = SkinStrandsSize;
-	desc.MipLevels = levels;
-	desc.ArraySize = 1;
-	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	desc.SampleDesc.Count = 1;
-	desc.Usage = D3D11_USAGE_IMMUTABLE;
-	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-	auto* device = globals::d3d::device;
-	if (FAILED(device->CreateTexture2D(&desc, data.data(), skinStrands.put())) ||
-		FAILED(device->CreateShaderResourceView(skinStrands.get(), nullptr, skinStrandsView.put()))) {
-		logger::warn("[Fur Shells] Failed to create the skin strand texture; khajiit skin fur is off");
-		skinStrandsView = nullptr;
-		skinStrands = nullptr;
-		return;
-	}
-	Util::SetResourceName(skinStrands.get(), "FurShells::SkinStrands");
-	Util::SetResourceName(skinStrandsView.get(), "FurShells::SkinStrands SRV");
 }
 
 FurShells::ShellLookup FurShells::FindShell(RE::BSRenderPass* a_pass)
@@ -789,24 +602,11 @@ void FurShells::BeginPass(RE::BSShader* a_shader, RE::BSRenderPass* a_pass)
 	const auto lookup = FindShell(a_pass);
 	auto* data = lookup.data;
 	auto* shellView = lookup.shell && lookup.shell->rendererTexture ? lookup.shell->rendererTexture->resourceView : nullptr;
-
-	// A _shell.dds beside the diffuse wins; khajiit skin without one gets the generated strands.
-	float uvScale = 1.0f;
-	const bool generated = (!shellView || !data) && GetSkinStrandScale(geometry, state->currentPixelDescriptor, uvScale);
-	if (generated) {
-		shellView = skinStrandsView.get();
-		data = nullptr;
-	} else if (!shellView || !data) {
-		return;
-	}
-
-	if (HasOwnFurLayersCached(geometry))
+	if (!shellView || !data)
 		return;
 
-	const bool skin = IsSkinTechnique(state->currentPixelDescriptor);
-	if (data)
-		data->skin = skin;
-	const ShellOverride values = data && data->overridden ? data->values : GetGlobalValues(skin);
+	data->skin = IsSkinTechnique(state->currentPixelDescriptor);
+	const ShellOverride values = data->overridden ? data->values : GetGlobalValues(data->skin);
 	if (!values.Enabled)
 		return;
 
@@ -835,16 +635,6 @@ void FurShells::BeginPass(RE::BSShader* a_shader, RE::BSRenderPass* a_pass)
 	const bool defer = !replaying && !deferralClosed && settings.HideCoveredFur && state->inWorld && currentPass.pass == a_pass;
 
 	PerPass perPass{ values.Length, static_cast<float>(shells), values.Droop, values.RootThreshold, values.TipThreshold, values.RootDarkening, values.ShellColor, 0.0f };
-	perPass.UVScale = 1.0f;
-	if (generated) {
-		// Strand values are uniform in [0, 1): a cutoff of 1 - density keeps that share of strands
-		// on every shell, so the coat is as dense at the tips as at the root. The skin colours it.
-		const float density = std::clamp(settings.KhajiitSkinDensity, 0.01f, 1.0f);
-		perPass.RootThreshold = 1.0f - density;
-		perPass.TipThreshold = perPass.RootThreshold;
-		perPass.ShellColor = 0.0f;
-		perPass.UVScale = uvScale;
-	}
 	if (skinInstance && settings.OverlayFur)
 		RecordFrameBody(skinInstance, geometry, perPass, shellView, normalView, defer || replaying);
 
@@ -1166,7 +956,6 @@ void FurShells::SetupResources()
 	static bool drawHookInstalled = false;
 
 	perPassCB = eastl::make_unique<ConstantBuffer>(ConstantBufferDesc<PerPass>(), "FurShells::PerPass");
-	CreateSkinStrands();
 
 	noColorWrite = nullptr;
 	D3D11_BLEND_DESC blendDesc{};

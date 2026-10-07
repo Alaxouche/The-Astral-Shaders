@@ -1156,11 +1156,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float2 uvOriginal = uv;
 
 #	if defined(FUR_SHELLS)
-	// Generated skin strands tile UVScale times over the UV; frac keeps them inside the texture
-	// whatever the material's address mode, and the gradients come from the unwrapped UV.
-	float2 furUv = uv * FurShells::UVScale;
-	float furGradScale = exp2(SharedData::MipBias);
-	float4 furSample = FurShells::TexShell.SampleGrad(SampColorSampler, frac(furUv), ddx(furUv) * furGradScale, ddy(furUv) * furGradScale);
+	float4 furSample = FurShells::TexShell.SampleBias(SampColorSampler, uv, SharedData::MipBias);
 	bool furRootCovered = FurShells::IsRootCovered(input.FurRoot, fwidth(input.FurRoot.w));
 	if (input.FurShell > 0.0 && (furRootCovered || furSample.w < lerp(FurShells::RootThreshold, FurShells::TipThreshold, input.FurShell)))
 		discard;

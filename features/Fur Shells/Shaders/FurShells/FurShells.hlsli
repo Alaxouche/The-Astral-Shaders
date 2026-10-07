@@ -13,13 +13,11 @@ namespace FurShells
 		float RootDarkening;
 		float ShellColor;
 		float RootTest;
-		float UVScale;  // shell texture repeats over the UV (generated khajiit skin strands)
-		float3 Pad;
 	};
 
 #if defined(PSHADER)
 	Texture2D<float4> TexShell : register(t122);
-	Texture2D<float4> TexDepth : register(t127);
+	Texture2D<float4> TexDepth : register(t123);
 
 	bool IsRootCovered(float4 rootPosition, float rootSlope)
 	{

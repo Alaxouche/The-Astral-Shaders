@@ -31,10 +31,6 @@ struct FurShells : Feature
 		float FadeEnd = 2500.0f;
 		bool HideCoveredFur = true;
 		bool OverlayFur = true;
-		// Khajiit skin without a _shell.dds grows fur from a generated strand texture, coloured by
-		// the skin itself. See GetSkinStrandScale in FurShells.cpp.
-		bool KhajiitSkinFur = true;
-		float KhajiitSkinDensity = 0.25f;
 	} settings;
 
 	struct ShellOverride
@@ -79,10 +75,8 @@ private:
 		float RootDarkening;
 		float ShellColor;
 		float RootTest;
-		float UVScale;
-		float Pad[3];
 	};
-	static_assert(sizeof(PerPass) == 48);
+	static_assert(sizeof(PerPass) == 32);
 
 	struct DeferredPass
 	{
@@ -135,9 +129,6 @@ private:
 	};
 
 	ShellLookup FindShell(RE::BSRenderPass* a_pass);
-	bool GetSkinStrandScale(RE::BSGeometry* a_geometry, uint32_t a_pixelDescriptor, float& a_uvScale) const;
-	bool HasOwnFurLayersCached(RE::BSGeometry* a_geometry);
-	void CreateSkinStrands();
 	const FrameBody* FindFrameBody(RE::BSGeometry* a_geometry) const;
 	void RecordFrameBody(RE::NiSkinInstance* a_skinInstance, RE::BSGeometry* a_geometry, const PerPass& a_perPass, ID3D11ShaderResourceView* a_shellView, ID3D11ShaderResourceView* a_normalView, bool a_deferred);
 	void BeginOverlayPass(RE::BSShader* a_shader, RE::BSRenderPass* a_pass, const FrameBody& a_body);
@@ -171,11 +162,6 @@ private:
 
 	eastl::unique_ptr<ConstantBuffer> perPassCB;
 	winrt::com_ptr<ID3D11BlendState> noColorWrite;
-	winrt::com_ptr<ID3D11Texture2D> skinStrands;
-	winrt::com_ptr<ID3D11ShaderResourceView> skinStrandsView;
-	// Shapes that draw their own fur layers this frame (see HasOwnFurLayers in FurShells.cpp).
-	ankerl::unordered_dense::map<RE::BSGeometry*, bool> ownLayers;
-	uint32_t ownLayersFrame = UINT32_MAX;
 	ankerl::unordered_dense::map<ID3D11DepthStencilState*, DepthStates> depthStates;
 	ankerl::unordered_dense::map<RE::NiSourceTexture*, Entry> entries;
 	ankerl::unordered_dense::set<std::string> missingShells;
