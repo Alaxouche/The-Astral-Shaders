@@ -3,6 +3,7 @@
 #include "Feature.h"
 #include "Upscaling/DX12SwapChain.h"
 #include "Upscaling/FidelityFX.h"
+#include "Upscaling/FrameGenStats.h"
 #include "Upscaling/NeuralRendering.h"
 #include "Upscaling/RCAS/RCAS.h"
 #include "Upscaling/Streamline.h"
@@ -67,9 +68,14 @@ public:
 		uint frameGenerationMode = 1;
 		uint frameGenerationForceEnable = 0;
 		bool frameGenerationAllowInMenus = false;
-		bool preferFSRFrameGen = false;
-		uint dlssgFramesToGenerate = 1;  // Generated frames per real frame (1=2x)
-		uint streamlineLogLevel = 0;     // 0=Off, 1=Default, 2=Verbose
+		bool enableDLSSFrameGen = false;
+		// Generated frames per real frame (1=2x). Clamped at apply time to the
+		// hardware-reported DLSSGState::numFramesToGenerateMax.
+		uint dlssgFramesToGenerate = 1;
+		bool dlssgDisableVSync = true;
+		bool dlssgWorldCameraConstants = true;
+		bool dlssgHudLessCapture = false;
+		uint streamlineLogLevel = 0;  // 0=Off, 1=Default, 2=Verbose
 		float sharpnessFSR = 0.0f;
 		bool sharpnessEnabledDLSS = false;
 		float sharpnessDLSS = 0.0f;
@@ -136,6 +142,12 @@ public:
 	// Set by Main_PostProcessing when frame-generation inputs were copied; cleared after Present.
 	bool frameGenerationPrepared = false;
 
+	globals::FrameBufferCache worldCameraFrame{};
+	bool worldCameraFrameValid = false;
+	bool constantsUsedWorldCamera = false;
+
+	FrameGenStats frameGenStats;
+
 	// Timing and scaling
 	double refreshRate = 0.0f;
 	float2 resolutionScale = { 1.0f, 1.0f };
@@ -169,7 +181,18 @@ public:
 	UpscaleMethod GetUpscaleMethod() const;
 	FrameGenMethod GetFrameGenMethod() const;
 	bool UsesDLSSGFrameGen() const;
+
+	/** @brief Real:generated frame ratio for the active FG backend -- the single source
+	 * of truth for pacing (FrameLimiter) and reporting (PerformanceOverlay). */
 	uint GetFrameGenerationMultiplier() const;
+
+	json GetFrameGenDiagnostics();
+	void CaptureWorldCamera();
+	const globals::FrameBufferCache& GetConstantsCamera(bool* a_usedWorldCamera = nullptr) const;
+	bool IsForeignCameraPublished() const;
+	void CaptureHudLessColor();
+	void RecordFrameGenPresent(double a_presentMs, UINT a_syncInterval, bool a_tearing, bool a_hudLess);
+	void LogFrameGenStats();
 
 	void CheckResources(UpscaleMethod a_upscalemethod);
 	void CreateUpscalingTextureResources(UpscaleMethod a_upscalemethod);

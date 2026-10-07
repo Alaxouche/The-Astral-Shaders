@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <dxgi.h>
 #include <dxgi1_3.h>
@@ -67,6 +68,8 @@ void LoggingCallback(sl::LogType type, const char* msg)
 		break;
 	case sl::LogType::eError:
 		logger::error("{} {}", prefix, cleanMsg);
+		break;
+	case sl::LogType::eCount:
 		break;
 	}
 }
@@ -269,11 +272,8 @@ void Streamline::RequestFeatureLoad(sl::Feature a_feature, const char* a_feature
 
 void Streamline::BindReflexAndPCL()
 {
-	if (!slGetFeatureFunction || !reflexSupportedOnCurrentAdapter) {
-		if (!reflexSupportedOnCurrentAdapter)
-			logger::info("[Streamline {}] Skipping Reflex/PCL binding on non-NVIDIA adapter", instanceTag);
+	if (!slGetFeatureFunction || !reflexSupportedOnCurrentAdapter)
 		return;
-	}
 
 	if (slSetFeatureLoaded) {
 		RequestFeatureLoad(sl::kFeatureReflex, "Reflex");
@@ -310,8 +310,6 @@ void Streamline::PostDevice()
 		slReflexSleep = nullptr;
 		slReflexSetOptions = nullptr;
 		slPCLSetMarker = nullptr;
-		featureReflex = false;
-		featurePCL = false;
 
 		if (slGetFeatureFunction) {
 			bool dlssgFnsBound = true;
@@ -331,7 +329,9 @@ void Streamline::PostDevice()
 					dlssgMaxFramesToGenerate = 1;
 				} else {
 					dlssgMaxFramesToGenerate = std::max<uint32_t>(1, state.numFramesToGenerateMax);
+					dlssgVSyncSupported = state.bIsVsyncSupportAvailable == sl::Boolean::eTrue;
 					logger::info("[Streamline DX12] DLSS-G supports up to {}x frame generation", dlssgMaxFramesToGenerate + 1);
+					logger::info("[Streamline DX12] DLSS-G V-Sync support {} available", dlssgVSyncSupported ? "is" : "is not");
 				}
 			}
 
@@ -417,13 +417,18 @@ bool Streamline::IsSmoothMotionEnabledForProfile()
  */
 bool Streamline::EnsureFrameToken()
 {
+	return globals::state && EnsureFrameToken(globals::state->frameCount);
+}
+
+bool Streamline::EnsureFrameToken(uint32_t a_frameIndex)
+{
 	if (!initialized || !slGetNewFrameToken || !globals::state)
 		return false;
 
-	if (!frameChecker.IsNewFrame())
+	if (!frameChecker.IsNewFrame(a_frameIndex))
 		return frameToken != nullptr;
 
-	if (SL_FAILED(result, slGetNewFrameToken(frameToken, &globals::state->frameCount))) {
+	if (SL_FAILED(result, slGetNewFrameToken(frameToken, &a_frameIndex))) {
 		logger::error("[Streamline {}] Could not get frame token: {}", instanceTag, magic_enum::enum_name(result));
 		frameToken = nullptr;
 		return false;
@@ -448,8 +453,13 @@ bool Streamline::CheckFrameConstants(sl::ViewportHandle p_viewport)
 	slConstants.cameraNear = *globals::game::cameraNear;
 	slConstants.cameraFar = *globals::game::cameraFar;
 
-	auto viewMatrix = globals::game::frameBufferCached.GetCameraViewInverse().Transpose();
-	const auto& frameBuffer = globals::game::frameBufferCached;
+	auto& upscaling = globals::features::upscaling;
+	const bool frameGenInstance = renderAPI == sl::RenderAPI::eD3D12;
+	bool usedWorldCamera = false;
+	const auto& frameBuffer = frameGenInstance ? upscaling.GetConstantsCamera(&usedWorldCamera) : globals::game::frameBufferCached;
+	if (frameGenInstance)
+		upscaling.constantsUsedWorldCamera = usedWorldCamera;
+	auto viewMatrix = frameBuffer.GetCameraViewInverse().Transpose();
 	const auto& cameraPosition = frameBuffer.GetCameraPosAdjust();
 	const auto& previousCameraPosition = frameBuffer.GetCameraPreviousPosAdjust();
 	const auto cameraMatrices = UpscalingCamera::BuildReprojection(
@@ -463,17 +473,16 @@ bool Streamline::CheckFrameConstants(sl::ViewportHandle p_viewport)
 	slConstants.cameraRight = { viewMatrix._11, viewMatrix._12, viewMatrix._13 };
 	slConstants.cameraUp = { viewMatrix._21, viewMatrix._22, viewMatrix._23 };
 	slConstants.cameraFwd = { viewMatrix._31, viewMatrix._32, viewMatrix._33 };
-	slConstants.cameraPos = *(sl::float3*)&globals::game::frameBufferCached.GetCameraPosAdjust();
+	slConstants.cameraPos = *(sl::float3*)&frameBuffer.GetCameraPosAdjust();
 	slConstants.cameraViewToClip = std::bit_cast<sl::float4x4>(cameraMatrices.cameraViewToClip);
 	slConstants.clipToCameraView = std::bit_cast<sl::float4x4>(cameraMatrices.clipToCameraView);
 	slConstants.clipToPrevClip = std::bit_cast<sl::float4x4>(cameraMatrices.clipToPrevClip);
 	slConstants.prevClipToClip = std::bit_cast<sl::float4x4>(cameraMatrices.prevClipToClip);
 	slConstants.depthInverted = globals::features::reverseZ.IsActive() ? sl::Boolean::eTrue : sl::Boolean::eFalse;
 
-	auto& upscaling = globals::features::upscaling;
 	auto jitter = upscaling.jitter;
 	slConstants.jitterOffset = { -jitter.x, -jitter.y };
-	slConstants.reset = sl::Boolean::eFalse;
+	slConstants.reset = (frameGenInstance && globals::state->IsMainOrLoadingMenuOpen()) ? sl::Boolean::eTrue : sl::Boolean::eFalse;
 
 	slConstants.mvecScale = { 1.0f, 1.0f };
 	slConstants.motionVectors3D = sl::Boolean::eFalse;
@@ -721,24 +730,33 @@ void Streamline::UpdateReflex()
 	};
 
 	const auto& upscaling = globals::features::upscaling;
-	const bool reflexBlockedByFrameGeneration = renderAPI == sl::RenderAPI::eD3D11 && upscaling.IsFrameGenerationDx12PathActive();
-	if (reflexBlockedByFrameGeneration) {
+
+	// Disable DX11 Reflex only when DLSS-G actually drives it via DX12 -- FSR3 FG
+	// shares the D3D12 proxy but never emits DX12 Reflex markers.
+	if (renderAPI == sl::RenderAPI::eD3D11 && upscaling.UsesDLSSGFrameGen()) {
 		sl::ReflexOptions disabledOptions{};
 		disabledOptions.mode = sl::ReflexMode::eOff;
 		disabledOptions.frameLimitUs = 0u;
 		disabledOptions.useMarkersToOptimize = false;
-		applyReflexOptionsIfChanged(disabledOptions, "Failed to disable Reflex while frame-generation DX12 path is active");
+		applyReflexOptionsIfChanged(disabledOptions, "Failed to disable Reflex while DLSS-G frame-generation is active");
 		return;
 	}
 
 	auto& settings = globals::features::upscaling.settings;
 
 	sl::ReflexOptions options{};
-	const bool needReflex = settings.reflexLowLatencyMode || (renderAPI == sl::RenderAPI::eD3D12 && upscaling.ShouldPrepareFrameGeneration());
-	if (!needReflex) {
-		options.mode = sl::ReflexMode::eOff;
+	if (renderAPI == sl::RenderAPI::eD3D12) {
+		// DX12 Reflex: DLSS-G requires at least eLowLatency when FG is active
+		bool needReflex = upscaling.ShouldPrepareFrameGeneration() || settings.reflexLowLatencyMode;
+		if (needReflex)
+			options.mode = settings.reflexLowLatencyBoost ? sl::ReflexMode::eLowLatencyWithBoost : sl::ReflexMode::eLowLatency;
+		else
+			options.mode = sl::ReflexMode::eOff;
 	} else {
-		options.mode = settings.reflexLowLatencyBoost ? sl::ReflexMode::eLowLatencyWithBoost : sl::ReflexMode::eLowLatency;
+		if (!settings.reflexLowLatencyMode)
+			options.mode = sl::ReflexMode::eOff;
+		else
+			options.mode = settings.reflexLowLatencyBoost ? sl::ReflexMode::eLowLatencyWithBoost : sl::ReflexMode::eLowLatency;
 	}
 
 	const float originalReflexFPSLimit = settings.reflexFPSLimit;
@@ -761,27 +779,28 @@ void Streamline::UpdateReflex()
 		return;
 
 	const uint32_t currentFrame = globals::state ? globals::state->frameCount : 0;
-	// PollInputDevices can run more than once; sleep must happen once per frame token.
 	if (lastReflexSleepFrame == currentFrame)
 		return;
 
-	if (!EnsureFrameToken())
+	if (!EnsureFrameToken(renderAPI == sl::RenderAPI::eD3D12 ? currentFrame + 1 : currentFrame))
 		return;
 
 	lastReflexSleepFrame = currentFrame;
+	const auto sleepStart = std::chrono::steady_clock::now();
 	if (SL_FAILED(result, slReflexSleep(*frameToken))) {
 		logger::warn("[Streamline {}] Reflex sleep call failed: {}", instanceTag, magic_enum::enum_name(result));
 	}
+	lastReflexSleepMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sleepStart).count();
 
+	// The frame's simulation begins right after the Reflex sleep returns; the matching
+	// eSimulationEnd (and the render/present markers) are emitted on the present path.
 	if (renderAPI == sl::RenderAPI::eD3D12)
 		EmitPCLMarker(sl::PCLMarker::eSimulationStart);
 }
 
 void Streamline::EmitPCLMarker(sl::PCLMarker a_marker)
 {
-	if (!initialized || !featurePCL || !slPCLSetMarker)
-		return;
-	if (!EnsureFrameToken())
+	if (!initialized || !featurePCL || !slPCLSetMarker || !frameToken)
 		return;
 
 	if (SL_FAILED(result, slPCLSetMarker(a_marker, *frameToken))) {
@@ -895,6 +914,10 @@ void Streamline::TagDX12Resources(ID3D12GraphicsCommandList* cmdList,
  */
 void Streamline::DestroyDLSSResources()
 {
+	// DLSS entry points are only resolved when DLSS is available; calling them otherwise faults.
+	if (!featureDLSS)
+		return;
+
 	sl::DLSSOptions dlssOptions{};
 	dlssOptions.mode = sl::DLSSMode::eOff;
 

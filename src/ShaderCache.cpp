@@ -141,7 +141,7 @@ namespace SIE
 		static void GetLightingShaderDefines(uint32_t descriptor, std::span<D3D_SHADER_MACRO> defines)
 		{
 			static REL::Relocation<void(uint32_t, D3D_SHADER_MACRO*)> VanillaGetLightingShaderDefines(RELOCATION_ID(101631, 108698));
-			VanillaGetLightingShaderDefines(descriptor, defines.data());
+			VanillaGetLightingShaderDefines(descriptor & ~static_cast<uint32_t>(ShaderCache::LightingShaderFlags::Reflections), defines.data());
 
 			size_t lastIndex = std::ranges::find_if(defines, [](const D3D_SHADER_MACRO& macro) { return macro.Name == nullptr; }) - defines.begin();
 
@@ -156,6 +156,9 @@ namespace SIE
 			}
 			if ((descriptor & static_cast<uint32_t>(ShaderCache::LightingShaderFlags::LandscapeSeams)) != 0) {
 				defines[lastIndex++] = { "LANDSCAPE_SEAMS", nullptr };
+			}
+			if ((descriptor & static_cast<uint32_t>(ShaderCache::LightingShaderFlags::Reflections)) != 0) {
+				defines[lastIndex++] = { "CUBEMAP_REFLECTIONS", nullptr };
 			}
 			if ((descriptor & static_cast<uint32_t>(ShaderCache::LightingShaderFlags::FurShells)) != 0) {
 				defines[lastIndex++] = { "FUR_SHELLS", nullptr };
@@ -1523,8 +1526,10 @@ namespace SIE
 				cache.AddCompletedShader(shaderClass, shader, descriptor, nullptr);
 				return nullptr;
 			}
-			if (errorBlob)
+			if (errorBlob) {
 				logger::debug("Shader logs:\n{}", static_cast<char*>(errorBlob->GetBufferPointer()));
+				errorBlob->Release();
+			}
 			logger::debug("Compiled shader {}:{}:{:X}", magic_enum::enum_name(type), magic_enum::enum_name(shaderClass), descriptor);
 
 #ifdef TRACY_ENABLE
@@ -3580,7 +3585,6 @@ namespace SIE
 	{
 		std::scoped_lock lock(compilationMutex);
 		availableTasks.clear();
-		pendingAuxTasks.clear();
 		tasksInProgress.clear();
 		processedTasks.clear();
 		totalTasks = 0;

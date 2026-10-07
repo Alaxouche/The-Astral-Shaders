@@ -104,6 +104,7 @@ struct VS_OUTPUT
 	float3 ModelPosition: TEXCOORD12;
 #if defined(FUR_SHELLS)
 	nointerpolation float FurShell: TEXCOORD13;
+	float4 FurRoot: TEXCOORD14;
 #endif
 };
 #ifdef VSHADER
@@ -175,20 +176,16 @@ VS_OUTPUT main(VS_INPUT input)
 	precise float4 previousInputPosition = inputPosition;
 
 #	if defined(FUR_SHELLS)
-#		if !defined(MODELSPACENORMALS)
 	float furShell = FurShells::GetShell(instanceID);
-	float3 furOffset = (input.Normal.xyz * 2.0 - 1.0) * (FurShells::Length * furShell);
-	inputPosition.xyz += furOffset;
-	previousInputPosition.xyz += furOffset;
+	float4 furRootPosition = inputPosition;
+#		if defined(MODELSPACENORMALS)
+	float3 furNormal = FurShells::GetModelNormal(input.TexCoord0.xy * TexcoordOffset.zw + TexcoordOffset.xy);
 #		else
-	// Model-space normal meshes (character bodies and hands) carry no vertex normal: the shell
-	// direction comes from the model-space normal map, which Fur Shells binds to the VS for them.
-	float furShell = FurShells::GetShell(instanceID);
-	float3 furNormal = FurShells::GetModelSpaceNormal(input.TexCoord0.xy * TexcoordOffset.zw + TexcoordOffset.xy);
+	float3 furNormal = input.Normal.xyz * 2.0 - 1.0;
+#		endif
 	float3 furOffset = furNormal * (FurShells::Length * furShell);
 	inputPosition.xyz += furOffset;
 	previousInputPosition.xyz += furOffset;
-#		endif
 #	endif
 
 #	if defined(TREE_ANIM)
@@ -214,6 +211,7 @@ VS_OUTPUT main(VS_INPUT input)
 	float furDroop = FurShells::Droop * furShell * furShell;
 	worldPosition.z -= furDroop;
 	previousWorldPosition.z -= furDroop;
+	float4 furRootViewPos = mul(ViewProj, float4(mul(furRootPosition, transpose(worldMatrix)), 1));
 #		endif
 
 	float4 viewPos = mul(ViewProj, worldPosition);
@@ -228,6 +226,7 @@ VS_OUTPUT main(VS_INPUT input)
 	float furDroop = FurShells::Droop * furShell * furShell;
 	worldPosition.z -= furDroop;
 	previousWorldPosition.z -= furDroop;
+	float4 furRootViewPos = mul(modelView, furRootPosition);
 	viewPos -= furDroop * float4(ViewProj[0].z, ViewProj[1].z, ViewProj[2].z, ViewProj[3].z);
 #		endif
 #	endif  // SKINNED
@@ -332,6 +331,7 @@ VS_OUTPUT main(VS_INPUT input)
 
 #	if defined(FUR_SHELLS)
 	vsout.FurShell = furShell;
+	vsout.FurRoot = furRootViewPos;
 #	endif
 
 	return vsout;
@@ -846,6 +846,22 @@ float GetSnowParameterY(float texProjTmp, float alpha)
 #		undef WATER_EFFECTS
 #	endif
 
+#	if defined(CUBEMAP_REFLECTIONS) && !defined(LANDSCAPE)
+#		undef EXTENDED_MATERIALS
+#		undef EXTENDED_TRANSLUCENCY
+#		undef LIGHT_LIMIT_FIX
+#		undef SCREEN_SPACE_SHADOWS
+#		undef SKYLIGHTING
+#		undef SSS
+#		undef TERRAIN_BLENDING
+#		undef VOLUMETRIC_SHADOWS
+#		undef WATER_EFFECTS
+#		undef WETNESS_EFFECTS
+#		undef CS_SKIN
+#		undef CS_HAIR
+#		undef HAIR_BACKLIGHTING
+#	endif
+
 #	if defined(WORLD_MAP)
 #		undef CLOUD_SHADOWS
 #		undef SKYLIGHTING
@@ -1145,7 +1161,8 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float2 furUv = uv * FurShells::UVScale;
 	float furGradScale = exp2(SharedData::MipBias);
 	float4 furSample = FurShells::TexShell.SampleGrad(SampColorSampler, frac(furUv), ddx(furUv) * furGradScale, ddy(furUv) * furGradScale);
-	if (input.FurShell > 0.0 && furSample.w < lerp(FurShells::RootThreshold, FurShells::TipThreshold, input.FurShell))
+	bool furRootCovered = FurShells::IsRootCovered(input.FurRoot, fwidth(input.FurRoot.w));
+	if (input.FurShell > 0.0 && (furRootCovered || furSample.w < lerp(FurShells::RootThreshold, FurShells::TipThreshold, input.FurShell)))
 		discard;
 #	endif
 
@@ -1232,14 +1249,16 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	endif
 
 #	if defined(LANDSCAPE)
-#		if defined(EMAT)
-	float terrainMipLevel = 0;
-	float terrainShadowMipLevel = 0;
+#		if defined(TERRAIN_VARIATION) || defined(EMAT)
 #			if defined(TERRAIN_VARIATION)
 	StochasticOffsets sharedOffset = ComputeStochasticOffsets(input.TexCoord0.zw);
 #			else
 	StochasticOffsets sharedOffset = (StochasticOffsets)0;
 #			endif
+#		endif
+#		if defined(EMAT)
+	float terrainMipLevel = 0;
+	float terrainShadowMipLevel = 0;
 	float cachedDirectionalTerrainParallaxShadow = 1.0;
 	bool hasCachedDirectionalTerrainParallaxShadow = false;
 	bool hasCachedTerrainShadowBaseHeight = false;
@@ -2855,7 +2874,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	endif
 	transmissionColor += dirLightOutput.transmission;
 
-#	if !defined(LOD)
+#	if !defined(LOD) && !(defined(CUBEMAP_REFLECTIONS) && !defined(LANDSCAPE))
 #		if !defined(LIGHT_LIMIT_FIX)
 	[loop] for (uint lightIndex = 0; lightIndex < numLights; lightIndex++)
 	{
@@ -3713,6 +3732,10 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 #		if defined(SSS) && defined(SKIN)
 	psout.Masks = float4(saturate(baseColor.a), !(Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::IsBeastRace), masksZ, psout.Diffuse.w);
+#			if defined(FUR_SHELLS)
+	if (input.FurShell > 0.0)
+		psout.Masks.x = 0;
+#			endif
 #		else
 	psout.Masks = float4(0, 0, masksZ, psout.Diffuse.w);
 #		endif

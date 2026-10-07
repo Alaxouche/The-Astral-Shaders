@@ -36,7 +36,6 @@ public:
 	std::wstring interposerDllName = L"sl.interposer.dll";
 	std::string instanceTag = "DX11";
 
-	bool enabledAtBoot = false;
 	bool initialized = false;
 	bool triedInitialization = false;
 
@@ -46,6 +45,8 @@ public:
 	uint32_t dlssgMaxFramesToGenerate = 1;
 	sl::DLSSGStatus lastDLSSGStatus = sl::DLSSGStatus::eOk;
 	uint32_t lastDLSSGFramesPresented = 0;
+	bool dlssgVSyncSupported = false;
+	double lastReflexSleepMs = 0.0;
 	bool featureReflex = false;
 	bool featurePCL = false;
 	bool reflexSupportedOnCurrentAdapter = false;
@@ -90,7 +91,6 @@ public:
 
 	Util::FrameChecker frameChecker;
 	sl::FrameToken* frameToken = nullptr;
-
 	bool isRTXBelow40series = false;
 
 	struct ReflexOptionsCache
@@ -152,6 +152,8 @@ public:
 
 	/** @brief Acquires a new frame token from Streamline for the current frame. */
 	bool EnsureFrameToken();
+	/** @brief Acquires the frame token for an explicit frame index; reuses the cached token when the index is unchanged. */
+	bool EnsureFrameToken(uint32_t a_frameIndex);
 	/**
 	 * @brief Sets camera and jitter constants on the Streamline viewport for the current frame.
 	 * @param p_viewport The viewport handle to configure.

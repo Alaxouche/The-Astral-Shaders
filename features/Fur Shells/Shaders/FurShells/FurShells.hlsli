@@ -12,32 +12,36 @@ namespace FurShells
 		float TipThreshold;
 		float RootDarkening;
 		float ShellColor;
-		float UVScale;
+		float RootTest;
+		float UVScale;  // shell texture repeats over the UV (generated khajiit skin strands)
+		float3 Pad;
 	};
 
 #if defined(PSHADER)
 	Texture2D<float4> TexShell : register(t122);
-#elif defined(VSHADER) && defined(MODELSPACENORMALS)
-	Texture2D<float4> TexModelSpaceNormal : register(t122);
+	Texture2D<float4> TexDepth : register(t127);
 
-	/**
-	 * Model-space normal (xzy-packed, as Lighting.hlsl decodes it) at a mip near 256 texels, so
-	 * neighbouring vertices agree on a smooth direction instead of the map's fine detail.
-	 */
-	float3 GetModelSpaceNormal(float2 uv)
+	bool IsRootCovered(float4 rootPosition, float rootSlope)
+	{
+		float2 uv = rootPosition.xy / rootPosition.w * float2(0.5, -0.5) + 0.5;
+		float sceneDepth = SharedData::GetScreenDepth(TexDepth.Load(SharedData::ConvertUVToSampleCoord(uv)).x);
+		float bias = 0.03 + rootSlope + 2e-8 * rootPosition.w * rootPosition.w;
+		return RootTest > 0.0 && rootPosition.w > 0.0 && all(uv == saturate(uv)) && sceneDepth < rootPosition.w - bias;
+	}
+#endif
+
+#if defined(VSHADER) && defined(MODELSPACENORMALS)
+	Texture2D<float4> TexModelNormal : register(t122);
+
+	float3 GetModelNormal(float2 uv)
 	{
 		uint width, height, levels;
-		TexModelSpaceNormal.GetDimensions(0, width, height, levels);
-		if (width == 0 || levels == 0)
-			return 0.0.xxx;
-		uint mip = min(levels - 1, (uint)max(0.0, log2(float(max(width, height)) / 256.0)));
-		uint mipWidth = max(width >> mip, 1u);
-		uint mipHeight = max(height >> mip, 1u);
-		int2 texel = int2(frac(uv) * float2(mipWidth, mipHeight));
-		float3 packed = TexModelSpaceNormal.Load(int3(texel, mip)).xzy;
-		float3 normal = packed * 2.0 - 1.0;
-		float len = length(normal);
-		return len > 1e-3 ? normal / len : 0.0.xxx;
+		TexModelNormal.GetDimensions(0, width, height, levels);
+		uint mip = min(uint(max(int(firstbithigh(max(width, height))), 9) - 9), max(levels, 1u) - 1u);
+		uint2 size = max(uint2(width, height) >> mip, 1u);
+		uint2 texel = min(uint2(frac(uv) * float2(size)), size - 1u);
+		float3 normal = TexModelNormal.Load(int3(texel, mip)).xzy * 2.0 - 1.0;
+		return normal * rsqrt(max(dot(normal, normal), 1e-6));
 	}
 #endif
 

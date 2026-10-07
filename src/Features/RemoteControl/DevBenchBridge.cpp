@@ -16,6 +16,7 @@
 #	include "Feature.h"
 #	include "Features/RenderDoc.h"
 #	include "Features/ScreenshotFeature.h"
+#	include "Features/Upscaling.h"
 #	include "Globals.h"
 #	include "Profiler.h"
 #	include "ShaderCache.h"
@@ -32,10 +33,13 @@
 #	include <memory>
 #	include <optional>
 #	include <stdexcept>
+#	include <unordered_set>
 
 namespace
 {
 	using json = nlohmann::json;
+
+	std::unordered_set<Feature*> g_bootLoadedFeatures;
 
 	// Current render frame, used as a coarse "enqueued at" stamp so callers can poll
 	// inspect(kind=state) until frame_count advances past it (i.e. a queued main-thread
@@ -240,6 +244,8 @@ namespace
 			const bool explicitVal = a_args.value("enabled", false);
 			task->AddTask([target, hasExplicit, explicitVal, shortName]() {
 				const bool applied = hasExplicit ? explicitVal : !target->loaded;
+				if (applied && !g_bootLoadedFeatures.contains(target))
+					return;
 				target->loaded = applied;
 				if (auto* dvb = DevBenchAPI::GetDevBenchInterface001()) {
 					const std::string payload = json{ { "shortName", shortName }, { "enabled", applied } }.dump();
@@ -395,7 +401,15 @@ namespace
 				{ "frame_count", EnqueuedFrame() },
 			};
 		}
-		return json{ { "error", "unknown kind" }, { "kind", kind }, { "supported", json::array({ "state", "shadercache", "profiler" }) } };
+		if (kind == "framegen") {
+			auto& upscaling = globals::features::upscaling;
+			json result = upscaling.GetFrameGenDiagnostics();
+			result["frame_count"] = EnqueuedFrame();
+			if (a_args.value("reset", false))
+				upscaling.frameGenStats.Reset();
+			return result;
+		}
+		return json{ { "error", "unknown kind" }, { "kind", kind }, { "supported", json::array({ "state", "shadercache", "profiler", "framegen" }) } };
 	}
 
 	/**
@@ -624,6 +638,10 @@ namespace DevBenchBridge
 	 */
 	void Install()
 	{
+		for (auto* feature : Feature::GetFeatureList())
+			if (feature->loaded)
+				g_bootLoadedFeatures.insert(feature);
+
 		auto* dvb = DevBenchAPI::GetDevBenchInterface001();
 		if (!dvb) {
 			logger::info("DevBenchBridge: devbench not present; CS tools not registered");
@@ -641,7 +659,7 @@ namespace DevBenchBridge
 		dvb->RegisterTool("communityshaders.feature", featureDesc, &FeatureToolHandler, nullptr);
 
 		static constexpr const char* inspectDesc =
-			R"({"description":"Read non-feature Community Shaders engine state. Kind-dispatched; response is a JSON object. kind=state -> {plugin,frame_count}. kind=shadercache -> {compiling,completedTasks,totalTasks,failedTasks,currentFailedCount,frame_count}. kind=profiler -> {totalGpuMs,totalCpuMs,frame_count,passes:[{name,gpuMs,gpuAvgMs,gpuP95Ms,gpuP99Ms,cpuMs,cpuAvgMs,gpuHistory:[...]}]}; optional filter param to match pass names.","readOnly":true,"inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["state","shadercache","profiler"]},"filter":{"type":"string"}},"required":["kind"]}})";
+			R"({"description":"Read non-feature Community Shaders engine state. Kind-dispatched; response is a JSON object. kind=state -> {plugin,frame_count}. kind=shadercache -> {compiling,completedTasks,totalTasks,failedTasks,currentFailedCount,frame_count}. kind=profiler -> {totalGpuMs,totalCpuMs,frame_count,passes:[{name,gpuMs,gpuAvgMs,gpuP95Ms,gpuP99Ms,cpuMs,cpuAvgMs,gpuHistory:[...]}]}; optional filter param to match pass names. kind=framegen -> {frameGenMethod,frameGenActive,frameGenMultiplier,refreshRate,dlssgStatus,stats:{...,recentFrameTimesMs:[...]}}; optional reset=true clears the statistics after reading.","readOnly":true,"inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["state","shadercache","profiler","framegen"]},"filter":{"type":"string"},"reset":{"type":"boolean"}},"required":["kind"]}})";
 		dvb->RegisterTool("communityshaders.inspect", inspectDesc, &InspectToolHandler, nullptr);
 
 		static constexpr const char* shadercacheDesc =
