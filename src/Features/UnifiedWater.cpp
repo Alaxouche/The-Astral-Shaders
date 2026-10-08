@@ -238,19 +238,23 @@ void UnifiedWater::DataLoaded()
 	flowmap = new Flowmap();
 	waterCache = new WaterCache();
 
-	if (LoadOrderChanged()) {
-		logger::info("[Unified Water] Load order or plugin version changed, regenerating flowmap and caches");
+	// Caches are checked per worldspace against the plugins that carry it, so an unrelated mod-list
+	// change no longer rebuilds everything. The flowmap is built from Tamriel alone.
+	const auto stale = WaterCache::FindStaleWorldSpaces();
+	const bool tamrielStale = std::ranges::any_of(stale, [](RE::TESWorldSpace* a_worldSpace) {
+		const char* editorID = a_worldSpace->GetFormEditorID();
+		return editorID && std::string_view(editorID) == "Tamriel";
+	});
 
+	if (tamrielStale) {
+		logger::info("[Unified Water] Tamriel's plugins changed, regenerating the flowmap");
 		if (flowmap->RegenerateAndLoadFlowmap())
 			SetFlowmapTex();
-
-		waterCache->RegenerateCaches();
-	} else {
-		if (flowmap->LoadOrGenerateFlowmap())
-			SetFlowmapTex();
-
-		waterCache->LoadOrGenerateCaches();
+	} else if (flowmap->LoadOrGenerateFlowmap()) {
+		SetFlowmapTex();
 	}
+
+	waterCache->LoadOrGenerateCaches(stale);
 
 	while (waterCache->IsBuildRunning()) {
 		std::this_thread::sleep_for(100ms);
@@ -305,124 +309,6 @@ bool UnifiedWater::MenuOpenCloseEventHandler::Register()
 	registered = true;
 	logger::info("[Unified Water] Registered MenuOpenCloseEventHandler");
 	return true;
-}
-
-namespace
-{
-	// Permissive sharing so a lingering handle on UWLoadOrder.hash never blocks a
-	// later attempt with ERROR_SHARING_VIOLATION - reproduced directly: writes to
-	// Data/ root failed while the game was running. The retry only helps a
-	// transient locker (AV/indexer), not a persistent one.
-	constexpr int kShareRetries = 3;
-	constexpr DWORD kShareRetryDelayMs = 50;
-
-	bool ReadHashFile(const std::filesystem::path& path, uint64_t& outHash)
-	{
-		for (int attempt = 0; attempt < kShareRetries; ++attempt) {
-			winrt::file_handle handle{ CreateFileW(path.c_str(), GENERIC_READ,
-				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-				OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr) };
-			if (handle) {
-				DWORD bytesRead = 0;
-				const bool ok = ReadFile(handle.get(), &outHash, sizeof(outHash), &bytesRead, nullptr) &&
-				                bytesRead == sizeof(outHash);
-				if (!ok)
-					logger::warn("[Unified Water] '{}' exists but could not be fully read; treating as no persisted hash", path.string());
-				return ok;
-			}
-			const DWORD err = GetLastError();
-			if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND)
-				return false;
-			if ((err == ERROR_SHARING_VIOLATION || err == ERROR_LOCK_VIOLATION) && attempt + 1 < kShareRetries) {
-				Sleep(kShareRetryDelayMs);
-				continue;
-			}
-			logger::warn("[Unified Water] Failed to open '{}' for reading (error {})", path.string(), err);
-			return false;
-		}
-		return false;
-	}
-
-	bool WriteHashFile(const std::filesystem::path& path, uint64_t hash)
-	{
-		for (int attempt = 0; attempt < kShareRetries; ++attempt) {
-			winrt::file_handle handle{ CreateFileW(path.c_str(), GENERIC_WRITE,
-				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-				CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr) };
-			if (handle) {
-				DWORD bytesWritten = 0;
-				const bool ok = WriteFile(handle.get(), &hash, sizeof(hash), &bytesWritten, nullptr) &&
-				                bytesWritten == sizeof(hash);
-				if (!ok)
-					logger::error("[Unified Water] Failed to persist load-order hash to '{}'; cache will regenerate again next launch", path.string());
-				return ok;
-			}
-			const DWORD err = GetLastError();
-			if ((err == ERROR_SHARING_VIOLATION || err == ERROR_LOCK_VIOLATION) && attempt + 1 < kShareRetries) {
-				Sleep(kShareRetryDelayMs);
-				continue;
-			}
-			logger::error("[Unified Water] Failed to open '{}' for writing (error {}); cache will regenerate again next launch", path.string(), err);
-			return false;
-		}
-		return false;
-	}
-}
-
-bool UnifiedWater::LoadOrderChanged()
-{
-	auto* dataHandler = RE::TESDataHandler::GetSingleton();
-	if (!dataHandler)
-		return false;
-
-	uint64_t hash = 14695981039346656037ull;
-
-	auto addBytes = [&](const unsigned char* p) {
-		for (; *p; ++p) {
-			hash ^= *p;
-			hash *= 1099511628211ull;
-		}
-	};
-
-	auto addToHash = [&](const RE::TESFile* file) {
-		if (!file || !file->fileName)
-			return;
-		addBytes(reinterpret_cast<const unsigned char*>(file->fileName));
-	};
-
-	if (const auto mods = dataHandler->GetLoadedMods()) {
-		const uint32_t count = dataHandler->GetLoadedModCount();
-		for (uint32_t i = 0, n = count; i < n; ++i)
-			addToHash(mods[i]);
-	}
-
-	if (const auto lightMods = dataHandler->GetLoadedLightMods()) {
-		const uint32_t count = dataHandler->GetLoadedLightModCount();
-		for (uint32_t i = 0, n = count; i < n; ++i)
-			addToHash(lightMods[i]);
-	}
-
-	addBytes(reinterpret_cast<const unsigned char*>(Plugin::VERSION.string().c_str()));
-
-	// Data/ root is subject to a persistent external lock while the game runs (writes
-	// fail with ERROR_SHARING_VIOLATION for the whole session). Our plugin's own
-	// subfolder isn't - SettingsUser.json writes there every session without issue -
-	// so the hash lives there instead of directly under Data/.
-	const std::filesystem::path path = Util::PathHelpers::GetCommunityShaderPath() / "UWLoadOrder.hash";
-
-	uint64_t existingHash = 0;
-	ReadHashFile(path, existingHash);
-
-	const bool changed = hash != existingHash;
-	logger::debug("[Unified Water] Load order hash: computed={:#x} persisted={:#x} changed={}", hash, existingHash, changed);
-
-	if (changed) {
-		std::error_code ec;
-		std::filesystem::create_directories(path.parent_path(), ec);
-		WriteHashFile(path, hash);
-	}
-
-	return changed;
 }
 
 void UnifiedWater::SetFlowmapTex() const

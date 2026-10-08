@@ -138,5 +138,4 @@ private:
 	bool IsWaterDataReady() const;
 	bool IsExteriorWorldspaceActive() const;
 	void UpdateWaterLODCull() const;
-	static bool LoadOrderChanged();
 };

@@ -146,14 +146,108 @@ void WaterCache::GenerateTamrielPrecache()
 	TryWriteCacheToFile("Tamriel_precache.wpc", hdr, cache.heights);
 }
 
-bool WaterCache::LoadOrGenerateCaches()
+namespace
 {
-	if (!LoadCaches()) {
+	// Bump when the disk cache layout or the generator's output changes, so every signature misses.
+	constexpr uint64_t kSignatureVersion = 1;
+
+	std::filesystem::path GetSignaturePath(const std::string& editorID)
+	{
+		return Util::PathHelpers::GetUnifiedWaterCachePath() / std::format("{}_cache.hash", editorID);
+	}
+
+	std::filesystem::path GetCachePath(const std::string& editorID)
+	{
+		return Util::PathHelpers::GetUnifiedWaterCachePath() / std::format("{}_cache.wc", editorID);
+	}
+}
+
+uint64_t WaterCache::ComputeSignature(RE::TESWorldSpace* worldSpace)
+{
+	uint64_t hash = 14695981039346656037ull;
+	auto mix = [&](const void* a_data, size_t a_size) {
+		const auto* bytes = static_cast<const unsigned char*>(a_data);
+		for (size_t i = 0; i < a_size; ++i) {
+			hash ^= bytes[i];
+			hash *= 1099511628211ull;
+		}
+	};
+	auto mixString = [&](const char* a_string) {
+		if (a_string)
+			mix(a_string, std::strlen(a_string) + 1);
+	};
+
+	mix(&kSignatureVersion, sizeof(kSignatureVersion));
+	mixString(worldSpace->GetFormEditorID());
+
+	// A cache depends only on the plugins that carry this worldspace's cells: which ones, in what
+	// load-order slots (the cached water FormIDs are runtime IDs, so their masters' slots too), and
+	// their contents, approximated by size and modification time as the game recorded them at load.
+	auto* dataHandler = RE::TESDataHandler::GetSingleton();
+	if (auto* files = worldSpace->sourceFiles.array) {
+		for (auto* file : *files) {
+			if (!file)
+				continue;
+			mixString(file->fileName);
+			const uint32_t index = file->GetCombinedIndex();
+			mix(&index, sizeof(index));
+			mix(&file->fileData.fileSizeHi, sizeof(file->fileData.fileSizeHi));
+			mix(&file->fileData.fileSizeLo, sizeof(file->fileData.fileSizeLo));
+			mix(&file->fileData.lastWriteTime, sizeof(file->fileData.lastWriteTime));
+			if (dataHandler) {
+				for (const char* master : file->masters) {
+					const auto* masterFile = master ? dataHandler->LookupModByName(master) : nullptr;
+					const uint32_t masterIndex = masterFile ? masterFile->GetCombinedIndex() : UINT32_MAX;
+					mix(&masterIndex, sizeof(masterIndex));
+				}
+			}
+		}
+	}
+
+	return hash;
+}
+
+bool WaterCache::ReadSignature(const std::string& editorID, uint64_t& outSignature)
+{
+	std::ifstream ifs(GetSignaturePath(editorID), std::ios::binary);
+	return ifs && ifs.read(reinterpret_cast<char*>(&outSignature), sizeof(outSignature)) && ifs.gcount() == sizeof(outSignature);
+}
+
+void WaterCache::WriteSignature(const std::string& editorID, uint64_t signature)
+{
+	std::ofstream ofs(GetSignaturePath(editorID), std::ios::binary | std::ios::trunc);
+	if (!ofs || !ofs.write(reinterpret_cast<const char*>(&signature), sizeof(signature)))
+		logger::warn("[Unified Water] [Cache] Failed to write the signature for {}; it will be rebuilt next launch", editorID);
+}
+
+std::vector<RE::TESWorldSpace*> WaterCache::FindStaleWorldSpaces()
+{
+	std::vector<RE::TESWorldSpace*> stale;
+	for (auto* worldSpace : GetValidWorldSpaces()) {
+		const char* editorID = worldSpace ? worldSpace->GetFormEditorID() : nullptr;
+		if (!editorID || !*editorID)
+			continue;
+
+		const std::string name = editorID;
+		uint64_t stored = 0;
+		std::error_code ec;
+		if (!std::filesystem::exists(GetCachePath(name), ec) || !ReadSignature(name, stored) || stored != ComputeSignature(worldSpace))
+			stale.push_back(worldSpace);
+	}
+	return stale;
+}
+
+bool WaterCache::LoadOrGenerateCaches(const std::vector<RE::TESWorldSpace*>& a_stale)
+{
+	if (a_stale.empty()) {
+		if (LoadCaches())
+			return true;
 		logger::info("[Unified Water] [Cache] Could not load caches - regenerating...");
 		return RegenerateCaches();
 	}
 
-	return true;
+	logger::info("[Unified Water] [Cache] {} worldspace cache(s) out of date, regenerating only those", a_stale.size());
+	return GenerateCaches(a_stale);
 }
 
 bool WaterCache::RegenerateCaches()
@@ -182,7 +276,7 @@ bool WaterCache::RegenerateCaches()
 		}
 	}
 
-	return GenerateCaches();
+	return GenerateCaches(GetValidWorldSpaces());
 }
 
 bool WaterCache::LoadCaches()
@@ -258,14 +352,12 @@ bool WaterCache::LoadCaches()
 	return true;
 }
 
-bool WaterCache::GenerateCaches()
+bool WaterCache::GenerateCaches(const std::vector<RE::TESWorldSpace*>& worldSpaces)
 {
 	if (async.running.load()) {
 		logger::warn("[Unified Water] [Cache] Build already running");
 		return false;
 	}
-
-	const auto worldSpaces = GetValidWorldSpaces();
 
 	{
 		namespace fs = std::filesystem;
@@ -322,6 +414,7 @@ bool WaterCache::GenerateCaches()
 			const auto name = std::format("{}_cache.wc", editorID);
 			const auto success = BuildDiskCache(worldSpace, cache) && TryWriteCacheToFile(name, cache.header, cache.instructions);
 			if (success) {
+				WriteSignature(editorID, ComputeSignature(worldSpace));
 				logger::debug("[Unified Water] [Cache] {} generation complete", editorID);
 			} else {
 				async.failed.store(true, std::memory_order_relaxed);
