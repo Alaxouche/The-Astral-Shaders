@@ -32,7 +32,7 @@ public:
 	struct Settings
 	{
 		bool EnableTerrainShadow = true;
-		bool EnableLODShadow = true;
+		bool EnableLODShadow = false;
 		uint32_t LODShadowResolution = 2048;
 		// Receivers closer than this to the camera take no LOD shadow (game units); the LOD
 		// geometry captured from the reflection cubemap sits above the real ground nearby and

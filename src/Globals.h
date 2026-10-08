@@ -13,6 +13,7 @@ struct GrassLighting;
 struct FoliageLighting;
 struct GrassOptimizations;
 struct HairSpecular;
+struct HiZOcclusion;
 struct HorizonFix;
 struct IBL;
 struct LightLimitFix;
@@ -54,7 +55,6 @@ struct FootstepParticles;
 struct HairBacklighting;
 struct FurShells;
 struct LandscapeSeams;
-struct TextureStreaming;
 
 class State;
 class Deferred;
@@ -118,6 +118,7 @@ namespace globals
 		extern FoliageLighting foliageLighting;
 		extern GrassOptimizations grassOptimizations;
 		extern HairSpecular hairSpecular;
+		extern HiZOcclusion hiZOcclusion;
 		extern HorizonFix horizonFix;
 		extern IBL ibl;
 		extern LightLimitFix lightLimitFix;
@@ -161,7 +162,6 @@ namespace globals
 		extern HairBacklighting hairBacklighting;
 		extern FurShells furShells;
 		extern LandscapeSeams landscapeSeams;
-		extern TextureStreaming textureStreaming;
 
 	}
 
