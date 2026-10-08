@@ -21,7 +21,9 @@ struct OcclusionCulling : Feature
 {
 	struct Settings
 	{
-		bool EnableOcclusionTesting = true;
+		// Off by default: Bottle's HiZ Occlusion Culling does the culling (judged better in game
+		// by the user on 2026-10-08). Kept to compare.
+		bool EnableOcclusionTesting = false;
 		// Only objects with at least this world-bound radius are occlusion-tested.
 		float OccluderTestMinRadius = 0.0f;
 		// An occluded verdict must hold this many consecutive frames before the object is

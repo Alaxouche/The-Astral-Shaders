@@ -120,9 +120,7 @@ struct HiZOcclusion : OverlayFeature
 		bool debugMode = false;        // enable debug mode for Hi-Z testing
 
 		// Hi-Z culling settings
-		// Off by default in this fork: Occlusion Culling already culls the scene, and this hook site
-		// (76558 + 0xD3) only carried first-person geometry when measured on AE 1.6.1170.
-		bool enableHiZCulling = false;    // enable Hi-Z occlusion culling
+		bool enableHiZCulling = true;     // enable Hi-Z occlusion culling
 		float conservativeBias = 0.001f;  // relative view-depth tolerance for conservative testing (0.01 = 1%)
 		bool showCullingStats = false;    // show Hi-Z culling statistics in UI
 
