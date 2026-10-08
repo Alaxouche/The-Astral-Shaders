@@ -279,7 +279,28 @@ bool WaterCache::GenerateCaches()
 
 	// Use P-core logical count on Intel hybrid CPUs; falls back to hardware_concurrency() on non-hybrid.
 	const unsigned hw = Util::GetPerformanceCoreCount();
-	const unsigned threads = std::max(1u, hw > 4 ? hw - 4 : (hw * 3) / 4);
+	unsigned threads = std::max(1u, hw > 4 ? hw - 4 : (hw * 3) / 4);
+
+	// TESFile::Duplicate() keeps one open copy of a plugin per calling thread for the rest of the
+	// session, and every copy holds a CRT stdio stream. That pool is process-wide (Engine Fixes
+	// raises it to 8192) and shared with the game and every plugin, so N threads probing P plugins
+	// can pin N*P streams: on a ~3500-plugin list eight threads exhausted it, and every later
+	// open failed (Snow Cover configs, shader includes, textures). Keep the worst case to half the
+	// pool.
+	{
+		ankerl::unordered_dense::set<RE::TESFile*> probedFiles;
+		for (auto* worldSpace : worldSpaces) {
+			if (auto* files = worldSpace ? worldSpace->sourceFiles.array : nullptr)
+				for (auto* file : *files)
+					probedFiles.insert(file);
+		}
+		const auto streamBudget = static_cast<size_t>(std::max(_getmaxstdio(), 512)) / 2;
+		const auto byStreams = static_cast<unsigned>(std::max<size_t>(1, streamBudget / std::max<size_t>(1, probedFiles.size())));
+		if (byStreams < threads) {
+			logger::info("[Unified Water] [Cache] {} plugins to probe, stdio limit {}: using {} thread(s) instead of {}", probedFiles.size(), _getmaxstdio(), byStreams, threads);
+			threads = byStreams;
+		}
+	}
 	async.pool = std::make_unique<BS::thread_pool<>>(threads);
 
 	async.failed.store(false);

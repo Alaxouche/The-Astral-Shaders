@@ -155,7 +155,12 @@ void WeatherManager::LoadLocationWeather()
 	std::vector<char> buffer(bufferSize);
 	DWORD result = GetPrivateProfileSectionNamesA(buffer.data(), bufferSize, pathStr.c_str());
 
-	if (result == 0 || result == bufferSize - 2) {
+	// Presets without per-location weathers ship the file empty; that is not an error.
+	if (result == 0) {
+		logger::info("[WeatherManager] _locationweather.ini has no sections, location weather disabled");
+		return;
+	}
+	if (result == bufferSize - 2) {
 		logger::error("[WeatherManager] Failed to read sections from _locationweather.ini");
 		return;
 	}
