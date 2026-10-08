@@ -23,11 +23,6 @@ void TerrainBlending::DrawSettings()
 	if (auto _tt = Util::HoverTooltipWrapper()) {
 		ImGui::Text("%s", T(TKEY("enable_tooltip"), "Enable seamless blending between terrain and objects."));
 	}
-
-	if (deformableTerrainLoaded) {
-		ImGui::TextColored(Menu::GetSingleton()->GetTheme().StatusPalette.Warning, "%s",
-			T(TKEY("deformable_terrain_gate"), "Dynamic Terrain Deformation is loaded. Blending is held off while it reshapes the landscape, because the two passes would see different geometry. Everything else in the feature keeps running, so nothing else has to be recompiled."));
-	}
 }
 
 void TerrainBlending::LoadSettings(json& o_json)
@@ -139,24 +134,11 @@ void TerrainBlending::SetupResources()
 
 void TerrainBlending::PostPostLoad()
 {
-	// Dynamic Terrain Deformation reshapes the landscape mesh every frame. The second terrain depth
-	// pass cannot follow it, so the blend compares two different geometries and anything standing on
-	// deformed ground sinks into it or floats above it. Checked here because every SKSE plugin has
-	// loaded by now.
-	deformableTerrainLoaded = GetModuleHandleW(kDeformableTerrainModule) != nullptr;
-	if (deformableTerrainLoaded)
-		logger::info("[Terrain Blending] Dynamic Terrain Deformation detected, blending gated off for this session");
-
 	Hooks::Install();
 }
 
 void TerrainBlending::DataLoaded()
 {
-	// Land fade is the vanilla substitute for blending. It only gets turned off when blending is
-	// actually going to run, so a gated session keeps the game's own transition.
-	if (deformableTerrainLoaded)
-		return;
-
 	auto bEnableLandFade = RE::GetINISetting("bEnableLandFade:Display");
 	bEnableLandFade->data.b = false;
 }
@@ -244,10 +226,7 @@ void TerrainBlending::BlendPrepassDepths()
 	{
 		TracyD3D11Zone(globals::state->tracyCtx, "Terrain Blending - Depth Blend CS");
 
-		// Gated: feed the main depth to both inputs. min/max of a value with itself is that
-		// value in either depth convention, so blendedDepthTexture becomes an exact R32_FLOAT
-		// copy of the scene depth without touching terrainDepth at all.
-		ID3D11ShaderResourceView* views[2] = { depthSRVBackup, IsActive() ? terrainDepth.depthSRV : depthSRVBackup };
+		ID3D11ShaderResourceView* views[2] = { depthSRVBackup, terrainDepth.depthSRV };
 		context->CSSetShaderResources(0, ARRAYSIZE(views), views);
 
 		ID3D11UnorderedAccessView* uavs[2] = { blendedDepthTexture->uav.get(), blendedDepthTexture16->uav.get() };
@@ -275,9 +254,7 @@ void TerrainBlending::BlendPrepassDepths()
 	auto renderer = globals::game::renderer;
 	auto& mainDepth = renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN];
 
-	// The terrain depth seed is only needed when the terrain redirect actually runs.
-	if (IsActive())
-		context->CopyResource(terrainDepth.texture, mainDepth.texture);
+	context->CopyResource(terrainDepth.texture, mainDepth.texture);
 
 	if (globals::state->frameAnnotations)
 		globals::state->EndPerfEvent();
@@ -391,19 +368,12 @@ void TerrainBlending::Hooks::Main_RenderDepth::thunk(bool a1, bool a2)
 
 	singleton.eyePosition = Util::GetEyePosition();
 
-	// Deliberately the raw toggle, not IsActive(): this block is what binds blendedDepthTexture, and
-	// its R32_FLOAT format is what every TERRAIN_BLENDING consumer was compiled to sample. A gated
-	// session still runs it; with no terrain redirected into terrainDepth, which stays cleared to the
-	// far plane, the blend returns the main depth untouched and the format contract holds.
 	if (shaderCache->IsEnabled() && singleton.settings.Enabled) {
 		mainDepth.depthSRV = singleton.blendedDepthTexture->srv.get();
 		zPrepassCopy.depthSRV = singleton.blendedDepthTexture->srv.get();
 
 		singleton.renderDepth = true;
-		// Gated (Dynamic Terrain Deformation present): no terrain is redirected into
-		// terrainDepth, so its clear is dead work -- the blend below reads the main depth twice.
-		if (singleton.IsActive())
-			singleton.ResetDepth();
+		singleton.ResetDepth();
 
 		{
 			ZoneScopedN("Terrain Depth - Game Render");

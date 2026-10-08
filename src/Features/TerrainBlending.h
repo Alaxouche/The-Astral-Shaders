@@ -10,9 +10,6 @@ struct TerrainBlending : Feature
 private:
 	static constexpr std::string_view MOD_ID = "157076";
 
-	/** @brief SKSE module of Dynamic Terrain Deformation, whose per-frame landscape reshaping the second terrain depth pass cannot follow. */
-	static constexpr const wchar_t* kDeformableTerrainModule = L"NMN_DeformableTerrain.dll";
-
 public:
 	virtual inline std::string GetName() override { return "Terrain Blending"; }
 	virtual std::string GetDisplayName() override { return T("feature.terrain_blending.name", "Terrain Blending"); }
@@ -43,19 +40,10 @@ public:
 
 	Settings settings;
 
-	/** @brief True while Dynamic Terrain Deformation is loaded, which gates the blend off. */
-	bool deformableTerrainLoaded = false;
+	/** @brief Whether the blend runs this frame (the user's toggle). */
+	[[nodiscard]] bool IsActive() const { return settings.Enabled; }
 
-	/**
-	 * @brief Whether the blend should run this frame: the user's toggle, gated by mod compatibility.
-	 *
-	 * The feature stays loaded and TERRAIN_BLENDING stays defined either way, so the shader disk
-	 * cache is never invalidated by the gate and the scene depth SRV keeps the R32_FLOAT format its
-	 * consumers were compiled against.
-	 */
-	[[nodiscard]] bool IsActive() const { return settings.Enabled && !deformableTerrainLoaded; }
-
-	/** @brief Returns the settings as the GPU should see them, with Enabled masked by the gate. */
+	/** @brief Returns the settings as the GPU should see them. */
 	Settings GetCommonBufferData() const;
 
 	/** @brief Draws the ImGui settings panel for Terrain Blending configuration. */

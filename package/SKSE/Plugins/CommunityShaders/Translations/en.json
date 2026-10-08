@@ -2806,7 +2806,6 @@
     "feature.subsurface_scattering.key_feature_4": "Enhanced character appearance",
     "feature.subsurface_scattering.key_feature_5": "Configurable scattering properties",
     "feature.subsurface_scattering.name": "Subsurface Scattering",
-    "feature.terrain_blending.deformable_terrain_gate": "Dynamic Terrain Deformation is loaded. Blending is held off while it reshapes the landscape, because the two passes would see different geometry. Everything else in the feature keeps running, so nothing else has to be recompiled.",
     "feature.terrain_blending.description": "Provides seamless blending between terrain and objects, eliminating harsh transitions where objects meet the ground for more natural-looking landscapes.",
     "feature.terrain_blending.enable": "Enable Terrain Blending",
     "feature.terrain_blending.enable_tooltip": "Enable seamless blending between terrain and objects.",
