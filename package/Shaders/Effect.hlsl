@@ -701,8 +701,14 @@ PS_OUTPUT main(PS_INPUT input)
 
 	float softMul = 1;
 	float depth = 1;
+	float nativeDepth = 1;
+#	ifdef REVERSE_Z
+	if (FrameBuffer::IsReverseProjection())
+		nativeDepth = 0;
+#	endif
 #	if defined(SOFT)
 	depth = TexDepthSamplerEffect.Load(int3(input.Position.xy, 0)).x;
+	nativeDepth = depth;
 #		ifdef REVERSE_Z
 	if (FrameBuffer::IsReverseProjection())
 		depth = 1 - depth;
@@ -864,7 +870,7 @@ PS_OUTPUT main(PS_INPUT input)
 	[branch] if (isEnbVolumetricFog)
 	{
 		alpha = saturate(alpha * SharedData::enbSettings.VolumetricFogOpacity);
-		float volumetricFogShadow = GetViewRayShadow(input.WorldPosition.xyz, input.Position.xy, depth);
+		float volumetricFogShadow = GetViewRayShadow(input.WorldPosition.xyz, input.Position.xy, nativeDepth);
 		float3 volumetricFogScale = SharedData::enbSettings.VolumetricFogIntensity * SharedData::enbSettings.VolumetricFogColorFilter;
 		[branch] if (SharedData::enbSettings.VolumetricFogEnableLighting)
 		{
@@ -897,12 +903,12 @@ PS_OUTPUT main(PS_INPUT input)
 #		if defined(PHYSICAL_SKY)
 		if (SharedData::physSkyData.enabled && SharedData::physSkyData.lightSkyStatics) {
 			float3 sceneLighting = ShadowSampling::GetSceneLightingColor();
-			float3 skyStaticLighting = GetLightingShadow(sceneLighting, input.WorldPosition.xyz, input.Position.xy, depth, shadowVariance);
+			float3 skyStaticLighting = GetLightingShadow(sceneLighting, input.WorldPosition.xyz, input.Position.xy, nativeDepth, shadowVariance);
 			lightColor = baseColor.xyz * skyStaticLighting * SharedData::physSkyData.skyStaticsBrightness / Math::PI;
 		} else
 #		endif
 		{
-			lightColor = GetLightingShadow(lightColor, input.WorldPosition.xyz, input.Position.xy, depth, shadowVariance);
+			lightColor = GetLightingShadow(lightColor, input.WorldPosition.xyz, input.Position.xy, nativeDepth, shadowVariance);
 		}
 	}
 #	endif
@@ -963,7 +969,11 @@ PS_OUTPUT main(PS_INPUT input)
 	float3 vanillaFogColor = fogColor;
 	float expFogFactor = 0;
 	if (SharedData::exponentialHeightFogSettings.enabled) {
-		float4 exponentialHeightFog = ExponentialHeightFog::GetExponentialHeightFog(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, fogColor, float4(input.Position.xy * FrameBuffer::DynamicResolutionParams2.xy, input.Position.z, 1));
+		float4 exponentialHeightFog;
+		if (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InReflection)
+			exponentialHeightFog = ExponentialHeightFog::GetExponentialHeightFogNoVolumetric(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, fogColor, float4(input.Position.xy * FrameBuffer::DynamicResolutionParams2.xy, input.Position.z, 1));
+		else
+			exponentialHeightFog = ExponentialHeightFog::GetExponentialHeightFog(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, fogColor, float4(input.Position.xy * FrameBuffer::DynamicResolutionParams2.xy, input.Position.z, 1));
 		expFogFactor = exponentialHeightFog.w;
 		fogColor = exponentialHeightFog.xyz;
 		fogFactor = exponentialHeightFog.w;

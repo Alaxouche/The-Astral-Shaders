@@ -207,6 +207,10 @@ bool Hooks::BSShader_BeginTechnique::thunk(RE::BSShader* shader, uint32_t vertex
 	// Only check against non-shader bits
 	state->permutationData.PixelShaderDescriptor &= ~state->modifiedPixelDescriptor;
 
+	if (shader->shaderType.get() == RE::BSShader::Type::Sky && globals::features::reverseZ.IsActive() &&
+		(!state->ShaderEnabled(RE::BSShader::Type::Sky) || !shaderCache->GetVertexShader(*shader, state->modifiedVertexDescriptor)))
+		return false;
+
 	bool shaderFound = func(shader, vertexDescriptor, pixelDescriptor, skipPixelShader);
 
 	if (!shaderFound && shader->shaderType.get() != RE::BSShader::Type::Effect) {
@@ -424,6 +428,8 @@ struct IDXGISwapChain_Present
 	{
 		globals::state->Reset();
 
+		globals::features::screenshotFeature.ProcessCaptureRequest(false);
+
 		HRESULT retval = globals::features::hdrDisplay.HandleSwapChainPresent(
 			This,
 			SyncInterval,
@@ -432,7 +438,7 @@ struct IDXGISwapChain_Present
 				return func(swapChain, syncInterval, presentFlags);
 			});
 
-		globals::features::screenshotFeature.ProcessCaptureRequest();
+		globals::features::screenshotFeature.ProcessCaptureRequest(true);
 
 		TracyD3D11Collect(globals::state->tracyCtx);
 
@@ -936,23 +942,17 @@ namespace Hooks
 
 				hiz.stats.accumRegisterCalls.fetch_add(1, std::memory_order_relaxed);
 
-				// RenderModes from:
-				// https://github.com/Nukem9/skyrimse-test/blob/master/skyrim64_test/src/patches/TES/BSShader/BSShaderAccumulator.cpp
 				const uint32_t renderMode = accum->GetRuntimeData().renderMode;
 
 				if (renderMode >= 30) {
 					return func(accum, object, flags);
 				}
 
-				// 0 is most regular geometry, including LOD
-				// 12 culls most shadows and flickers first-person geometry
-				// 14 is more shadows - possibly just sun
-				// 15 is more shadows
-				// 22 culls first-person geometry in view.
 				hiz.stats.renderModeCalls[renderMode].fetch_add(1, std::memory_order_relaxed);
 
-				const bool allowCulling = hiz.settings.cullRenderMode[renderMode] &&
-				                          (renderMode != 0 || accum->camera == RE::Main::WorldRootCamera()) &&
+				const uint8_t pass = HiZOcclusion::GetPassKind(renderMode);
+				const bool allowCulling = pass != 0 && hiz.settings.cullRenderMode[renderMode] &&
+				                          (pass != HiZOcclusion::kCameraPass || HiZOcclusion::IsMainViewRegistration(renderMode, accum)) &&
 				                          !globals::features::skylighting.inOcclusion &&
 				                          !(globals::state->permutationData.ExtraShaderDescriptor & static_cast<uint32_t>(State::ExtraShaderDescriptors::IsReflections)) &&
 				                          !hiz.IsPlayerAttachedGeometry(geo, refr);
@@ -966,9 +966,12 @@ namespace Hooks
 					}();
 
 					// Append to local list with zero thread synchronization
-					HiZOcclusion::localPendingGeometry.push_back(geo);
+					HiZOcclusion::localPendingGeometry.push_back({ geo, pass });
 
-					if (hiz.IsGeometryOccluded(geo)) {
+					if (pass == HiZOcclusion::kSunShadowPass)
+						hiz.CaptureSunShadowDirection(accum->camera);
+
+					if (pass == HiZOcclusion::kCameraPass ? hiz.IsGeometryOccluded(geo) : hiz.IsShadowCasterOccluded(geo)) {
 						hiz.stats.earlyCulledCount.fetch_add(1, std::memory_order_relaxed);
 						return 0;
 					}

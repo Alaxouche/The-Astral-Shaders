@@ -45,7 +45,7 @@ namespace LandscapeSeams
 
 	Texture2D<float4> Color2 : register(t59);
 	Texture2D<float4> Normal2 : register(t69);
-	Texture2D<float4> Aux2 : register(t99);
+	Texture2D<float4> Aux2 : register(t127);  // t99 is Advanced Skin's SK map
 	Texture2D<float4> Displacement2 : register(t101);
 
 	Texture2D<float4> Color3 : register(t123);
@@ -123,7 +123,7 @@ namespace LandscapeSeams
 			}                                                                                                                                                         \
 			else                                                                                                                                                      \
 			{                                                                                                                                                         \
-				landRMAOS = float4(1 - glossiness.x, 0, 1, 0);                                                                                                        \
+				landRMAOS = float4(1 - landNormalAlpha, 0, 1, 0);                                                                                                     \
 			}                                                                                                                                                         \
 			blendedRMAOS += landRMAOS * weight;                                                                                                                       \
 			blendedRGB += landColorRGB * weight;                                                                                                                      \

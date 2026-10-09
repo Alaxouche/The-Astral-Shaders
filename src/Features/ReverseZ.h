@@ -62,6 +62,9 @@ struct ReverseZ : Feature
 
 	/** @brief Seam probe: whether the bound depth view counts as reversed and the published projection is reversed. */
 	static void GetFlipState(bool& a_reverseTargetBound, bool& a_projectionReversed);
+	[[nodiscard]] static bool IsReversedUploadedProjection(const Matrix& a_projection);
+	static void FlipUploadedProjection(Matrix& a_matrix);
+	static void FlipUploadedInverse(Matrix& a_matrix);
 
 private:
 	bool bootLatched = false;
