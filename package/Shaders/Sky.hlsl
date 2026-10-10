@@ -152,7 +152,7 @@ VS_OUTPUT main(VS_INPUT input)
 #		if defined(DITHER) && defined(TEX)
 	vsout.Color.w *= GetSunGlareVisibility();
 #		endif
-#	endif      // OCCLUSION MOONMASK HORIZFADE
+#	endif  // OCCLUSION MOONMASK HORIZFADE
 
 #	ifdef REVERSE_Z
 	float4 skyPosition = mul(WorldViewProj, inputPosition);
@@ -336,7 +336,7 @@ PS_OUTPUT main(PS_INPUT input)
 		float2 edge = abs(input.TexCoord0.xy * 2.0 - 1.0);
 		baseColor.xyz = pow(max(baseColor.xyz, 0.0), SharedData::enbSettings.MoonCurve);
 		if (max(edge.x, edge.y) > 0.985)
-			baseColor.xyz = 0.0;
+			baseColor = 0.0;
 	}
 #			endif
 	baseColor.xyz = Color::Sky(baseColor.xyz);
@@ -406,7 +406,8 @@ PS_OUTPUT main(PS_INPUT input)
 		}
 
 		baseColor.xyz = proceduralSunColor;
-		baseColor.w = sunCoverage;
+		baseColor.w = sunCoverage * saturate(TexBaseSampler.SampleLevel(SampBaseSampler, 0.5, 0).w);
+
 		skyScale = 0.0;
 	}
 #		endif
@@ -473,7 +474,7 @@ PS_OUTPUT main(PS_INPUT input)
 
 #				if defined(EFFECTS11)
 	[branch] if (SharedData::enbSettings.Enable && !SharedData::enbSettings.FixBlackCrush) {
-		float3 additiveDither = psout.Color.xyz + noiseGrad * 0.1;
+		float3 additiveDither = max(psout.Color.xyz + noiseGrad * 0.1, 0.0);
 		psout.Color.xyz = lerp(additiveDither, psout.Color.xyz * (1.0 + noiseGrad), saturate(dot(psout.Color.xyz, 8.0)));
 	} else {
 		psout.Color.xyz *= 1.0 + noiseGrad;

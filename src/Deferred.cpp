@@ -19,7 +19,6 @@
 #include "Features/Skylighting.h"
 #include "Features/SubsurfaceScattering.h"
 #include "Features/TerrainBlending.h"
-#include "Features/TerrainShadows.h"
 #include "Features/Upscaling.h"
 
 #include "Hooks.h"
@@ -900,15 +899,9 @@ void Deferred::Hooks::BSCubeMapCamera_RenderCubemap::thunk(RE::NiAVObject* camer
 	static uint32_t nextFace = 0;
 
 	const auto render = [&](int a_faces, bool a_last) {
-		auto& terrainShadows = globals::features::terrainShadows;
-
 		deferred->ReflectionsPrepasses();
 		state->permutationData.ExtraShaderDescriptor |= static_cast<uint32_t>(State::ExtraShaderDescriptors::IsReflections);
-		if (terrainShadows.loaded)
-			terrainShadows.lodShadowMap.BeginFace(camera, static_cast<uint32_t>(a_faces));
 		func(camera, a_faces, a3, a_last, a5);
-		if (terrainShadows.loaded)
-			terrainShadows.lodShadowMap.EndFace();
 		state->permutationData.ExtraShaderDescriptor &= ~static_cast<uint32_t>(State::ExtraShaderDescriptors::IsReflections);
 	};
 

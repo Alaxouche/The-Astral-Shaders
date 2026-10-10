@@ -58,8 +58,6 @@ struct ReverseZ : Feature
 	[[nodiscard]] ID3D11DepthStencilState* GetReversedState(ID3D11DepthStencilState* a_state);
 	[[nodiscard]] ID3D11RasterizerState* GetReversedRasterizerState(ID3D11RasterizerState* a_state);
 
-	static void SetHookPassthrough(bool a_passthrough);
-
 	/** @brief Seam probe: whether the bound depth view counts as reversed and the published projection is reversed. */
 	static void GetFlipState(bool& a_reverseTargetBound, bool& a_projectionReversed);
 	[[nodiscard]] static bool IsReversedUploadedProjection(const Matrix& a_projection);

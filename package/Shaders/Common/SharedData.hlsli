@@ -96,14 +96,6 @@ namespace SharedData
 		float4 CubemapColor;
 	};
 
-	struct LODShadowCapture
-	{
-		float4 AxisX;
-		float4 AxisY;
-		float4 AxisZ;
-		float4 Cascades[3];
-	};
-
 	struct TerraOccSettings
 	{
 		bool EnableTerrainShadow;
@@ -111,12 +103,7 @@ namespace SharedData
 		float2 ZRange;
 		float2 Offset;
 		float ZBlur;
-		float LODShadowStrength;
-		float LODShadowResolution;
-		float LODShadowBlend;
-		LODShadowCapture LODShadowCaptures[2];
-		float4 LODShadowDepthBias;
-		float4 LODShadowNear;  // xyz camera position, w = start distance of the near fade
+		float3 pad0;
 	};
 
 	struct LightLimitFixSettings
@@ -186,7 +173,7 @@ namespace SharedData
 	struct SkylightingSettings
 	{
 		row_major float4x4 OcclusionViewProj;
-		float4 OcclusionDir;
+		float4 OcclusionSHBasis4Pi;  // SH basis of the occlusion direction, times 4 pi (Monte Carlo weight)
 
 		float4 PosOffset;   // xyz: cell origin in camera model space
 		uint4 ArrayOrigin;  // xyz: array origin
@@ -456,8 +443,12 @@ namespace SharedData
 		float fogHeight;
 		float fogHeightFalloff;
 		float fogDensity;
+		float fogHeight2;
+		float fogHeightFalloff2;
+		float fogDensity2;
 		float directionalInscatteringMultiplier;
 		float directionalInscatteringAnisotropy;
+		uint useSkyIBL;
 		float4 inscatteringTint;
 		float cubemapMipLevel;
 		float sunlightAttenuationAmount;
@@ -483,7 +474,15 @@ namespace SharedData
 		uint volumetricHistoryMissSampleCount;
 		float volumetricSampleJitterMultiplier;
 		float volumetricUpsampleJitterMultiplier;
+		float volumetricNearGridDistance;
+		uint volumetricFarGridPixelSize;
+		uint volumetricFarGridSizeZ;
 		float volumetricLocalLightScatteringIntensity;
+		float volumetricFogNoiseScale;
+		float volumetricFogNoiseThreshold;
+		float pad3;
+		float3 volumetricFogNoiseVelocity;
+		float pad0;
 		uint useVanillaFogSettings;
 		float vanillaFogMaxOpacity;
 		float vanillaFogDensity;
@@ -491,7 +490,7 @@ namespace SharedData
 		float vanillaFogFar;
 		float vanillaFogPower;
 		float vanillaFogStrength;
-		float3 pad0;
+		float pad4;
 		float4 vanillaFogNearColor;
 		float4 vanillaFogFarColor;
 		float fogLightingInfluence;

@@ -3,6 +3,9 @@
 #include "Common/Random.hlsli"
 #include "Common/SharedData.hlsli"
 
+#include "Common/Game.hlsli"
+#include "LightLimitFix/Attenuation.hlsli"
+
 namespace LightLimitFix
 {
 

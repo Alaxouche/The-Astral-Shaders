@@ -95,7 +95,6 @@ void EffectManager::Initialize()
 	} else {
 		initialized = true;
 	}
-
 }
 
 void EffectManager::LogPresetStatus() const
@@ -375,7 +374,6 @@ void EffectManager::RegisterSettings()
 	settingManager.SetSettingDependency("StarsAnimationIntensity", "SKY", "EnableAnimatedStars", "SKY");
 	settingManager.SetSettingDependency("AdaptationMin", "ADAPTATION", "ForceMinMaxValues", "ADAPTATION");
 	settingManager.SetSettingDependency("AdaptationMax", "ADAPTATION", "ForceMinMaxValues", "ADAPTATION");
-
 
 	settingManager.SetCategoryExteriorOnly("RAIN", true);
 	settingManager.SetCategoryExteriorOnly("SKYLIGHTING", true);
@@ -915,19 +913,15 @@ void EffectManager::UpdateCommonData()
 
 	// Update weather
 	{
-		// Strip plugin index (2 leftmost digits) from form IDs
-		auto stripPluginIndex = [](uint32_t formID) -> uint32_t {
-			return formID & 0x00FFFFFF;  // Keep only the lower 6 hex digits
-		};
-
 		if (sky) {
 			if (sky->lastWeather)
 				cachedLastWeather = sky->lastWeather;
 			auto* lastWeather = sky->lastWeather ? sky->lastWeather : cachedLastWeather;
 
 			auto& weatherManager = WeatherManager::GetSingleton();
-			uint32_t currentID = sky->currentWeather ? stripPluginIndex(sky->currentWeather->formID) : 0;
-			uint32_t lastID = lastWeather ? stripPluginIndex(lastWeather->formID) : 0;
+			constexpr auto localMask = WeatherManager::LocalFormIDMask;
+			uint32_t currentID = sky->currentWeather ? sky->currentWeather->formID & localMask : 0;
+			uint32_t lastID = lastWeather ? lastWeather->formID & localMask : 0;
 
 			currentWeatherID = weatherManager.GetEffectiveWeatherID(currentID);
 			previousWeatherID = weatherManager.GetEffectiveWeatherID(lastID);
