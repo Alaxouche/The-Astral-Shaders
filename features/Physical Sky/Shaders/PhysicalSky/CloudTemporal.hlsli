@@ -279,6 +279,7 @@ float2 CloudCubePosition(float3 direction, uint face)
 	if (any(tid >= dims))
 		return;
 	const VolumetricCloudData info = VolumetricCloudBuffer[0];
+	CloudStepMultiplier = 3.0;
 	const uint2 pixel = tid.xy * 4u + CloudPhaseOffset();
 	const float3 eye = FrameBuffer::CameraPosAdjust.xyz - float3(0, 0, info.bottomZ);
 	const uint2 seed = pixel + uint2(tid.z * dims.x * 4u, 0);

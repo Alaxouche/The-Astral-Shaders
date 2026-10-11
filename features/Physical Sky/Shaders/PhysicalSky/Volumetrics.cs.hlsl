@@ -315,10 +315,15 @@ float2 LowNdfUV(float2 worldXY, VolumetricCloudData info)
 	return (worldXY - info.noiseWindOffset) * info.lowNdfFrequency + 0.5;
 }
 
+// Per-kernel step lengthening. The reflection cubemap traces only 16x16 rays a face, too few to
+// hide latency, so its pass lasts as long as its longest ray; it renders 64 px faces seen only
+// in reflections and ambient, where coarser steps do not show.
+static float CloudStepMultiplier = 1.0;
+
 float CloudViewStep(float distance)
 {
 	const VolumetricCloudData info = VolumetricCloudBuffer[0];
-	return (3.0 + distance * GAME_UNIT_TO_M * (60.0 / 16384.0)) * info.marchStepScale * GAME_UNITS_PER_METER;
+	return (3.0 + distance * GAME_UNIT_TO_M * (60.0 / 16384.0)) * info.marchStepScale * CloudStepMultiplier * GAME_UNITS_PER_METER;
 }
 
 struct NDFInfo
