@@ -63,20 +63,12 @@ public:
 
 	/** @brief Generates precache height data for Tamriel using extended data sets. */
 	static void GenerateTamrielPrecache();
-	/**
-	 * @brief Returns the worldspaces whose disk cache is missing or was built from a different set
-	 * of plugins (see ComputeSignature).
-	 */
-	static std::vector<RE::TESWorldSpace*> FindStaleWorldSpaces();
-	/**
-	 * @brief Regenerates only @p a_stale (from FindStaleWorldSpaces) and loads every cache.
-	 * Falls back to a full rebuild when the caches on disk cannot be loaded.
-	 */
-	bool LoadOrGenerateCaches(const std::vector<RE::TESWorldSpace*>& a_stale);
+	/** @brief Loads caches from disk, or generates them if not found. */
+	bool LoadOrGenerateCaches();
 	/** @brief Deletes existing caches, regenerates, and reloads them. */
 	bool RegenerateCaches();
-	/** @brief Generates disk caches for @p a_worldSpaces asynchronously, then reloads every cache. */
-	bool GenerateCaches(const std::vector<RE::TESWorldSpace*>& a_worldSpaces);
+	/** @brief Generates disk caches for all valid worldspaces asynchronously. */
+	bool GenerateCaches();
 
 	/** @brief Returns whether an asynchronous cache build is currently running. */
 	bool IsBuildRunning() const { return async.running.load(); }
@@ -221,9 +213,6 @@ private:
 	static void GenerateInstructions(int32_t lodLevel, DiskCache& diskCache, const std::vector<CellData>& cellData, int32_t& instructionCount);
 	static bool TryBuildRuntimeCache(const DiskCache& diskCache, RuntimeCache& cache);
 	static std::vector<RE::TESWorldSpace*> GetValidWorldSpaces();
-	static uint64_t ComputeSignature(RE::TESWorldSpace* worldSpace);
-	static bool ReadSignature(const std::string& editorID, uint64_t& outSignature);
-	static void WriteSignature(const std::string& editorID, uint64_t signature);
 	static void GetLODCoords(int32_t lodLevel, int32_t x, int32_t y, int32_t& outX, int32_t& outY);
 
 	static bool TryGetCellData(RE::TESWorldSpace* worldSpace, RE::TESFileArray* files, int32_t x, int32_t y, RE::FormID& outFormID, float& outWaterHeight, float& outLandHeight, bool resolveFormID);

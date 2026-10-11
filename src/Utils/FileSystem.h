@@ -216,6 +216,18 @@ namespace Util
 	namespace FileHelpers
 	{
 		/**
+		 * @brief Reads a whole file with a Win32 handle instead of a CRT stream.
+		 *
+		 * The CRT stdio pool (8192 streams with Engine Fixes) is shared by the whole process and
+		 * the game's plugin readers can exhaust it, after which every std::ifstream fails with
+		 * EMFILE. Win32 handles are not counted against it.
+		 * @param a_path File to read.
+		 * @param a_out Receives the contents.
+		 * @return 0 on success, otherwise the Win32 error code.
+		 */
+		unsigned long ReadWholeFile(const std::filesystem::path& a_path, std::vector<char>& a_out);
+
+		/**
 		 * Result of a file deletion operation
 		 */
 		struct DeletionResult

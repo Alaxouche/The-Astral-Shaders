@@ -451,7 +451,7 @@ void SnowCover::SaveConfig()
 
 void SnowCover::Reload()
 {
-	std::ifstream fileStream;
+	std::vector<char> configText;
 	std::filesystem::path path;
 	try {
 		std::string curr_worldspace = GetWorldspace();
@@ -465,11 +465,11 @@ void SnowCover::Reload()
 			wsettings.EnableSnowCover = false;
 			return;
 		}
-		fileStream = std::ifstream(path);
-		if (!fileStream.is_open()) {
+		// Win32 read: the CRT stream pool can be exhausted by the game's plugin readers.
+		if (const auto error = Util::FileHelpers::ReadWholeFile(path, configText); error != 0) {
 			status = std::string("Cannot open config.");
 			wsettings.EnableSnowCover = false;
-			logger::error("[Snow Cover] Cannot open config at {}", path.generic_string());
+			logger::error("[Snow Cover] Cannot open config at {}: {}", path.generic_string(), std::system_category().message(static_cast<int>(error)));
 			return;
 		}
 	} catch (const std::system_error& e) {
@@ -484,7 +484,7 @@ void SnowCover::Reload()
 
 	json config;
 	try {
-		fileStream >> config;
+		config = json::parse(configText.begin(), configText.end());
 		wsettings.AffectGrassTint = config["AffectGrassTint"];
 		wsettings.AffectTreeTint = config["AffectTreeTint"];
 		wsettings.FoliageHeightOffset = config["FoliageHeightOffset"];

@@ -51,24 +51,12 @@ namespace SIE
 #endif
 				includes.push_back(pathStr);
 
-				// Read file into owned buffer. A failed open is logged with errno: a missing file
-				// (ENOENT), an exhausted CRT stream pool (EMFILE) and low memory (ENOMEM) all surface
-				// as the same "failed to open source file" compiler error otherwise.
-				errno = 0;
-				std::ifstream ifs(pathStr, std::ios::binary | std::ios::ate);
-				if (!ifs) {
-					const int error = errno;
-					logger::warn("Shader include '{}' could not be opened: errno {} ({})", pathStr, error, std::generic_category().message(error));
+				// Read through a Win32 handle: the CRT stream pool can be exhausted by the game's plugin
+				// readers (errno 24 on 2026-10-11), and every include then failed to open.
+				std::vector<char> buf;
+				if (const auto error = Util::FileHelpers::ReadWholeFile(std::filesystem::path(pathStr), buf); error != 0) {
+					logger::warn("Shader include '{}' could not be read: {}", pathStr, std::system_category().message(static_cast<int>(error)));
 					return E_FAIL;
-				}
-				std::streamsize size = ifs.tellg();
-				if (size < 0)
-					return E_FAIL;
-				ifs.seekg(0, std::ios::beg);
-				std::vector<char> buf(static_cast<size_t>(size));
-				if (size > 0) {
-					if (!ifs.read(buf.data(), size))
-						return E_FAIL;
 				}
 				buffers.push_back(std::move(buf));
 				const auto& storage = buffers.back();

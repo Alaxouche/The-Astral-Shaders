@@ -208,6 +208,40 @@ namespace Util
 	// File system utilities implementation
 	namespace FileHelpers
 	{
+		unsigned long ReadWholeFile(const std::filesystem::path& a_path, std::vector<char>& a_out)
+		{
+			a_out.clear();
+			winrt::file_handle handle{ CreateFileW(a_path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+				nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr) };
+			if (!handle)
+				return GetLastError();
+
+			LARGE_INTEGER size{};
+			if (!GetFileSizeEx(handle.get(), &size))
+				return GetLastError();
+			if (size.QuadPart < 0 || size.QuadPart > 0x7FFFFFFF)
+				return ERROR_FILE_TOO_LARGE;
+
+			try {
+				a_out.resize(static_cast<size_t>(size.QuadPart));
+			} catch (const std::bad_alloc&) {
+				return ERROR_NOT_ENOUGH_MEMORY;
+			}
+
+			size_t offset = 0;
+			while (offset < a_out.size()) {
+				DWORD read = 0;
+				const auto chunk = static_cast<DWORD>(std::min<size_t>(a_out.size() - offset, 1u << 30));
+				if (!ReadFile(handle.get(), a_out.data() + offset, chunk, &read, nullptr))
+					return GetLastError();
+				if (read == 0)
+					break;
+				offset += read;
+			}
+			a_out.resize(offset);
+			return 0;
+		}
+
 		DeletionResult SafeDelete(const std::string& path, const std::string& description)
 		{
 			DeletionResult result;

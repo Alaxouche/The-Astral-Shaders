@@ -6,6 +6,8 @@
 #include <fstream>
 #include <winrt/base.h>
 
+#include "Utils/FileSystem.h"
+
 namespace Util
 {
 	/**
@@ -19,24 +21,17 @@ namespace Util
 			std::filesystem::path filePath = pFileName;
 			filePath = L"Data\\Shaders" / filePath;
 
-			std::ifstream file(filePath, std::ios::binary);
-			if (!file.is_open()) {
+			// Win32 read: a CRT stream may be unavailable when the process-wide pool runs out.
+			std::vector<char> contents;
+			if (Util::FileHelpers::ReadWholeFile(filePath, contents) != 0) {
 				*ppData = NULL;
 				*pBytes = 0;
 				return E_FAIL;
 			}
 
-			file.seekg(0, std::ios::end);
-			UINT size = static_cast<UINT>(file.tellg());
-			file.seekg(0, std::ios::beg);
-
-			char* data = new char[size];
-			if (!file.read(data, size)) {
-				delete[] data;
-				*ppData = NULL;
-				*pBytes = 0;
-				return E_FAIL;
-			}
+			const UINT size = static_cast<UINT>(contents.size());
+			char* data = new char[std::max<UINT>(size, 1u)];
+			std::memcpy(data, contents.data(), size);
 			*ppData = data;
 			*pBytes = size;
 			return S_OK;
