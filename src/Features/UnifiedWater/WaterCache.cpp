@@ -377,8 +377,10 @@ bool WaterCache::GenerateCaches(const std::vector<RE::TESWorldSpace*>& worldSpac
 	// session, and every copy holds a CRT stdio stream. That pool is process-wide (Engine Fixes
 	// raises it to 8192) and shared with the game and every plugin, so N threads probing P plugins
 	// can pin N*P streams: on a ~3500-plugin list eight threads exhausted it, and every later
-	// open failed (Snow Cover configs, shader includes, textures). Keep the worst case to half the
-	// pool.
+	// open failed (Snow Cover configs, shader includes, textures). Two threads over 1445 plugins
+	// still did once the save loaded (errno 24 on shader includes, 2026-10-11): the game and the
+	// other plugins already hold most of the pool, so the worst case is kept to an eighth of it,
+	// which is a single thread on a large list. Tamriel alone takes most of the build anyway.
 	{
 		ankerl::unordered_dense::set<RE::TESFile*> probedFiles;
 		for (auto* worldSpace : worldSpaces) {
@@ -386,7 +388,7 @@ bool WaterCache::GenerateCaches(const std::vector<RE::TESWorldSpace*>& worldSpac
 				for (auto* file : *files)
 					probedFiles.insert(file);
 		}
-		const auto streamBudget = static_cast<size_t>(std::max(_getmaxstdio(), 512)) / 2;
+		const auto streamBudget = static_cast<size_t>(std::max(_getmaxstdio(), 512)) / 8;
 		const auto byStreams = static_cast<unsigned>(std::max<size_t>(1, streamBudget / std::max<size_t>(1, probedFiles.size())));
 		if (byStreams < threads) {
 			logger::info("[Unified Water] [Cache] {} plugins to probe, stdio limit {}: using {} thread(s) instead of {}", probedFiles.size(), _getmaxstdio(), byStreams, threads);
