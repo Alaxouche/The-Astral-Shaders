@@ -5,7 +5,8 @@
 #include <cstdint>
 
 // Minimal NVAPI driver-settings (DRS) access via nvapi64 QueryInterface; the public
-// NVAPI SDK is not vendored.
+// NVAPI SDK is not vendored. Shared by the runtime DLSS-G driver-profile reset and
+// the standalone drs-tool diagnostic.
 namespace Util::NvApiDrs
 {
 	using SessionHandle = void*;
@@ -36,6 +37,10 @@ namespace Util::NvApiDrs
 
 	inline constexpr uint32_t kSettingVersion = static_cast<uint32_t>(sizeof(Setting)) | (1u << 16);
 
+	// DRS key on the game's driver profile that makes sl.dlss_g silently disable
+	// interpolation while every API still returns eOk (written by the NVIDIA App's
+	// DLSS-override panel; driver default is 0).
+	inline constexpr uint32_t kKeyDLSSGDisable = 0x10308298;
 	// DRS master switch for the driver's own frame-generation layer (NVIDIA App's
 	// "Smooth Motion" panel; NvPresent64.dll). Driver default is 0 (off); 1 = on.
 	inline constexpr uint32_t kKeySmoothMotionEnable = 0xB0D384C0;
