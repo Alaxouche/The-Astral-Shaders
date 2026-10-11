@@ -122,7 +122,8 @@ namespace SharedData
 		uint LocalShadowSamples;
 		float LocalShadowFilterRadius;
 		float LocalShadowTexelSize;
-		float2 pad1;
+		uint ContactShadowSubSamples;
+		float pad1;
 	};
 
 	struct WetnessEffectsSettings

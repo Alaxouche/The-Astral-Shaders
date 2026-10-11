@@ -1938,6 +1938,9 @@ void PerformanceOverlay::UpdateGraphValues()
 	                  static_cast<float>(state.overlayTimingFrequency.QuadPart);
 	state.lastUpdateTime = now;
 
+	if (!state.graphSampleGate.ShouldSample())
+		return;
+
 	// Insert latest frame time into circular buffer
 	float oldFrameTime = state.frameTimeHistory.GetData()[state.frameTimeHistory.GetHeadIdx()];  // what is the point of oldFrameTime?
 	state.frameTimeHistory.Push(state.frameTimeMs);
