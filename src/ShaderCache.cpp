@@ -51,10 +51,16 @@ namespace SIE
 #endif
 				includes.push_back(pathStr);
 
-				// Read file into owned buffer
+				// Read file into owned buffer. A failed open is logged with errno: a missing file
+				// (ENOENT), an exhausted CRT stream pool (EMFILE) and low memory (ENOMEM) all surface
+				// as the same "failed to open source file" compiler error otherwise.
+				errno = 0;
 				std::ifstream ifs(pathStr, std::ios::binary | std::ios::ate);
-				if (!ifs)
+				if (!ifs) {
+					const int error = errno;
+					logger::warn("Shader include '{}' could not be opened: errno {} ({})", pathStr, error, std::generic_category().message(error));
 					return E_FAIL;
+				}
 				std::streamsize size = ifs.tellg();
 				if (size < 0)
 					return E_FAIL;
@@ -69,6 +75,9 @@ namespace SIE
 				*ppData = storage.empty() ? nullptr : storage.data();
 				*pBytes = static_cast<UINT>(storage.size());
 				return S_OK;
+			} catch (const std::bad_alloc&) {
+				logger::warn("Shader include '{}' could not be read: out of memory", pFileName ? pFileName : "");
+				return E_FAIL;
 			} catch (...) {
 				return E_FAIL;
 			}

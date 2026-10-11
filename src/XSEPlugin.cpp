@@ -17,6 +17,33 @@ std::list<std::string> errors;
 
 bool Load();
 
+/**
+ * @brief Keeps the logs of the previous sessions as <name>.1.log (newest) to <name>.3.log.
+ *
+ * Both logs are truncated on every launch, so a problem that only shows on some launches was
+ * gone by the time anyone looked. Runs before either log is opened.
+ */
+void KeepPreviousLogs()
+{
+	constexpr int kKeptLogs = 3;
+	auto directory = logger::log_directory();
+	if (!directory)
+		return;
+
+	for (const std::string_view name : { "CommunityShaders"sv, "BottledShaders"sv }) {
+		std::error_code ec;
+		const auto current = *directory / std::format("{}.log", name);
+		if (!std::filesystem::exists(current, ec))
+			continue;
+		for (int i = kKeptLogs - 1; i >= 1; --i) {
+			const auto from = *directory / std::format("{}.{}.log", name, i);
+			if (std::filesystem::exists(from, ec))
+				std::filesystem::rename(from, *directory / std::format("{}.{}.log", name, i + 1), ec);
+		}
+		std::filesystem::rename(current, *directory / std::format("{}.1.log", name), ec);
+	}
+}
+
 void InitializeLog([[maybe_unused]] spdlog::level::level_enum a_level = spdlog::level::info)
 {
 #ifndef NDEBUG
@@ -50,6 +77,7 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_s
 #ifndef NDEBUG
 	while (!REX::W32::IsDebuggerPresent()) {};
 #endif
+	KeepPreviousLogs();
 	InitializeLog();
 	logger::info("Loaded {} {}", Plugin::NAME, Plugin::VERSION.string());
 	SKSE::Init(a_skse);
