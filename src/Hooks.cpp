@@ -109,6 +109,9 @@ struct BSShader_LoadShaders
 		auto state = globals::state;
 		auto shaderCache = globals::shaderCache;
 		if (shaderCache->IsDiskCache() || shaderCache->IsDump()) {
+			shaderCache->SetPrecompiling(true);
+			const SKSE::stl::scope_exit endPrecompile([shaderCache]() noexcept { shaderCache->SetPrecompiling(false); });
+
 			if (shaderCache->IsDiskCache()) {
 				Feature::ForEachLoadedFeature("GenerateShaderPermutations", [shader](Feature* feature) {
 					feature->GenerateShaderPermutations(shader);
@@ -201,7 +204,7 @@ bool Hooks::BSShader_BeginTechnique::thunk(RE::BSShader* shader, uint32_t vertex
 		(state->permutationData.ExtraShaderDescriptor & static_cast<uint32_t>(State::ExtraShaderDescriptors::IsReflections)) != 0 &&
 		(state->modifiedPixelDescriptor & deferredFlag) == 0 &&
 		shaderCache->IsEnabled() && state->ShaderEnabled(RE::BSShader::Type::Lighting) &&
-		shaderCache->GetPixelShader(*shader, state->modifiedPixelDescriptor | reflectionsFlag) != nullptr) {
+		shaderCache->FindPixelShader(*shader, state->modifiedPixelDescriptor | reflectionsFlag) != nullptr) {
 		state->modifiedPixelDescriptor |= reflectionsFlag;
 	}
 
@@ -238,6 +241,8 @@ bool Hooks::BSShader_BeginTechnique::thunk(RE::BSShader* shader, uint32_t vertex
 	state->lastModifiedVertexDescriptor = state->modifiedVertexDescriptor;
 	state->lastModifiedPixelDescriptor = state->modifiedPixelDescriptor;
 
+	state->BeginLightingVariants(shader, skipPixelShader, shaderFound);
+
 	return shaderFound;
 }
 
@@ -249,6 +254,7 @@ namespace LightingExtensions
 		{
 			globals::state->UpdateLightingShaderPermutation(pass);
 			func(shader, pass, renderFlags);
+			globals::state->UpdateLightingVariant(pass);
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};

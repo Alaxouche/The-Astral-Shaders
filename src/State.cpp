@@ -22,6 +22,7 @@
 #include "Features/TerrainHelper.h"
 #include "Features/Upscaling.h"
 #include "Features/VolumetricShadows.h"
+#include "Features/WetnessEffects.h"
 #include "Menu.h"
 #include "SceneSettingsManager.h"
 #include "SettingsOverrideManager.h"
@@ -48,6 +49,51 @@ void State::UpdateLightingShaderPermutation(RE::BSRenderPass* a_pass)
 	if (alphaProperty && alphaProperty->GetAlphaBlending() &&
 		alphaProperty->GetDestBlendMode() == RE::NiAlphaProperty::AlphaFunction::kOne) {
 		permutationData.ExtraShaderDescriptor |= additiveLighting;
+	}
+}
+
+void State::BeginLightingVariants(RE::BSShader* a_shader, bool a_skipPixelShader, bool a_shaderFound)
+{
+	lightingVariant = {};
+	auto shaderCache = globals::shaderCache;
+	if (!a_shaderFound || a_skipPixelShader || !a_shader || a_shader->shaderType.get() != RE::BSShader::Type::Lighting ||
+		!shaderCache->IsEnabled() || !shaderCache->IsAsync() || !ShaderEnabled(RE::BSShader::Type::Lighting))
+		return;
+
+	const auto liteDescriptor = SIE::ShaderCache::GetLiteLightingDescriptor(modifiedPixelDescriptor);
+	if (!liteDescriptor)
+		return;
+
+	lightingVariant.shader = a_shader;
+	lightingVariant.descriptor = modifiedPixelDescriptor;
+	lightingVariant.vanillaDescriptor = currentPixelDescriptor;
+	lightingVariant.liteDescriptor = liteDescriptor;
+}
+
+void State::UpdateLightingVariant(RE::BSRenderPass* a_pass)
+{
+	auto& variant = lightingVariant;
+	if (!variant.shader)
+		return;
+
+	constexpr auto noSnowCover = static_cast<uint>(SIE::ShaderCache::LightingShaderFlags::NoSnowCover);
+	constexpr auto noWetness = static_cast<uint>(SIE::ShaderCache::LightingShaderFlags::NoWetness);
+	bool useLite = ((variant.liteDescriptor & noSnowCover) == 0 || globals::features::snowCover.IsSnowFree(a_pass, variant.descriptor, variant.vanillaDescriptor)) &&
+	               ((variant.liteDescriptor & noWetness) == 0 || globals::features::wetnessEffects.IsDry(a_pass, variant.descriptor));
+
+	if (useLite && !variant.resolved) {
+		variant.resolved = true;
+		auto shaderCache = globals::shaderCache;
+		auto* full = shaderCache->FindPixelShader(*variant.shader, variant.descriptor);
+		auto* lite = full ? shaderCache->FindPixelShader(*variant.shader, variant.liteDescriptor) : nullptr;
+		variant.full = full ? reinterpret_cast<ID3D11PixelShader*>(full->shader) : nullptr;
+		variant.lite = lite ? reinterpret_cast<ID3D11PixelShader*>(lite->shader) : nullptr;
+	}
+	useLite = useLite && variant.lite;
+
+	if (useLite != variant.liteBound) {
+		globals::d3d::context->PSSetShader(useLite ? variant.lite : variant.full, nullptr, 0);
+		variant.liteBound = useLite;
 	}
 }
 
@@ -1139,6 +1185,11 @@ void State::UpdateSharedData([[maybe_unused]] bool a_inWorld, [[maybe_unused]] b
 				}
 			}
 		}
+
+		float waterTop = -FLT_MAX;
+		for (const auto& water : data.WaterData)
+			waterTop = std::max(waterTop, water.w);
+		waterGridTop = Util::GetEyePosition().z + waterTop;
 
 		data.WaterSystemHeight = -RE::NI_INFINITY;
 		data.PostWaterComposite = a_inWorld && globals::deferred->MediumCompositeEnabled() ? 1u : 0u;

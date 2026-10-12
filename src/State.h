@@ -258,6 +258,23 @@ public:
 	 */
 	void UpdateLightingShaderPermutation(RE::BSRenderPass* a_pass);
 
+	struct LightingVariantState
+	{
+		RE::BSShader* shader = nullptr;
+		uint descriptor = 0;
+		uint vanillaDescriptor = 0;
+		uint liteDescriptor = 0;
+		ID3D11PixelShader* full = nullptr;
+		ID3D11PixelShader* lite = nullptr;
+		bool resolved = false;
+		bool liteBound = false;
+	};
+	LightingVariantState lightingVariant;
+	float waterGridTop = 0.0f;
+
+	void BeginLightingVariants(RE::BSShader* a_shader, bool a_skipPixelShader, bool a_shaderFound);
+	void UpdateLightingVariant(RE::BSRenderPass* a_pass);
+
 	/** @brief Bitflags describing extra shader-specific properties. */
 	enum class ExtraShaderDescriptors : uint32_t
 	{
