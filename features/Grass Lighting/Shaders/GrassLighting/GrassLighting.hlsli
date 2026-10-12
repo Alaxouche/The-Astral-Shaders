@@ -14,7 +14,7 @@ namespace GrassLighting
 
 	float3 GetWetnessAlbedo(float3 albedo, float wetAmount)
 	{
-		float wetnessDarkeningAmount = wetAmount * wetAmount;
+		float wetnessDarkeningAmount = wetAmount * wetAmount * SharedData::wetnessEffectsSettings.GrassWetnessDarkening;
 		return lerp(albedo, pow(abs(albedo), 1.0 + wetnessDarkeningAmount), 0.5);
 	}
 

@@ -3218,6 +3218,8 @@
     "feature.wetness_effects.enable_wetness": "Enable Wetness",
     "feature.wetness_effects.enable_wetness_override": "Enable Wetness Override",
     "feature.wetness_effects.enable_wetness_tooltip": "Enables a wetness effect near water and when it is raining.",
+    "feature.wetness_effects.grass_wet_darkening": "Grass Wet Darkening",
+    "feature.wetness_effects.grass_wet_darkening_tooltip": "How much rain darkens grass. 1 is the old full darkening, 0 keeps its dry colour.",
     "feature.wetness_effects.grass_wet_roughness": "Grass Wet Roughness",
     "feature.wetness_effects.grass_wet_roughness_tooltip": "Roughness wet grass blades fall to in rain. Lower values give a sharper, wetter sheen.",
     "feature.wetness_effects.grid_size": "Grid Size",

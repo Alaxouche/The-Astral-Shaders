@@ -37,7 +37,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	RippleStrength,
 	RippleRadius,
 	RippleBreadth,
-	RippleLifetime)
+	RippleLifetime,
+	GrassWetnessDarkening)
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	WetnessEffects::DebugSettings,
@@ -473,6 +474,11 @@ void WetnessEffects::DrawSettings()
 		ImGui::SliderFloat(T(TKEY("grass_wet_roughness"), "Grass Wet Roughness"), &settings.GrassWetnessRoughness, 0.05f, 0.5f, "%.2f");
 		if (auto _tt = Util::HoverTooltipWrapper()) {
 			ImGui::Text("%s", T(TKEY("grass_wet_roughness_tooltip"), "Roughness wet grass blades fall to in rain. Lower values give a sharper, wetter sheen."));
+		}
+
+		ImGui::SliderFloat(T(TKEY("grass_wet_darkening"), "Grass Wet Darkening"), &settings.GrassWetnessDarkening, 0.0f, 1.0f, "%.2f");
+		if (auto _tt = Util::HoverTooltipWrapper()) {
+			ImGui::Text("%s", T(TKEY("grass_wet_darkening_tooltip"), "How much rain darkens grass. 1 is the old full darkening, 0 keeps its dry colour."));
 		}
 
 		ImGui::SliderFloat(T(TKEY("puddle_wetness"), "Puddle Wetness"), &settings.MaxPuddleWetness, 0.0f, 6.0f);
