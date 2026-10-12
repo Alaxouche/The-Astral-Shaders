@@ -628,8 +628,8 @@ VolumetricCloudResult RenderVolumetricCloudRay(float3 direction, float3 eye, flo
 	return result;
 }
 
-#include "PhysicalSky/CloudBlur.hlsli"
 #include "PhysicalSky/CloudTemporal.hlsli"
+#include "PhysicalSky/CloudBlur.hlsli"
 
 // Match the largest shadow-volume dimension (kShadowVolW/H in PhysicalSky.h).
 #define NTHREADS 256

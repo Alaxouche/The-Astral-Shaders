@@ -25,6 +25,22 @@ RWTexture2D<float4> RWTexFilteredAux : register(u5);
 		color += TexCloudResultLum.SampleLevel(TransmittanceSampler, corners[i], 0);
 	}
 	color *= 0.25;
+
+	// Keep clouds that lie behind this pixel's own surface off it. The trace takes the farthest
+	// surface of each 4x4 block, so at a silhouette (a tree or ridge against the sky) the whole
+	// block is traced as sky, and reconstruction and the blur above then lay that cloud over the
+	// surface pixels too: a bright, soft rim around the mesh. Only the displayed result is cut
+	// here; the temporal history keeps the full trace.
+	const float deviceDepth = TexDepth[pixel];
+	if (color.a > 0.0 && abs(deviceDepth - FrameBuffer::FarPlaneDepth()) > 1e-6) {
+		const float3 ray = CloudScreenRay(pixel);
+		const float sceneDistance = SharedData::GetScreenDepth(deviceDepth) / max(abs(mul(FrameBuffer::CameraView, float4(ray, 0)).z), 1e-6);
+		const float cloudDistance = DecodeCloudDepth(metadata.x);
+		// Fade over the near half of the cloud's weighted depth so a surface inside a cloud bank
+		// keeps the part in front of it.
+		color *= saturate((sceneDistance - 0.5 * cloudDistance) / max(0.5 * cloudDistance, 1.0));
+	}
+
 	RWTexFilteredTr[pixel] = 1.0 - color.a;
 	RWTexFilteredLum[pixel] = color;
 	RWTexFilteredAux[pixel] = metadata;
