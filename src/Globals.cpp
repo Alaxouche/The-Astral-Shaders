@@ -38,6 +38,7 @@
 #include "Features/ScreenshotFeature.h"
 #include "Features/Skin.h"
 #include "Features/SnowCover.h"
+#include "Features/SnowDeformation.h"
 #include "Features/SkySync.h"
 #include "Features/Skylighting.h"
 #include "Features/SubsurfaceScattering.h"
@@ -125,6 +126,7 @@ namespace globals
 		HairBacklighting hairBacklighting{};
 		FurShells furShells{};
 		LandscapeSeams landscapeSeams{};
+		SnowDeformation snowDeformation{};
 
 		namespace llf
 		{

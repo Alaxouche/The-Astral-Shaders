@@ -142,7 +142,7 @@ struct HiZOcclusion : OverlayFeature
 		float guardAngle = 10.0f;
 		float motionMarginFrames = 10.0f;
 
-		std::array<bool, 30> cullRenderMode = { true, false, false, false, false, false, false, false, false, false, false, false, true, false, true };  // Whether each culling type should be allowed
+		std::array<bool, 30> cullRenderMode = { true };  // Whether each culling type should be allowed
 	};
 
 	Settings settings;
@@ -201,6 +201,7 @@ struct HiZOcclusion : OverlayFeature
 
 	// Hi-Z occlusion culling functionality
 	bool SetupGPUCullingResources();
+	void ReleaseGPUCullingResources();
 
 	void DispatchComputeShader();
 	void ProcessVisibilityResults(uint32_t bufferIndex);
@@ -218,6 +219,7 @@ struct HiZOcclusion : OverlayFeature
 	};
 
 	static uint8_t GetPassKind(uint32_t renderMode);
+	static bool IsAdvancedRenderMode(uint32_t renderMode);
 	static const char* GetRenderModeName(uint32_t renderMode);
 	static bool IsMainViewRegistration(uint32_t renderMode, const RE::BSGraphics::BSShaderAccumulator* accum);
 	void CaptureSunShadowDirection(const RE::NiCamera* camera);
@@ -402,6 +404,7 @@ struct HiZOcclusion : OverlayFeature
 	static void SetOccludedFlag(RE::BSGeometry* geometry, bool occluded);
 	void ClearOcclusionState();
 	void ClearShadowOcclusionState();
+	void ReleaseGeometryReferences();
 	void UpdateCameraMotion();
 	bool IsReadbackReady(uint32_t bufferIndex);
 	void ReleaseReadbackSlot(uint32_t bufferIndex);

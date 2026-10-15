@@ -6,6 +6,7 @@
 #include "Hooks.h"
 #include "Menu.h"
 #include "PostProcessing.h"
+#include "RenderDoc.h"
 #include "State.h"
 #include "TerrainBlending.h"
 #include "Upscaling/DX12SwapChain.h"
@@ -307,6 +308,9 @@ void Upscaling::DrawSettings()
 
 	// Check the current upscale method
 	auto upscaleMethod = GetUpscaleMethod();
+
+	if (*currentUpscaleMode == (uint)UpscaleMethod::kFSR && upscaleMethod == UpscaleMethod::kTAA)
+		Util::Text::Warning("%s", T(TKEY("fsr_renderdoc_fallback"), "AMD FSR is unavailable while RenderDoc is loaded, using TAA."));
 
 	// Display warning for DLSS resolution limits
 	if (upscaleMethod == UpscaleMethod::kDLSS) {
@@ -784,9 +788,9 @@ void Upscaling::PostPostLoad()
 
 Upscaling::UpscaleMethod Upscaling::GetUpscaleMethod() const
 {
-	if (streamline.featureDLSS)
-		return (UpscaleMethod)settings.upscaleMethod;
-	return (UpscaleMethod)settings.upscaleMethodNoDLSS;
+	const auto method = (UpscaleMethod)(streamline.featureDLSS ? settings.upscaleMethod : settings.upscaleMethodNoDLSS);
+	// FSR3 does not work under RenderDoc
+	return method == UpscaleMethod::kFSR && RenderDoc::IsLoaded() ? UpscaleMethod::kTAA : method;
 }
 
 void Upscaling::CreateUpscalingTextureResources(UpscaleMethod a_upscalemethod)
@@ -811,13 +815,13 @@ void Upscaling::CreateUpscalingTextureResources(UpscaleMethod a_upscalemethod)
 		uavDesc.Format = texDesc.Format;
 
 		if (!reactiveMaskTexture) {
-			reactiveMaskTexture = new Texture2D(texDesc);
+			reactiveMaskTexture = new Texture2D(texDesc, "Upscaling::ReactiveMask");
 			reactiveMaskTexture->CreateSRV(srvDesc);
 			reactiveMaskTexture->CreateUAV(uavDesc);
 		}
 
 		if (!transparencyCompositionMaskTexture) {
-			transparencyCompositionMaskTexture = new Texture2D(texDesc);
+			transparencyCompositionMaskTexture = new Texture2D(texDesc, "Upscaling::TransparencyCompositionMask");
 			transparencyCompositionMaskTexture->CreateSRV(srvDesc);
 			transparencyCompositionMaskTexture->CreateUAV(uavDesc);
 		}
@@ -861,7 +865,7 @@ void Upscaling::CreateUpscalingTextureResources(UpscaleMethod a_upscalemethod)
 			srvDesc.Format = texDesc.Format;
 			uavDesc.Format = texDesc.Format;
 
-			motionVectorCopyTexture = new Texture2D(motionTexDesc);
+			motionVectorCopyTexture = new Texture2D(motionTexDesc, "Upscaling::MotionVectorCopy");
 			motionVectorCopyTexture->CreateSRV(srvDesc);
 			motionVectorCopyTexture->CreateUAV(uavDesc);
 		}
@@ -882,7 +886,7 @@ void Upscaling::CreateUpscalingTextureResources(UpscaleMethod a_upscalemethod)
 			uavDesc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
 			uavDesc.Texture2D.MipSlice = 0;
 
-			sharpenerTexture = new Texture2D(texDesc);
+			sharpenerTexture = new Texture2D(texDesc, "Upscaling::Sharpener");
 			sharpenerTexture->CreateSRV(srvDesc);
 			sharpenerTexture->CreateUAV(uavDesc);
 		}
@@ -1855,7 +1859,7 @@ void Upscaling::Upscale()
 		TracyD3D11Zone(globals::state->tracyCtx, "Upscaling Dispatch");
 
 		if (upscaleMethod == UpscaleMethod::kDLSS) {
-			dlssOutputValid = streamline.Upscale(main.texture, reactiveMaskTexture->resource.get(), transparencyCompositionMaskTexture->resource.get(), motionVectorCopyTexture->resource.get());
+			streamline.Upscale(main.texture, reactiveMaskTexture->resource.get(), transparencyCompositionMaskTexture->resource.get(), motionVectorCopyTexture->resource.get());
 		} else if (upscaleMethod == UpscaleMethod::kFSR) {
 			auto& depthStencil = renderer->GetDepthStencilData().depthStencils[RE::RENDER_TARGETS_DEPTHSTENCIL::kMAIN];
 			ID3D11Resource* fsrDepth = runtimeFsrDepthTexture ? runtimeFsrDepthTexture->resource.get() : depthStencil.texture;
@@ -2186,8 +2190,6 @@ void Upscaling::Main_PostProcessing::thunk(RE::ImageSpaceManager* a_this, uint32
 		upscaling.frameGenerationPrepared = upscaling.CopySharedD3D12Resources();
 	}
 
-	upscaling.dlssOutputValid = false;
-
 	const bool worldRendered = globals::state->WorldRenderedThisFrame();
 
 	// Neural Rendering works on the render-resolution scene, so it runs before the upscaler and
@@ -2212,7 +2214,7 @@ void Upscaling::Main_PostProcessing::thunk(RE::ImageSpaceManager* a_this, uint32
 	if (upscaleMethod != UpscaleMethod::kNONE && upscaleMethod != UpscaleMethod::kTAA)
 		upscaling.PerformUpscaling();
 
-	if (upscaleMethod == UpscaleMethod::kDLSS && upscaling.dlssOutputValid)
+	if (upscaleMethod == UpscaleMethod::kDLSS)
 		upscaling.ApplySharpening();
 
 	if (SeamProbe::IsSampling())
