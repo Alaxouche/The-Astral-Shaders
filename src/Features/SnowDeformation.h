@@ -53,11 +53,17 @@ struct SnowDeformation : Feature
 		float Depth = 6.0f;
 		float Lifetime = 240.0f;
 		float TargetSpacing = 2.0f;
+		/** @brief Height of the snow pushed up around a print, as a share of its depth. */
+		float RimHeight = 0.3f;
+		/** @brief How much packed snow in a print darkens and loses its sparkle (0 off, 1 full). */
+		float TrenchShading = 1.0f;
 	};
 
 	Settings settings;
 
 	virtual void SetupResources() override;
+	/** @brief Creates the GPU resources; throws on a failed D3D call (SetupResources disables the feature then). */
+	void CreateResources();
 	virtual void ClearShaderCache() override;
 	virtual void PostPostLoad() override;
 	virtual void DataLoaded() override;
@@ -409,6 +415,16 @@ private:
 	float blanketHeight = 0.0f;
 	bool blanketActive = false;
 	uint32_t blanketReady = 0;
+	// The blanket raise only changes when its land data, its height or the snow does: it is recomputed when the land
+	// changes and every few frames otherwise (Snow Cover's snow line moves slowly).
+	bool blanketLandChanged = true;
+	uint32_t blanketPhase = 0;
+	// Decay is applied to the whole field in batches, so between batches only the tiles under new prints are
+	// dispatched instead of every active tile on every frame.
+	float pendingDecay = 1.0f;
+	uint32_t decayFrames = 0;
+	// Repose relaxes slopes by a share per dispatch; a batch frame stands for several frames of it.
+	float reposeRate = 0.1f;
 	eastl::unique_ptr<Buffer> probeBuffer;
 	std::array<winrt::com_ptr<ID3D11Buffer>, kProbeLatency> probeStaging;
 	std::array<ProbeFrame, kProbeLatency> probeFrames;

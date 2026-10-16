@@ -210,7 +210,9 @@ float StampDistance(float2 delta, float4 stamp, float4 shape)
 	else if (target > 0.0 && target > height && height >= 0.0)
 		height = target;
 
-	[branch] if (melt > 0.0 && Coarse.w > 0.0)
+	// Heat lowers the snow toward its floor; it never lifts a print that already lies below it (a carried torch used
+	// to fill the player's own footprints back in).
+	[branch] if (melt > 0.0 && Coarse.w > 0.0 && height > meltFloor)
 	{
 		const float remains = pow(max(1.0 - melt, 0.0), Coarse.w);
 		height = meltFloor + (height - meltFloor) * remains;

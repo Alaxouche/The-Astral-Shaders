@@ -7,6 +7,7 @@
 #include "Utils/D3D.h"
 
 #include "Features/CSEditor.h"
+#include "Features/CausticLight.h"
 #include "Features/DynamicCubemaps.h"
 #include "Features/Effects11.h"
 #include "Features/ExponentialHeightFog.h"
@@ -357,6 +358,10 @@ void Deferred::DeferredPasses()
 	if (dynamicCubemaps.loaded)
 		dynamicCubemaps.UpdateCubemap();
 
+	auto& causticLight = globals::features::causticLight;
+	if (causticLight.loaded)
+		causticLight.Draw();
+
 	auto& ibl = globals::features::ibl;
 
 	auto& physSky = globals::features::physicalSky;
@@ -389,6 +394,7 @@ void Deferred::DeferredPasses()
 			physSky.loaded && physSky.texShadowVolume ? physSky.texShadowVolume->srv.get() : nullptr,
 		};
 		ID3D11ShaderResourceView* physSkyApSunLut = physSky.loaded && physSky.texApSunLut ? physSky.texApSunLut->srv.get() : nullptr;  // t21 PhysicalSky direct solar AP LUT
+		ID3D11ShaderResourceView* causticIrradiance = causticLight.loaded ? causticLight.GetOutputSRV() : nullptr;                   // t22 Caustic Light irradiance
 
 		ID3D11SamplerState* samplers[]{
 			dynamicCubemaps.loaded ? linearSampler : nullptr,
@@ -398,6 +404,7 @@ void Deferred::DeferredPasses()
 
 		context->CSSetShaderResources(0, ARRAYSIZE(srvs), srvs);
 		context->CSSetShaderResources(21, 1, &physSkyApSunLut);
+		context->CSSetShaderResources(22, 1, &causticIrradiance);
 
 		ID3D11UnorderedAccessView* uavs[3]{ main.UAV, normals.UAV, motionVectors.UAV };
 		context->CSSetUnorderedAccessViews(0, ARRAYSIZE(uavs), uavs, nullptr);
@@ -417,6 +424,7 @@ void Deferred::DeferredPasses()
 	{
 		ID3D11ShaderResourceView* views[16]{ nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
 		context->CSSetShaderResources(0, ARRAYSIZE(views), views);
+		context->CSSetShaderResources(22, 1, views);
 
 		ID3D11UnorderedAccessView* uavs[3]{ nullptr, nullptr, nullptr };
 		context->CSSetUnorderedAccessViews(0, ARRAYSIZE(uavs), uavs, nullptr);
@@ -782,6 +790,9 @@ ID3D11ComputeShader* Deferred::GetComputeMainComposite()
 		if (globals::features::ibl.loaded)
 			defines.push_back({ "IBL", nullptr });
 
+		if (globals::features::causticLight.loaded)
+			defines.push_back({ "CAUSTIC_LIGHT", nullptr });
+
 		// TERRAIN_BLENDING flips DepthTexture's HLSL type from `Texture2D<unorm float>`
 		// (R24_UNORM_X8_TYPELESS game depth) to `Texture2D<float>` (R32_FLOAT blendedDepth).
 		if (globals::features::terrainBlending.loaded)
@@ -811,6 +822,9 @@ ID3D11ComputeShader* Deferred::GetComputeMainCompositeInterior()
 
 		if (globals::features::physicalSky.loaded)
 			defines.push_back({ "PHYSICAL_SKY", nullptr });
+
+		if (globals::features::causticLight.loaded)
+			defines.push_back({ "CAUSTIC_LIGHT", nullptr });
 
 		// TERRAIN_BLENDING flips DepthTexture's HLSL type from `Texture2D<unorm float>`
 		// (R24_UNORM_X8_TYPELESS game depth) to `Texture2D<float>` (R32_FLOAT blendedDepth).

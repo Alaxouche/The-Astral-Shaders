@@ -8,6 +8,7 @@
 #include "EngineFixes/LODBlendRingFix.h"
 #include "FeatureIssues.h"
 #include "Features/CSEditor.h"
+#include "Features/CausticLight.h"
 #include "Features/CloudShadows.h"
 #include "Features/Effects11.h"
 #include "Features/ExponentialHeightFog.h"
@@ -234,6 +235,8 @@ void State::Draw()
 						globals::features::exponentialHeightFog.CaptureDirectionalShadowMap();
 					if (skylighting.loaded)
 						skylighting.CaptureShadowCascadeSRV();
+					if (globals::features::causticLight.loaded)
+						globals::features::causticLight.CaptureDirectionalShadowMap();
 				}
 			}
 		}

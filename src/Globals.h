@@ -54,6 +54,7 @@ struct HairBacklighting;
 struct FurShells;
 struct LandscapeSeams;
 struct SnowDeformation;
+struct CausticLight;
 
 class State;
 class Deferred;
@@ -160,6 +161,7 @@ namespace globals
 		extern FurShells furShells;
 		extern LandscapeSeams landscapeSeams;
 		extern SnowDeformation snowDeformation;
+		extern CausticLight causticLight;
 
 	}
 

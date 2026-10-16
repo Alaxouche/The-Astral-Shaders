@@ -2,6 +2,7 @@
 
 #include "Deferred.h"
 #include "Features/CSEditor.h"
+#include "Features/CausticLight.h"
 #include "Features/CloudShadows.h"
 #include "Features/DynamicCubemaps.h"
 #include "Features/Effects11.h"
@@ -127,6 +128,7 @@ namespace globals
 		FurShells furShells{};
 		LandscapeSeams landscapeSeams{};
 		SnowDeformation snowDeformation{};
+		CausticLight causticLight{};
 
 		namespace llf
 		{

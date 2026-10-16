@@ -29,21 +29,29 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	BlanketHeight,
 	Depth,
 	Lifetime,
-	TargetSpacing)
+	TargetSpacing,
+	RimHeight,
+	TrenchShading)
 
 namespace
 {
-	constexpr float kRimHeight = 0.2f;
 	constexpr float kRimWidth = 0.7f;
 	constexpr float kShoulder = 0.4f;
 	constexpr float kChurn = 0.8f;
 	constexpr float kRimNoise = 0.6f;
-	constexpr float kSnowfallRefill = 0.05f;
+	// Falling snow fills prints in a little faster (per second, on top of the lifetime). 0.05 erased a walk within
+	// half a minute of any snowfall.
+	constexpr float kSnowfallRefill = 0.02f;
 	constexpr float kFootReach = 48.0f;
 	constexpr float kGroundClearance = 2.0f;
 	constexpr float kMaxTessellation = 64.0f;
 	constexpr float kDetailDistance = 512.0f;
-	constexpr float kMinNormalZ = 0.8f;
+	// Steepest shading normal of a print wall. 0.8 (37 degrees) flattened the walls so prints read as dents only from
+	// above; 0.65 (49 degrees) keeps the wall visible while Snow Cover's slope test still leaves the wall snowed.
+	constexpr float kMinNormalZ = 0.65f;
+	// Decay batches: at most this many frames between field-wide decay dispatches.
+	constexpr uint32_t kDecayBatchFrames = 8;
+	constexpr uint32_t kBlanketRefreshFrames = 4;
 	constexpr float kCapFloor = 8.0f;
 	constexpr float kCapClearance = 4.0f;
 	constexpr uint32_t kCapRaysPerFrame = 32;
@@ -52,7 +60,9 @@ namespace
 	constexpr uint64_t kObjectScanFrames = 12;
 	constexpr size_t kMaxObjectRefs = 256;
 	constexpr size_t kMaxObjectShapes = 3;
-	constexpr float kObjectContact = 48.0f;
+	// An item counts as lying on the snow within this height of the land (48 let loot on tables and shelves stamp
+	// the ground below).
+	constexpr float kObjectContact = 16.0f;
 	constexpr float kRevealStrength = 0.45f;
 	constexpr float kRevealFullDepth = 4.0f;
 	constexpr float kRevealNameStrength = 0.4f;
@@ -654,6 +664,18 @@ namespace
 
 void SnowDeformation::SetupResources()
 {
+	// A failed D3D call throws, and nothing above a feature's SetupResources catches it: disable instead of crashing.
+	try {
+		CreateResources();
+	} catch (const std::exception& e) {
+		logger::error("[SnowDeformation] Could not create GPU resources ({}); the feature is disabled", e.what());
+		failedLoadedMessage = "Disabled: GPU resources could not be created";
+		loaded = false;
+	}
+}
+
+void SnowDeformation::CreateResources()
+{
 	auto device = globals::d3d::device;
 
 	{
@@ -931,7 +953,7 @@ void SnowDeformation::AppendActorStamps(RE::Actor* a_actor, const RE::NiPoint3& 
 	}
 
 	const float depth = std::clamp(settings.Depth, 1.0f, 20.0f);
-	const float rim = depth * kRimHeight;
+	const float rim = depth * settings.RimHeight;
 
 	if (auto equipped = a_actor->GetEquippedObject(true); equipped && equipped->GetFormType() == RE::FormType::Light && !a_actor->IsDead()) {
 		Stamp torch{};
@@ -1331,7 +1353,7 @@ void SnowDeformation::AppendObjectStamps(std::vector<Stamp>& a_stamps)
 	}
 
 	const float depth = std::clamp(settings.Depth, 1.0f, 20.0f);
-	const float rim = depth * kRimHeight;
+	const float rim = depth * settings.RimHeight;
 	const float carve = std::clamp(settings.BlanketHeight, 0.0f, kMaxBlanketHeight);
 	for (const auto& handle : objectRefs) {
 		if (a_stamps.size() >= kMaxStamps)
@@ -1844,7 +1866,14 @@ void SnowDeformation::UpdateLevel(uint32_t a_index, const RE::NiPoint3& a_positi
 	}
 
 	auto context = globals::d3d::context;
-	const bool runBlanket = fine && blanketActive && blanketCS;
+	bool runBlanket = false;
+	if (fine && blanketActive && blanketCS) {
+		runBlanket = blanketLandChanged || ++blanketPhase >= kBlanketRefreshFrames;
+		if (runBlanket) {
+			blanketLandChanged = false;
+			blanketPhase = 0;
+		}
+	}
 	if (entryCount > 0 || runBlanket) {
 		auto& skylighting = globals::features::skylighting;
 		const double coarseOriginX = coarse ? static_cast<double>(coarse->windowTileX) * coarse->tileSize : 0.0;
@@ -1852,7 +1881,7 @@ void SnowDeformation::UpdateLevel(uint32_t a_index, const RE::NiPoint3& a_positi
 
 		updateParams.Control = { a_decay, static_cast<float>(frameStampCount), level.cellSize, kShoulder };
 		updateParams.Shape = { kRimWidth, kRimNoise, kChurn, kReposeSlope };
-		updateParams.Options = { a_gateSnowCover ? 1.0f : 0.0f, a_skylightingReady ? 1.0f : 0.0f, seeding ? 1.0f : 0.0f, kReposeRate };
+		updateParams.Options = { a_gateSnowCover ? 1.0f : 0.0f, a_skylightingReady ? 1.0f : 0.0f, seeding ? 1.0f : 0.0f, reposeRate };
 		updateParams.EyeOffset = { static_cast<float>(originX - snapshotEye.x), static_cast<float>(originY - snapshotEye.y), -snapshotEye.z, 0.0f };
 		updateParams.Probe = { level.tileSize * 0.5f, level.fadeStart, 1.0f / (level.fadeEnd - level.fadeStart), kProbeSpan };
 		updateParams.OriginCell[0] = tileX * static_cast<int32_t>(kTileTexels);
@@ -1992,7 +2021,15 @@ void SnowDeformation::UpdateField()
 	if (auto sky = globals::game::sky; sky && sky->currentWeather)
 		snowing = sky->currentWeather->data.flags.any(RE::TESWeather::WeatherDataFlag::kSnow);
 	const float keepPerSecond = std::pow(0.1f, 1.0f / std::clamp(settings.Lifetime, 10.0f, 1800.0f)) * (1.0f - (snowing ? kSnowfallRefill : 0.0f));
-	const float decay = deltaTime > 0.0f ? std::pow(keepPerSecond, deltaTime) : 1.0f;
+	pendingDecay *= deltaTime > 0.0f ? std::pow(keepPerSecond, deltaTime) : 1.0f;
+	float decay = 1.0f;
+	reposeRate = kReposeRate;
+	if (++decayFrames >= kDecayBatchFrames || pendingDecay < 0.98f) {
+		decay = pendingDecay;
+		reposeRate = 1.0f - std::pow(1.0f - kReposeRate, static_cast<float>(decayFrames));
+		pendingDecay = 1.0f;
+		decayFrames = 0;
+	}
 
 	const bool snowCover = IsSnowCoverActive();
 	probeOwners.clear();
@@ -2147,8 +2184,10 @@ void SnowDeformation::UpdateBlanket(const RE::NiPoint3& a_position, RE::FormID a
 			}
 		}
 
-		if (dirty)
+		if (dirty) {
 			globals::d3d::context->UpdateSubresource(blanketLandTexture->resource.get(), 0, nullptr, blanketLand.data(), kBlanketTexels * sizeof(float) * 4, 0);
+			blanketLandChanged = true;
+		}
 
 		if (wasActive) {
 			constexpr uint32_t cells = kBlanketTexels * kBlanketTexels;
@@ -2187,8 +2226,10 @@ void SnowDeformation::UpdateBlanket(const RE::NiPoint3& a_position, RE::FormID a
 		blanketActive = blanketReady > 0 && (vanillaSnow || snowCoverPossible);
 	}
 
-	if (blanketActive != wasActive || (blanketActive && blanketHeight != lastHeight))
+	if (blanketActive != wasActive || (blanketActive && blanketHeight != lastHeight)) {
 		++fieldSerial;
+		blanketLandChanged = true;
+	}
 }
 
 bool SnowDeformation::InBlanketRange(const RE::NiBound& a_bound) const
@@ -2452,7 +2493,8 @@ bool SnowDeformation::PrepareCamera(DrawKind a_kind, bool a_clamped)
 	const double blanketOffsetY = std::fmod(originY / kBlanketCell, blanketPeriod);
 	params.BlanketParams = { static_cast<float>(blanketOffsetX < 0.0 ? blanketOffsetX + blanketPeriod : blanketOffsetX),
 		static_cast<float>(blanketOffsetY < 0.0 ? blanketOffsetY + blanketPeriod : blanketOffsetY), blanket ? 1.0f : 0.0f, 1.0f / (kBlanketSpacing * spacingScale) };
-	params.BlanketWindow = { static_cast<float>(static_cast<double>(blanketMinX) * kBlanketCell - originX), static_cast<float>(static_cast<double>(blanketMinY) * kBlanketCell - originY), 0.0f, 0.0f };
+	params.BlanketWindow = { static_cast<float>(static_cast<double>(blanketMinX) * kBlanketCell - originX), static_cast<float>(static_cast<double>(blanketMinY) * kBlanketCell - originY),
+		std::clamp(settings.TrenchShading, 0.0f, 1.0f), 0.0f };
 	params.SlotParams[0] = static_cast<int32_t>(static_cast<uint32_t>(fine.windowTileX) & (kSlots - 1));
 	params.SlotParams[1] = static_cast<int32_t>(static_cast<uint32_t>(fine.windowTileY) & (kSlots - 1));
 	params.SlotParams[2] = kWindowTiles;
@@ -3018,6 +3060,12 @@ void SnowDeformation::DrawSettings()
 	ImGui::SliderFloat(T(TKEY("depth"), "Print Depth"), &settings.Depth, 1.0f, 20.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
 	if (auto _tt = Util::HoverTooltipWrapper())
 		ImGui::TextWrapped("%s", T(TKEY("depth_tooltip"), "How deep a foot presses into the snow, in game units."));
+	ImGui::SliderFloat(T(TKEY("rim_height"), "Rim Height"), &settings.RimHeight, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	if (auto _tt = Util::HoverTooltipWrapper())
+		ImGui::TextWrapped("%s", T(TKEY("rim_height_tooltip"), "Snow pushed up around each print, as a share of the print depth."));
+	ImGui::SliderFloat(T(TKEY("trench_shading"), "Packed Snow Shading"), &settings.TrenchShading, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	if (auto _tt = Util::HoverTooltipWrapper())
+		ImGui::TextWrapped("%s", T(TKEY("trench_shading_tooltip"), "Snow packed down in a print is denser than fresh snow: slightly greyer, smoother and without sparkle. The loose rim around it stays bright."));
 	ImGui::SliderFloat(T(TKEY("lifetime"), "Lifetime"), &settings.Lifetime, 10.0f, 1800.0f, "%.0f s", ImGuiSliderFlags_AlwaysClamp);
 	if (auto _tt = Util::HoverTooltipWrapper())
 		ImGui::TextWrapped("%s", T(TKEY("lifetime_tooltip"), "Seconds until a print has filled back in to a tenth of its depth. Prints fill faster while it is snowing."));
@@ -3054,6 +3102,8 @@ void SnowDeformation::LoadSettings(json& o_json)
 	sanitize(settings.Depth, defaults.Depth, 1.0f, 20.0f);
 	sanitize(settings.Lifetime, defaults.Lifetime, 10.0f, 1800.0f);
 	sanitize(settings.TargetSpacing, defaults.TargetSpacing, 0.5f, 16.0f);
+	sanitize(settings.RimHeight, defaults.RimHeight, 0.0f, 1.0f);
+	sanitize(settings.TrenchShading, defaults.TrenchShading, 0.0f, 1.0f);
 }
 
 void SnowDeformation::SaveSettings(json& o_json)

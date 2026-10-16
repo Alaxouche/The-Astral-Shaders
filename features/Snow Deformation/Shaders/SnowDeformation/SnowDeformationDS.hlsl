@@ -30,11 +30,17 @@ ControlPoint main(PatchConstants constants, float3 bary : SV_DomainLocation, con
 
 	output.WorldPosition.z += displacement;
 	output.PreviousWorldPosition.z += displacement;
+	// The field height for the pixel shader's packed-snow shading, in a channel landscape draws leave unused. Offset by
+	// 1000 so a draw without this domain shader, whose z is the mesh's own data, never reads as a print.
+	output.LandBlendWeights2.z = 1000.0 + clamp(field, -64.0, 64.0) * BlanketWindow.z;
 
+	// The blanket's own slope (its edges, the dips under roofs and rocks) is part of the surface's gradient.
 	float gradientStep = GradientStep(windowPosition);
+	float2 offsetX = float2(gradientStep, 0.0);
+	float2 offsetY = float2(0.0, gradientStep);
 	float2 gradient = float2(
-						  SnowSurface(raise, SampleField(windowPosition + float2(gradientStep, 0.0))) - SnowSurface(raise, SampleField(windowPosition - float2(gradientStep, 0.0))),
-						  SnowSurface(raise, SampleField(windowPosition + float2(0.0, gradientStep))) - SnowSurface(raise, SampleField(windowPosition - float2(0.0, gradientStep)))) *
+						  SnowSurface(BlanketAt(windowPosition + offsetX), SampleField(windowPosition + offsetX)) - SnowSurface(BlanketAt(windowPosition - offsetX), SampleField(windowPosition - offsetX)),
+						  SnowSurface(BlanketAt(windowPosition + offsetY), SampleField(windowPosition + offsetY)) - SnowSurface(BlanketAt(windowPosition - offsetY), SampleField(windowPosition - offsetY))) *
 	                  (0.5 / gradientStep);
 
 	float3 normal = float3(output.TBN0.z, output.TBN1.z, output.TBN2.z);

@@ -40,6 +40,7 @@
 #include "Features/Skin.h"
 #include "Features/SnowCover.h"
 #include "Features/SnowDeformation.h"
+#include "Features/CausticLight.h"
 #include "Features/SkySync.h"
 #include "Features/Skylighting.h"
 #include "Features/SubsurfaceScattering.h"
@@ -249,7 +250,8 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::hairBacklighting,
 		&globals::features::furShells,
 		&globals::features::landscapeSeams,
-		&globals::features::snowDeformation
+		&globals::features::snowDeformation,
+		&globals::features::causticLight
 	};
 
 	return features;

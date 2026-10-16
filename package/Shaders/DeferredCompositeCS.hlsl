@@ -92,6 +92,11 @@ void SampleSSGISpecular(uint2 pixCoord, sh2 lobe, inout float ao, out float3 il,
 #	endif
 #endif
 
+#if defined(CAUSTIC_LIGHT)
+// Water light reflected and refracted onto the scene (Caustic Light), in the units of the forward diffuse light.
+Texture2D<float3> CausticTexture : register(t22);
+#endif
+
 #if defined(PHYSICAL_SKY)
 #	define PS_DEFERRED_RSRCS
 #	define PS_DEFERRED_SAMPLERS
@@ -130,6 +135,14 @@ void SampleSSGISpecular(uint2 pixCoord, sh2 lobe, inout float ao, out float3 il,
 	float glossiness = normalGlossiness.z;
 
 	float3 linDiffuseColor = Color::IrradianceToLinear(diffuseColor);
+
+#if defined(CAUSTIC_LIGHT)
+	// Added like one more light in the forward diffuse's own space, capped at 2.8 x the light already there (the
+	// brightest share the original fitted under a bridge) so a dark corner does not flare up. It joins after the SSGI
+	// ambient split below, which would otherwise count it as light to occlude.
+	float3 caustic = min(CausticTexture[dispatchID.xy] * albedo, max(diffuseColor, 0.02) * 2.8);
+	float3 linCaustic = Color::IrradianceToLinear(diffuseColor + caustic) - linDiffuseColor;
+#endif
 	float3 normalWS = normalize(mul(FrameBuffer::CameraViewInverse, float4(normalVS, 0)).xyz);
 
 #if defined(SSGI)
@@ -196,6 +209,10 @@ void SampleSSGISpecular(uint2 pixCoord, sh2 lobe, inout float ao, out float3 il,
 	}
 
 	linDiffuseColor += ssgiIl * linAlbedo;
+#endif
+
+#if defined(CAUSTIC_LIGHT)
+	linDiffuseColor += linCaustic;
 #endif
 
 	float3 color = linDiffuseColor + specularColor;

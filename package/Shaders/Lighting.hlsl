@@ -2512,6 +2512,24 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	}
 #	endif  // SNOW_COVER
 
+#	if defined(LANDSCAPE)
+	// Snow Deformation: packed snow in a print. Its domain shader carries the field height in LandBlendWeights2.z,
+	// offset by 1000 and scaled by the shading setting; a draw without it carries the mesh's own data there (< 500).
+	// Snow pressed down is denser than fresh snow: a little greyer, smoother and without sparkle. The loose snow pushed
+	// up around the print stays bright.
+	[branch] if (input.LandBlendWeights2.z > 500)
+	{
+		float sdField = input.LandBlendWeights2.z - 1000;
+		float packed = saturate(-sdField * 0.25);
+		float loose = saturate(sdField * 0.5);
+		material.BaseColor *= (1 - 0.16 * packed) * (1 + 0.05 * loose);
+		material.Roughness = lerp(material.Roughness, material.Roughness * 0.75, packed);
+#		if defined(TRUE_PBR)
+		material.GlintLogMicrofacetDensity = lerp(material.GlintLogMicrofacetDensity, 1, packed);
+#		endif
+	}
+#	endif
+
 	// Deferred glint precompute (after Snow Cover so it can override glint params); skip when disabled (density<=1.1), matching the BRDF gate in Common/PBR.hlsli.
 #	if defined(GLINT)
 	if (material.GlintLogMicrofacetDensity > 1.1) {
