@@ -25,7 +25,14 @@ float RaiseAt(float2 worldPosition)
 	const int2 inside = (int2)floor(cell) - BlanketCell.xy;
 	float raise = 0.0;
 	[branch] if (all(inside >= 0) && all(inside < BLANKET_TEXELS - 1))
-		raise = BlanketRaise.SampleLevel(FieldSampler, (cell + 0.5) * (1.0 / BLANKET_TEXELS), 0);
+	{
+		// The same Hermite-smoothed sampling as the domain shader, so the carve matches the drawn surface.
+		const float2 t = cell + 1.0;
+		const float2 base = floor(t);
+		float2 f = t - base;
+		f = f * f * (3.0 - 2.0 * f);
+		raise = BlanketRaise.SampleLevel(FieldSampler, (base + f - 0.5) * (1.0 / BLANKET_TEXELS), 0);
+	}
 	return raise;
 }
 

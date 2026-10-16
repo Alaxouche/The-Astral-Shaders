@@ -54,9 +54,10 @@ struct SnowDeformation : Feature
 		float Lifetime = 240.0f;
 		float TargetSpacing = 2.0f;
 		/** @brief Height of the snow pushed up around a print, as a share of its depth. */
-		float RimHeight = 0.3f;
-		/** @brief How much packed snow in a print darkens and loses its sparkle (0 off, 1 full). */
-		float TrenchShading = 1.0f;
+		float RimHeight = 0.2f;
+		/** @brief How much packed snow in a print darkens and loses its sparkle (0 off, 1 full). Off by default: the
+		 * shaded trail stood out from the snow around it. */
+		float TrenchShading = 0.0f;
 	};
 
 	Settings settings;

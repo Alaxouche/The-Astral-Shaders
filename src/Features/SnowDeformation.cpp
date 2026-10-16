@@ -46,9 +46,9 @@ namespace
 	constexpr float kGroundClearance = 2.0f;
 	constexpr float kMaxTessellation = 64.0f;
 	constexpr float kDetailDistance = 512.0f;
-	// Steepest shading normal of a print wall. 0.8 (37 degrees) flattened the walls so prints read as dents only from
-	// above; 0.65 (49 degrees) keeps the wall visible while Snow Cover's slope test still leaves the wall snowed.
-	constexpr float kMinNormalZ = 0.65f;
+	// Steepest shading normal of a print wall. Bottle clamped it at 0.8 (37 degrees), which lit the walls as if they
+	// were flat, so a print read as a cut-out with a hard rim. Dynamic Terrain Deformation shades the true slope.
+	constexpr float kMinNormalZ = 0.0f;
 	// Decay batches: at most this many frames between field-wide decay dispatches.
 	constexpr uint32_t kDecayBatchFrames = 8;
 	constexpr uint32_t kBlanketRefreshFrames = 4;
@@ -121,7 +121,9 @@ namespace
 	constexpr float kMaxSink = 64.0f;
 	constexpr float kBlanketFadeStart = 3072.0f;
 	constexpr float kBlanketFadeEnd = 3968.0f;
-	constexpr float kBlanketSpacing = 32.0f;
+	// Vertex spacing over the snow blanket. 32 left its edges and the dips around rocks visibly faceted; Dynamic
+	// Terrain Deformation uses 8 (the distance falloff in the hull shader keeps the far blanket cheap).
+	constexpr float kBlanketSpacing = 8.0f;
 	constexpr uint32_t kBlanketLandBudget = 1024;
 	constexpr uint64_t kBlanketRetryFrames = 60;
 	constexpr int32_t kFlagFresh = 1;
@@ -2483,7 +2485,7 @@ bool SnowDeformation::PrepareCamera(DrawKind a_kind, bool a_clamped)
 	params.EyePosition = { mainPosAdjust.x - posAdjust.x, mainPosAdjust.y - posAdjust.y, mainPosAdjust.z - posAdjust.z, 0.0f };
 	params.FieldParams = { 1.0f / fine.cellSize, static_cast<float>((static_cast<uint32_t>(fine.windowTileX) & (kSlots - 1)) * kTileTexels),
 		static_cast<float>((static_cast<uint32_t>(fine.windowTileY) & (kSlots - 1)) * kTileTexels), 1.0f / static_cast<float>(kTexels) };
-	params.FadeParams = { fine.tileSize * 0.5f, fine.fadeStart, 1.0f / (fine.fadeEnd - fine.fadeStart), 2.0f * fine.cellSize };
+	params.FadeParams = { fine.tileSize * 0.5f, fine.fadeStart, 1.0f / (fine.fadeEnd - fine.fadeStart), fine.cellSize };
 	const float spacingScale = a_kind == DrawKind::Shadow ? 2.0f : 1.0f;
 	params.TessParams = { kMaxTessellation, 1.0f / (std::clamp(settings.TargetSpacing, 0.5f, 16.0f) * spacingScale), 1.0f / kDetailDistance, kMinNormalZ };
 	const bool blanket = blanketActive;

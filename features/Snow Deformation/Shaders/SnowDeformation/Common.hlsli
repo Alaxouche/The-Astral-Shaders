@@ -92,8 +92,13 @@ float BlanketAt(float2 windowPosition)
 	precise float2 inside = windowPosition - BlanketWindow.xy;
 	[branch] if (BlanketParams.z > 0.5 && all(inside >= 0.0) && all(inside < 8128.0))
 	{
-		precise float2 texel = windowPosition * (1.0 / 64.0) + BlanketParams.xy + 0.5;
-		raise = Blanket.SampleLevel(FieldSampler, texel * (1.0 / 128.0), 0);
+		// Hermite-smoothed texel fraction: the surface stays smooth across the 64-unit cells instead of creasing at
+		// every cell edge (bilinear), the way Dynamic Terrain Deformation samples its coverage.
+		precise float2 t = windowPosition * (1.0 / 64.0) + BlanketParams.xy + 1.0;
+		float2 cell = floor(t);
+		float2 f = t - cell;
+		f = f * f * (3.0 - 2.0 * f);
+		raise = Blanket.SampleLevel(FieldSampler, (cell + f - 0.5) * (1.0 / 128.0), 0);
 	}
 	return raise;
 }
