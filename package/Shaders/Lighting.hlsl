@@ -1516,11 +1516,12 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		weights[6] = weights[7] = weights[8] = weights[9] = 0.0;
 #			endif
 
-		const bool doTerrainPom = ExtendedMaterials::TerrainHasAnyDisplacement() &&
-		                          ExtendedMaterials::TerrainMaxWeightedHeightScale(input, displacementParams) > 0.01;
+		const bool terrainHasDisplacement = ExtendedMaterials::TerrainHasAnyDisplacement() &&
+		                                    ExtendedMaterials::TerrainMaxWeightedHeightScale(input, displacementParams) > 0.01;
+		const bool doTerrainPom = viewPosition.z < 2048.0 && terrainHasDisplacement;
 		[branch] if (doTerrainPom)
 		{
-			uv = ExtendedMaterials::GetParallaxCoords(input, uv, terrainMipLevel, terrainMaxTexDim, viewDirection, tbnTr, screenNoise, displacementParams, sharedOffset, weights);
+			uv = ExtendedMaterials::GetParallaxCoords(input, viewPosition.z, uv, terrainMipLevel, terrainMaxTexDim, viewDirection, tbnTr, screenNoise, displacementParams, sharedOffset, weights);
 		}
 		else if (SharedData::extendedMaterialSettings.EnableHeightBlending)
 		{
@@ -1544,9 +1545,9 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 			ExtendedMaterials::TerrainHasAnyDisplacement() &&
 			ExtendedMaterials::TerrainMaxWeightedHeightScale(input, displacementParams) > 0.01;
 		// sh0 feeds point-light terrain shadows (hasTerrainParallaxShadow), not only POM.
-		if ((doTerrainPom || hasTerrainParallaxShadow) && parallaxShadowsEnabled && terrainDirectionalShadowQuality > 0.0) {
+		if ((terrainHasDisplacement || hasTerrainParallaxShadow) && parallaxShadowsEnabled && terrainDirectionalShadowQuality > 0.0) {
 			hasCachedTerrainShadowBaseHeight = COMPUTE_TERRAIN_SHADOW_BASE(sh0);
-			if (doTerrainPom && hasCachedTerrainShadowBaseHeight) {
+			if (terrainHasDisplacement && hasCachedTerrainShadowBaseHeight) {
 				float3 dirLightDirectionTS = mul(DirLightDirection, tbn).xyz;
 				cachedDirectionalTerrainParallaxShadow = EVAL_TERRAIN_DIR_SHADOW(sh0, dirLightDirectionTS);
 				hasCachedDirectionalTerrainParallaxShadow = true;
@@ -2424,7 +2425,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		endif
 #		if defined(DO_ALPHA_TEST) && defined(LOD_BLENDING) && !defined(TREE_ANIM)  // should only match object lod trees (ultra trees), they have no special define
 	float3 snowCardNormal = normalize(cross(ddx(input.WorldPosition.xyz), ddy(input.WorldPosition.xyz)));
-	if (HasSoftLighting()) {
+	if (SharedData::snowCoverSettings.EnableSnowCover && HasSoftLighting()) {
 		float rx;
 		float ry;
 		TexColorSampler.GetDimensions(rx, ry);
@@ -2471,6 +2472,9 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		snowNormal = normalize(snowNormal + float3(0, 0, 0.5));
 		float3 treeSnowNormal = snowNormal;
 		if (SharedData::snowCoverSettings.AffectTreeTint && !(Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::NoFoliageTint))
+			SnowCover::ApplyFoliageColor(material.BaseColor, SnowCover::GetEnvironmentalMultiplier(adjustedWorldPos));
+#		elif defined(DO_ALPHA_TEST)
+		if (SharedData::snowCoverSettings.AffectTreeTint && (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::SnowLODTree))
 			SnowCover::ApplyFoliageColor(material.BaseColor, SnowCover::GetEnvironmentalMultiplier(adjustedWorldPos));
 #		endif
 #		if defined(DO_ALPHA_TEST) && defined(LOD_BLENDING) && !defined(TREE_ANIM)
@@ -3007,7 +3011,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #			else
 	const bool localShadowSkinned = false;
 #			endif
-#			if defined(DEFERRED)
+#			if defined(DEFERRED) && defined(LLF_CONTACT_SHADOWS)
 	float contactShadowStrengthScale = 0.0;
 	const uint contactShadowSteps = LightLimitFix::GetContactShadowSteps(viewPosition.z, contactShadowStrengthScale);
 #			endif
@@ -3059,7 +3063,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #			endif
 		float lightAngle = dot(shadowGateNormal, normalizedLightDirection.xyz);
 
-#			if defined(DEFERRED)
+#			if defined(DEFERRED) && defined(LLF_CONTACT_SHADOWS)
 		[branch] if (contactShadowSteps > 0 && shadowComponent > 0.0 && lightAngle > 0.0 && !(light.lightFlags & LightLimitFix::LightFlags::Simple))
 		{
 			float3 lightVectorVS = mul((float3x3)FrameBuffer::CameraView, lightDirection);

@@ -84,6 +84,7 @@ namespace Permutation
 		static const uint IsMoon = (1 << 11);
 		static const uint NoSkyScattering = (1 << 12);
 		static const uint SnowRooftop = (1 << 13);
+		static const uint SnowLODTree = (1 << 14);
 		// Character rain flags reserve the high end so upstream's next sequential flag never collides.
 		static const uint IsCharacterRainSurface = (1u << 30);
 		static const uint IsHeldWeapon = (1u << 29);

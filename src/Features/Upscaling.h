@@ -165,6 +165,7 @@ public:
 	// Feature interface overrides
 	virtual void DrawSettings() override;
 	virtual void SaveSettings(json& o_json) override;
+	void WriteGameIniSettings();
 	virtual void LoadSettings(json& o_json) override;
 	virtual void RestoreDefaultSettings() override;
 	virtual void DataLoaded() override;

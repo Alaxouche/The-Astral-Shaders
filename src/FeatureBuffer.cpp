@@ -22,6 +22,7 @@
 #include "Features/PhysicalSky.h"
 #include "Features/NightSky.h"
 #include "Features/ProceduralSun.h"
+#include "Features/RainRefraction.h"
 #include "Features/Skin.h"
 #include "Features/SnowCover.h"
 #include "Features/Skylighting.h"
@@ -97,5 +98,6 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 		globals::features::volumetricLighting.GetCommonBufferData(),
 		globals::features::nightSky.GetCommonBufferData(),
 		globals::features::horizonFix.GetCommonBufferData(),
-		globals::features::hairBacklighting.settings);
+		globals::features::hairBacklighting.settings,
+		globals::features::rainRefraction.GetCommonBufferData());
 }

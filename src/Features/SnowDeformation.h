@@ -49,10 +49,10 @@ struct SnowDeformation : Feature
 		bool UseSnowCover = true;
 		bool DisplaceShadows = true;
 		bool SinkActors = true;
-		float BlanketHeight = 24.0f;
+		float BlanketHeight = 20.0f;
 		float Depth = 6.0f;
 		float Lifetime = 240.0f;
-		float TargetSpacing = 2.0f;
+		float TrianglePixels = 24.0f;
 		/** @brief Height of the snow pushed up around a print, as a share of its depth. */
 		float RimHeight = 0.2f;
 		/** @brief How much packed snow in a print darkens and loses its sparkle (0 off, 1 full). Off by default: the
@@ -101,6 +101,36 @@ struct SnowDeformation : Feature
 
 	/** @brief Remembers a geometry decal attached to landscape so its draws follow the displaced surface. */
 	void RegisterDecal(RE::BSTempEffectGeometryDecal* a_decal);
+
+	struct WadeEmitter
+	{
+		float x = 0.0f;
+		float y = 0.0f;
+		float landZ = 0.0f;
+		float clearance = 0.0f;
+		float radius = 0.0f;
+		float halfWidth = 0.0f;
+		float forwardX = 0.0f;
+		float forwardY = 0.0f;
+		float motionX = 0.0f;
+		float motionY = 0.0f;
+		RE::FormID owner = 0;
+		bool trail = false;
+	};
+
+	struct SurfaceView
+	{
+		ID3D11ShaderResourceView* blanket = nullptr;
+		ID3D11ShaderResourceView* field = nullptr;
+		int32_t blanketMinX = 0;
+		int32_t blanketMinY = 0;
+		int32_t fieldTileX = 0;
+		int32_t fieldTileY = 0;
+	};
+
+	const std::vector<WadeEmitter>& GetWadeEmitters() const { return wadeEmitters; }
+	uint32_t GetWadeFrame() const { return wadeFrame; }
+	SurfaceView GetSurfaceView() const;
 
 	struct SpellCastSink : RE::BSTEventSink<RE::TESSpellCastEvent>
 	{
@@ -213,12 +243,7 @@ private:
 		float clearance = 0.0f;
 		RE::FormID owner = 0;
 		uint8_t kind = 0;
-	};
-
-	struct MaterialParams
-	{
-		int32_t Layers[4] = { -1, 0, 0, 0 };
-		float4 Blend{};
+		bool trail = false;
 	};
 
 	struct ActorSink
@@ -364,7 +389,6 @@ private:
 	void AppendHeatStamps(std::vector<Stamp>& a_stamps);
 	void AppendImpactStamps(std::vector<Stamp>& a_stamps);
 	void BuildImpact(const ImpactEvent& a_event, std::vector<Stamp>& a_stamps);
-	void ClassifyLayers(RE::BSLightingShaderMaterialLandscape* a_material, MaterialParams& a_params) const;
 	void TrackShapeMotion(const void* a_key, const RE::NiPoint3& a_position, bool a_contact, float& a_motionX, float& a_motionY);
 	void UpdateActorSinks(const std::vector<RE::ActorPtr>& a_actors);
 	void ApplySink(RE::TESObjectREFR* a_ref, ActorSink& a_state, float a_sink);
@@ -392,11 +416,11 @@ private:
 	Texture2D* beforeTexture = nullptr;
 	eastl::unique_ptr<ConstantBuffer> updateConstants;
 	eastl::unique_ptr<ConstantBuffer> drawConstants;
-	eastl::unique_ptr<ConstantBuffer> materialConstants;
 	eastl::unique_ptr<StructuredBuffer> tileList;
 	winrt::com_ptr<ID3D11SamplerState> fieldSampler;
 	winrt::com_ptr<ID3D11SamplerState> linearSampler;
 	winrt::com_ptr<ID3D11ComputeShader> updateCS;
+	winrt::com_ptr<ID3D11ComputeShader> copyCS;
 	winrt::com_ptr<ID3D11ComputeShader> probeCS;
 	winrt::com_ptr<ID3D11ComputeShader> blanketCS;
 	Texture2D* blanketLandTexture = nullptr;
@@ -448,7 +472,10 @@ private:
 	uint32_t frameStampCount = 0;
 	std::vector<float> stampSnow;
 	std::vector<float> stampReach;
+	std::vector<WadeEmitter> wadeEmitters;
+	uint32_t wadeFrame = UINT32_MAX;
 	RE::NiPoint3 mainPosAdjust;
+	float mainPixelScale = 0.0f;
 
 	std::mutex stampLock;
 	std::vector<Stamp> pendingStamps;

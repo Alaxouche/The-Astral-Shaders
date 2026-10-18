@@ -651,6 +651,72 @@ float3 GetLightingShadow(float3 color, float3 worldPosition, float2 screenPositi
 }
 #	endif
 
+#	if defined(EFFECTS11)
+namespace EnbEffectClass
+{
+	static const uint None = 0;
+	static const uint Fire = 1;
+	static const uint LightSprite = 2;
+	static const uint Particle = 3;
+}
+
+uint GetEnbEffectClass()
+{
+	const bool grayscaleToColor = Permutation::PixelShaderDescriptor & Permutation::EffectFlags::GrayscaleToColor;
+	const bool grayscaleToAlpha = Permutation::PixelShaderDescriptor & Permutation::EffectFlags::GrayscaleToAlpha;
+
+	if (Permutation::VertexShaderDescriptor & Permutation::EffectFlags::SkyObject) {
+#		if defined(ADDBLEND)
+#			if defined(SOFT)
+		return grayscaleToColor && grayscaleToAlpha ? EnbEffectClass::Fire : EnbEffectClass::LightSprite;
+#			elif defined(PARTICLES) && defined(TEXCOORD_INDEX) && defined(INDEXED_TEXTURE)
+		return EnbEffectClass::Fire;
+#			else
+		return EnbEffectClass::LightSprite;
+#			endif
+#		else
+		return EnbEffectClass::None;
+#		endif
+	}
+
+#		if defined(MULTBLEND) || defined(MULTBLEND_DECAL) || defined(MEMBRANE) || defined(BLOOD) || defined(PROJECTED_UV)
+	return EnbEffectClass::None;
+#		else
+#			if defined(TEXTURE)
+	const bool plainTexture = !grayscaleToColor && !grayscaleToAlpha && !(Permutation::PixelShaderDescriptor & Permutation::EffectFlags::IgnoreTexAlpha);
+#			else
+	const bool plainTexture = false;
+#			endif
+
+#			if defined(LIGHTING)
+#				if defined(ADDBLEND) && !defined(SOFT)
+	return EnbEffectClass::None;
+#				else
+	return plainTexture ? EnbEffectClass::Particle : EnbEffectClass::None;
+#				endif
+#			else
+	if (grayscaleToColor && grayscaleToAlpha)
+		return EnbEffectClass::Fire;
+#				if defined(ADDBLEND)
+#					if defined(SOFT)
+	return plainTexture ? EnbEffectClass::LightSprite : EnbEffectClass::None;
+#					else
+	return plainTexture ? EnbEffectClass::Fire : EnbEffectClass::None;
+#					endif
+#				elif defined(SOFT)
+#					if !defined(IS_VOLUMETRIC_FOG)
+	if (grayscaleToAlpha && !grayscaleToColor)
+		return EnbEffectClass::Fire;
+#					endif
+	return plainTexture ? EnbEffectClass::Particle : EnbEffectClass::None;
+#				else
+	return EnbEffectClass::None;
+#				endif
+#			endif
+#		endif
+}
+#	endif
+
 #if defined(OIT)
 [earlydepthstencil]
 #endif
@@ -719,20 +785,9 @@ PS_OUTPUT main(PS_INPUT input)
 	float3 viewPosition = mul(FrameBuffer::CameraView, float4(input.WorldPosition.xyz, 1)).xyz;
 	float2 screenUV = FrameBuffer::ViewToUV(viewPosition);
 #	if defined(EFFECTS11)
-	bool isFire = false;
-#		if defined(ADDBLEND)
-#			if defined(SOFT)
-	if (Permutation::PixelShaderDescriptor & Permutation::EffectFlags::GrayscaleToColor && Permutation::PixelShaderDescriptor & Permutation::EffectFlags::GrayscaleToAlpha)
-		isFire = true;
-#			elif defined(PARTICLES) && defined(TEXCOORD_INDEX) && defined(INDEXED_TEXTURE)
-	isFire = true;
-#			endif
-#		endif
-
-#		if !defined(IS_VOLUMETRIC_FOG) && !defined(MULTBLEND) && !defined(MULTBLEND_DECAL)
-	if (SharedData::enbSettings.EnableParticle && !(Permutation::VertexShaderDescriptor & Permutation::EffectFlags::SkyObject) && !isFire)
+	const uint enbEffectClass = GetEnbEffectClass();
+	if (SharedData::enbSettings.EnableParticle && enbEffectClass == EnbEffectClass::Particle)
 		propertyColor *= SharedData::enbSettings.ParticleIntensity;
-#		endif
 #	endif
 
 #	if defined(EFFECTS11) && defined(IS_VOLUMETRIC_FOG)
@@ -861,7 +916,9 @@ PS_OUTPUT main(PS_INPUT input)
 	[branch] if (isEnbVolumetricFog)
 	{
 		alpha = saturate(alpha * SharedData::enbSettings.VolumetricFogOpacity);
-		float volumetricFogShadow = GetViewRayShadow(input.WorldPosition.xyz, input.Position.xy, nativeDepth);
+		float volumetricFogShadow = 1.0;
+		[branch] if (SharedData::enbSettings.VolumetricFogEnableShadows)
+			volumetricFogShadow = GetViewRayShadow(input.WorldPosition.xyz, input.Position.xy, nativeDepth);
 		float3 volumetricFogScale = SharedData::enbSettings.VolumetricFogIntensity * SharedData::enbSettings.VolumetricFogColorFilter;
 		[branch] if (SharedData::enbSettings.VolumetricFogEnableLighting)
 		{
@@ -874,6 +931,15 @@ PS_OUTPUT main(PS_INPUT input)
 			float volumetricFogShade = lerp(1.0 - SharedData::enbSettings.VolumetricFogShadowAmount, 1.0, volumetricFogShadow);
 			baseColor.xyz = pow(max(baseColor.xyz, 0.0), SharedData::enbSettings.VolumetricFogCurve) * volumetricFogShade * volumetricFogScale;
 		}
+	}
+#	endif
+
+#	if defined(EFFECTS11)
+	if (SharedData::enbSettings.Enable) {
+		if (enbEffectClass == EnbEffectClass::Fire)
+			baseColor.xyz = pow(max(baseColor.xyz, 0.0), SharedData::enbSettings.FireCurve) * SharedData::enbSettings.FireIntensity;
+		else if (enbEffectClass == EnbEffectClass::LightSprite)
+			baseColor.xyz = pow(max(baseColor.xyz, 0.0), SharedData::enbSettings.LightSpriteCurve) * SharedData::enbSettings.LightSpriteIntensity;
 	}
 #	endif
 
@@ -930,14 +996,7 @@ PS_OUTPUT main(PS_INPUT input)
 	if (composeMedium) {
 		const float4 medium = ViewMedium::SampleViewMedium(input.WorldPosition.xyz, screenUV, SampBaseSampler);
 #		if defined(ADDBLEND)
-#			if defined(EFFECTS11)
-		if (SharedData::enbSettings.Enable) {
-			if (isFire)
-				blendedColor = pow(abs(blendedColor), SharedData::enbSettings.FireCurve) * SharedData::enbSettings.FireIntensity;
-			else
-				blendedColor *= SharedData::enbSettings.LightSpriteIntensity;
-		}
-#			endif
+		// The ENB fire and light-sprite curves are already applied to baseColor (GetEnbEffectClass).
 		blendedColor = Color::IrradianceToGamma(Color::IrradianceToLinear(blendedColor) * medium.a);
 #		elif defined(MULTBLEND) || defined(MULTBLEND_DECAL)
 		blendedColor = lerp(1.0.xxx, lightColor, medium.a);
@@ -960,11 +1019,8 @@ PS_OUTPUT main(PS_INPUT input)
 	float3 vanillaFogColor = fogColor;
 	float expFogFactor = 0;
 	if (SharedData::exponentialHeightFogSettings.enabled) {
-		float4 exponentialHeightFog;
-		if (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InReflection)
-			exponentialHeightFog = ExponentialHeightFog::GetExponentialHeightFogNoVolumetric(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, fogColor, float4(input.Position.xy * FrameBuffer::DynamicResolutionParams2.xy, input.Position.z, 1));
-		else
-			exponentialHeightFog = ExponentialHeightFog::GetExponentialHeightFog(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, fogColor, float4(input.Position.xy * FrameBuffer::DynamicResolutionParams2.xy, input.Position.z, 1));
+		const bool inReflection = Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InReflection;
+		float4 exponentialHeightFog = ExponentialHeightFog::GetExponentialHeightFogInternal(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, fogColor, true, float4(input.Position.xy * FrameBuffer::DynamicResolutionParams2.xy, input.Position.z, 1), !inReflection);
 		expFogFactor = exponentialHeightFog.w;
 		fogColor = exponentialHeightFog.xyz;
 		fogFactor = exponentialHeightFog.w;
@@ -983,14 +1039,6 @@ PS_OUTPUT main(PS_INPUT input)
 		blendedColor = lightColor * (1 - vanillaFogFactor) * (1 - expFogFactor);
 #			else
 		blendedColor = lightColor * (1 - fogFactor);
-#			endif
-#			if defined(EFFECTS11)
-		if (SharedData::enbSettings.Enable) {
-			if (isFire)
-				blendedColor = pow(abs(blendedColor), SharedData::enbSettings.FireCurve) * SharedData::enbSettings.FireIntensity;
-			else
-				blendedColor = pow(abs(blendedColor), SharedData::enbSettings.LightSpriteCurve) * SharedData::enbSettings.LightSpriteIntensity;
-		}
 #			endif
 #		elif defined(MULTBLEND) || defined(MULTBLEND_DECAL)
 #			if defined(EXP_HEIGHT_FOG)

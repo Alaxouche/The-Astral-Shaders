@@ -22,6 +22,7 @@ struct LODBlending;
 struct InteriorSun;
 struct LivingWindows;
 struct PhysicalSky;
+struct RainRefraction;
 struct ScreenSpaceGI;
 struct ScreenSpaceShadows;
 struct Skylighting;
@@ -127,6 +128,7 @@ namespace globals
 		extern InteriorSun interiorSun;
 		extern LivingWindows livingWindows;
 		extern PhysicalSky physicalSky;
+		extern RainRefraction rainRefraction;
 		extern ScreenSpaceGI screenSpaceGI;
 		extern ScreenSpaceShadows screenSpaceShadows;
 		extern Skylighting skylighting;

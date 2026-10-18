@@ -55,6 +55,7 @@ public:
 	uint32_t currentPixelDescriptor = 0;
 	spdlog::level::level_enum logLevel = spdlog::level::info;
 	bool enableDeveloperMode = false;  ///< Explicit developer mode toggle; also enabled when log level is debug/trace.
+	// Guarded by shaderDefinesMutex; read it through GetDefinesString().
 	std::string shaderDefinesString = "";
 	std::shared_ptr<const std::vector<std::pair<std::string, std::string>>> shaderDefines = std::make_shared<const std::vector<std::pair<std::string, std::string>>>();  // data structure to parse string into; needed to avoid dangling pointers
 	std::mutex shaderDefinesMutex;
@@ -163,6 +164,8 @@ public:
 	 */
 	void SetDefines(std::string defines);
 	std::shared_ptr<const std::vector<std::pair<std::string, std::string>>> GetDefines();
+	/** @brief Returns a copy of the normalized define string; safe to call from any thread. */
+	std::string GetDefinesString();
 
 	/**
 	 * @brief Checks whether the given shader type is enabled.
@@ -291,7 +294,8 @@ public:
 		IsAurora = 1 << 10,
 		IsMoon = 1 << 11,
 		NoSkyScattering = 1 << 12,
-		SnowRooftop = 1 << 13
+		SnowRooftop = 1 << 13,
+		SnowLODTree = 1 << 14
 	};
 
 	/** @brief Bitflags describing extra feature-specific properties related to terrain displacement and material models. */
@@ -409,7 +413,7 @@ public:
 	};
 	STATIC_ASSERT_ALIGNAS_16(PermutationCB);
 
-	ConstantBuffer* permutationCB = nullptr;
+	std::unique_ptr<ConstantBuffer> permutationCB;
 
 	struct alignas(16) SharedDataCB
 	{
@@ -442,8 +446,8 @@ public:
 	};
 	STATIC_ASSERT_ALIGNAS_16(SharedDataCB);
 
-	ConstantBuffer* sharedDataCB = nullptr;
-	ConstantBuffer* featureDataCB = nullptr;
+	std::unique_ptr<ConstantBuffer> sharedDataCB;
+	std::unique_ptr<ConstantBuffer> featureDataCB;
 
 	PermutationCB permutationData{};
 	PermutationCB permutationDataPrevious{};

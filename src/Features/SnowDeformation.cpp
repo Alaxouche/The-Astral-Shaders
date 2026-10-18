@@ -29,7 +29,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	BlanketHeight,
 	Depth,
 	Lifetime,
-	TargetSpacing,
+	TrianglePixels,
 	RimHeight,
 	TrenchShading)
 
@@ -46,6 +46,8 @@ namespace
 	constexpr float kGroundClearance = 2.0f;
 	constexpr float kMaxTessellation = 64.0f;
 	constexpr float kDetailDistance = 512.0f;
+	constexpr float kMinSpacing = 2.0f;
+	constexpr float kAmplitudePixels = 4.0f;
 	// Steepest shading normal of a print wall. Bottle clamped it at 0.8 (37 degrees), which lit the walls as if they
 	// were flat, so a print read as a cut-out with a hard rim. Dynamic Terrain Deformation shades the true slope.
 	constexpr float kMinNormalZ = 0.0f;
@@ -63,9 +65,6 @@ namespace
 	// An item counts as lying on the snow within this height of the land (48 let loot on tables and shelves stamp
 	// the ground below).
 	constexpr float kObjectContact = 16.0f;
-	constexpr float kRevealStrength = 0.45f;
-	constexpr float kRevealFullDepth = 4.0f;
-	constexpr float kRevealNameStrength = 0.4f;
 	constexpr float kHeatMelt = 0.85f;
 	constexpr float kHeatDepthScale = 0.8f;
 	constexpr float kTorchRadius = 40.0f;
@@ -109,7 +108,7 @@ namespace
 	constexpr float kFadeEndTiles = 14.8f;
 	constexpr float kReposeRate = 0.1f;
 	constexpr float kReposeSlope = 1.19175f;
-	constexpr float kBoundDepth = 0.25f;
+	constexpr float kBoundDepth = 2.0f;
 	constexpr float kFootLength = 1.3f;
 	constexpr float kFootAspect = 0.5f;
 	constexpr float kSlopeProbe = 48.0f;
@@ -170,9 +169,10 @@ namespace
 		float4 FadeParams1;
 		int32_t SlotParams1[4];
 		float4 BlanketWindow;
+		float4 DetailParams;
 	};
 	STATIC_ASSERT_ALIGNAS_16(DrawParams);
-	static_assert(sizeof(DrawParams) == 18 * 16);
+	static_assert(sizeof(DrawParams) == 19 * 16);
 
 	struct TileEntry
 	{
@@ -367,21 +367,6 @@ namespace
 			return 1.0f;
 		const float above = a_height + kCapFloor - a_height * std::clamp(pick.rayOutput.hitFraction, 0.0f, 1.0f);
 		return std::clamp((above - kCapFloor - kCapClearance) / a_height, 0.0f, 1.0f);
-	}
-
-	bool NameSuggestsGround(const char* a_path)
-	{
-		if (!a_path)
-			return false;
-		std::string name(a_path);
-		std::transform(name.begin(), name.end(), name.begin(), [](unsigned char a_char) { return static_cast<char>(std::tolower(a_char)); });
-		if (const auto slash = name.find_last_of("/\\"); slash != std::string::npos)
-			name.erase(0, slash + 1);
-		for (const char* keyword : { "dirt", "path", "mud", "gravel", "rock", "cobble", "ash", "sand", "grass" }) {
-			if (name.find(keyword) != std::string::npos)
-				return true;
-		}
-		return false;
 	}
 
 	bool ClassifyElement(RE::MagicItem* a_spell, uint8_t& a_element)
@@ -718,9 +703,9 @@ void SnowDeformation::CreateResources()
 			level.activityTexture->CreateSRV(srvDesc);
 		}
 
-		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		beforeTexture = new Texture2D(desc, "SnowDeformation::FieldBefore");
 		beforeTexture->CreateSRV(srvDesc);
+		beforeTexture->CreateUAV(uavDesc);
 	}
 
 	tileList = eastl::make_unique<StructuredBuffer>(StructuredBufferDesc<TileEntry>(kMaxTileEntries), kMaxTileEntries, "SnowDeformation::TileList");
@@ -789,7 +774,6 @@ void SnowDeformation::CreateResources()
 
 	updateConstants = eastl::make_unique<ConstantBuffer>(ConstantBufferDesc<UpdateParams>(), "SnowDeformation::UpdateParams");
 	drawConstants = eastl::make_unique<ConstantBuffer>(ConstantBufferDesc<DrawParams>(), "SnowDeformation::DrawParams");
-	materialConstants = eastl::make_unique<ConstantBuffer>(ConstantBufferDesc<MaterialParams>(), "SnowDeformation::MaterialParams");
 
 	D3D11_SAMPLER_DESC samplerDesc{};
 	samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
@@ -813,6 +797,7 @@ void SnowDeformation::ClearShaderCache()
 {
 	EndLandscapeDraw();
 	updateCS = nullptr;
+	copyCS = nullptr;
 	probeCS = nullptr;
 	blanketCS = nullptr;
 	lightingHS = nullptr;
@@ -831,7 +816,7 @@ bool SnowDeformation::EnsureShaders()
 {
 	if (shaderCompileFailed)
 		return false;
-	if (updateCS && lightingHS && lightingDS && depthHS && depthDS)
+	if (updateCS && copyCS && lightingHS && lightingDS && depthHS && depthDS)
 		return true;
 
 	const std::vector<std::pair<const char*, const char*>> lightingDefines;
@@ -843,6 +828,8 @@ bool SnowDeformation::EnsureShaders()
 
 	if (!updateCS)
 		updateCS.attach(static_cast<ID3D11ComputeShader*>(Util::CompileShader(L"Data\\Shaders\\SnowDeformation\\SnowDeformationUpdateCS.hlsl", updateDefines, "cs_5_0")));
+	if (!copyCS)
+		copyCS.attach(static_cast<ID3D11ComputeShader*>(Util::CompileShader(L"Data\\Shaders\\SnowDeformation\\SnowDeformationCopyCS.hlsl", {}, "cs_5_0")));
 	if (!lightingHS)
 		lightingHS.attach(static_cast<ID3D11HullShader*>(Util::CompileShader(L"Data\\Shaders\\SnowDeformation\\SnowDeformationHS.hlsl", lightingDefines, "hs_5_0")));
 	if (!lightingDS)
@@ -856,7 +843,7 @@ bool SnowDeformation::EnsureShaders()
 	if (!blanketCS)
 		blanketCS.attach(static_cast<ID3D11ComputeShader*>(Util::CompileShader(L"Data\\Shaders\\SnowDeformation\\SnowDeformationBlanketCS.hlsl", updateDefines, "cs_5_0")));
 
-	shaderCompileFailed = !(updateCS && lightingHS && lightingDS && depthHS && depthDS);
+	shaderCompileFailed = !(updateCS && copyCS && lightingHS && lightingDS && depthHS && depthDS);
 	if (shaderCompileFailed)
 		logger::error("[SnowDeformation] Shader compilation failed, prints are disabled until the shader cache is cleared");
 	return !shaderCompileFailed;
@@ -1164,6 +1151,7 @@ void SnowDeformation::AppendActorStamps(RE::Actor* a_actor, const RE::NiPoint3& 
 			stamp.normalZ = normalZ;
 			stamp.owner = owner;
 			stamp.kind = kKindWade;
+			stamp.trail = true;
 			a_stamps.push_back(stamp);
 		}
 	}
@@ -1911,8 +1899,20 @@ void SnowDeformation::UpdateLevel(uint32_t a_index, const RE::NiPoint3& a_positi
 		context->CSSetSamplers(0, 2, samplers);
 
 		if (entryCount > 0) {
-			context->CopyResource(beforeTexture->resource.get(), level.texture->resource.get());
 			tileList->Update(entries.data(), sizeof(TileEntry) * entries.size());
+			{
+				constexpr uint32_t copyBlocks = (kTileTexels + 2 + 7) / 8;
+				ID3D11ShaderResourceView* copyResources[4] = { level.texture->srv.get(), nullptr, nullptr, tileList->SRV() };
+				ID3D11UnorderedAccessView* copyUAV = beforeTexture->uav.get();
+				context->CSSetShaderResources(0, 4, copyResources);
+				context->CSSetUnorderedAccessViews(0, 1, &copyUAV, nullptr);
+				context->CSSetShader(copyCS.get(), nullptr, 0);
+				context->Dispatch(copyBlocks * copyBlocks, entryCount, 1);
+				ID3D11ShaderResourceView* nullSource = nullptr;
+				ID3D11UnorderedAccessView* nullCopyUAV = nullptr;
+				context->CSSetShaderResources(0, 1, &nullSource);
+				context->CSSetUnorderedAccessViews(0, 1, &nullCopyUAV, nullptr);
+			}
 			ID3D11ShaderResourceView* raise = blanketActive && blanketTexture ? blanketTexture->srv.get() : nullptr;
 			ID3D11ShaderResourceView* resources[7] = { nullptr, snowMap, probes, tileList->SRV(), raise, beforeTexture->srv.get(), seeding ? coarse->texture->srv.get() : nullptr };
 			ID3D11UnorderedAccessView* uav = level.texture->uav.get();
@@ -1971,6 +1971,8 @@ void SnowDeformation::UpdateField()
 	boundCamera.valid = false;
 	debugShown = debug;
 	debug = {};
+	wadeEmitters.clear();
+	wadeFrame = globals::state->frameCount;
 
 	const bool active = IsActiveContext();
 	gatherEnabled.store(active, std::memory_order_relaxed);
@@ -2054,6 +2056,9 @@ void SnowDeformation::UpdateField()
 		stampSnow.push_back(snow);
 		stampReach.push_back(reach);
 		probeOwners.push_back(stamp.owner);
+		if (stamp.kind == kKindWade)
+			wadeEmitters.push_back({ static_cast<float>(stamp.x), static_cast<float>(stamp.y), stamp.landZ, stamp.clearance, stamp.radius, stamp.halfWidth,
+				stamp.forwardX, stamp.forwardY, stamp.motionX, stamp.motionY, stamp.owner, stamp.trail });
 	}
 	frameStampCount = kept;
 	debug.stamps = kept;
@@ -2071,42 +2076,6 @@ void SnowDeformation::UpdateField()
 
 	for (uint32_t i = kLevels; i-- > 0;)
 		UpdateLevel(i, position, decay, deltaTime, sinking, gateSnowCover, skylightingReady);
-}
-
-void SnowDeformation::ClassifyLayers(RE::BSLightingShaderMaterialLandscape* a_material, MaterialParams& a_params) const
-{
-	a_params = {};
-	if (!a_material)
-		return;
-	const uint32_t count = std::min<uint32_t>(a_material->numLandscapeTextures, 6u);
-	int32_t reveal = -1;
-	int32_t fallback = -1;
-	uint32_t snowMask = 0;
-	for (uint32_t i = 0; i < count; ++i) {
-		if (a_material->textureIsSnow[i] <= 0.5f) {
-			if (reveal < 0)
-				reveal = static_cast<int32_t>(i);
-			continue;
-		}
-		snowMask |= 1u << i;
-		if (fallback < 0) {
-			const auto texture = i == 0 ? a_material->diffuseTexture.get() : a_material->landscapeDiffuseTexture[i - 1].get();
-			if (texture && NameSuggestsGround(texture->name.c_str()))
-				fallback = static_cast<int32_t>(i);
-		}
-	}
-	if (snowMask == 0)
-		return;
-	float strength = kRevealStrength;
-	if (reveal < 0) {
-		reveal = fallback;
-		strength *= kRevealNameStrength;
-	}
-	if (reveal < 0)
-		return;
-	a_params.Layers[0] = reveal;
-	a_params.Layers[1] = static_cast<int32_t>(snowMask);
-	a_params.Blend = { strength, 1.0f / kRevealFullDepth, 0.0f, 0.0f };
 }
 
 void SnowDeformation::UpdateBlanket(const RE::NiPoint3& a_position, RE::FormID a_worldspace)
@@ -2232,6 +2201,23 @@ void SnowDeformation::UpdateBlanket(const RE::NiPoint3& a_position, RE::FormID a
 		++fieldSerial;
 		blanketLandChanged = true;
 	}
+}
+
+SnowDeformation::SurfaceView SnowDeformation::GetSurfaceView() const
+{
+	SurfaceView view{};
+	if (blanketActive && blanketTexture) {
+		view.blanket = blanketTexture->srv.get();
+		view.blanketMinX = blanketMinX;
+		view.blanketMinY = blanketMinY;
+	}
+	const auto& fine = levels[0];
+	if (windowValid && fine.windowValid && fine.texture) {
+		view.field = fine.texture->srv.get();
+		view.fieldTileX = fine.windowTileX;
+		view.fieldTileY = fine.windowTileY;
+	}
+	return view;
 }
 
 bool SnowDeformation::InBlanketRange(const RE::NiBound& a_bound) const
@@ -2445,6 +2431,8 @@ bool SnowDeformation::PrepareCamera(DrawKind a_kind, bool a_clamped)
 				return false;
 			mainCamera = key;
 			mainPosAdjust = { key.posAdjust.x, key.posAdjust.y, key.posAdjust.z };
+			const float renderHeight = Util::ConvertToDynamic({ 0.0f, static_cast<float>(globals::game::graphicsState->screenHeight) }).y;
+			mainPixelScale = static_cast<float>(std::sqrt(m(1, 0) * m(1, 0) + m(1, 1) * m(1, 1) + m(1, 2) * m(1, 2))) * 0.5f * renderHeight;
 		} else if (std::memcmp(mainCamera.viewProj.data(), key.viewProj.data(), sizeof(key.viewProj)) != 0 ||
 				   mainCamera.posAdjust.x != key.posAdjust.x || mainCamera.posAdjust.y != key.posAdjust.y || mainCamera.posAdjust.z != key.posAdjust.z) {
 			return false;
@@ -2487,7 +2475,8 @@ bool SnowDeformation::PrepareCamera(DrawKind a_kind, bool a_clamped)
 		static_cast<float>((static_cast<uint32_t>(fine.windowTileY) & (kSlots - 1)) * kTileTexels), 1.0f / static_cast<float>(kTexels) };
 	params.FadeParams = { fine.tileSize * 0.5f, fine.fadeStart, 1.0f / (fine.fadeEnd - fine.fadeStart), fine.cellSize };
 	const float spacingScale = a_kind == DrawKind::Shadow ? 2.0f : 1.0f;
-	params.TessParams = { kMaxTessellation, 1.0f / (std::clamp(settings.TargetSpacing, 0.5f, 16.0f) * spacingScale), 1.0f / kDetailDistance, kMinNormalZ };
+	params.TessParams = { kMaxTessellation, 1.0f / (kMinSpacing * spacingScale), 1.0f / kDetailDistance, kMinNormalZ };
+	params.DetailParams = { mainPixelScale, 1.0f / (std::clamp(settings.TrianglePixels, 2.0f, 32.0f) * spacingScale), 1.0f / kAmplitudePixels, 0.0f };
 	const bool blanket = blanketActive;
 	params.RangeParams = { maxBound, maxBound + (blanket ? blanketHeight : 0.0f), a_clamped ? 1.0f : 0.0f, 1.0f / kBoundDepth };
 	const double blanketPeriod = static_cast<double>(kBlanketTexels);
@@ -2556,11 +2545,6 @@ void SnowDeformation::BeginLandscapeDraw(RE::BSRenderPass* a_pass, DrawKind a_ki
 			if (!PrepareCamera(DrawKind::Lighting, false)) {
 				debug.skippedDraws++;
 				return;
-			}
-			{
-				MaterialParams material{};
-				ClassifyLayers(static_cast<RE::BSLightingShaderMaterialLandscape*>(a_pass->shaderProperty->GetBaseMaterial()), material);
-				materialConstants->Update(material);
 			}
 			debug.lightingDraws++;
 			break;
@@ -2748,8 +2732,7 @@ void SnowDeformation::ApplyDrawState()
 	context->HSSetConstantBuffers(0, 1, &constants);
 	context->HSSetShaderResources(0, 5, hullResources);
 	context->HSSetSamplers(0, 1, &sampler);
-	ID3D11Buffer* domainConstants[2] = { constants, materialConstants->CB() };
-	context->DSSetConstantBuffers(0, 2, domainConstants);
+	context->DSSetConstantBuffers(0, 1, &constants);
 	context->DSSetShaderResources(0, 5, domainResources);
 	context->DSSetSamplers(0, 1, &sampler);
 	context->HSSetShader(activeHS, nullptr, 0);
@@ -2772,14 +2755,14 @@ void SnowDeformation::EndLandscapeDraw()
 
 	auto context = globals::d3d::context;
 	ID3D11ShaderResourceView* nullViews[5] = {};
-	ID3D11Buffer* nullBuffers[2] = {};
+	ID3D11Buffer* nullBuffers[1] = {};
 	ID3D11SamplerState* nullSampler = nullptr;
 	context->HSSetShader(nullptr, nullptr, 0);
 	context->DSSetShader(nullptr, nullptr, 0);
 	context->HSSetShaderResources(0, 5, nullViews);
 	context->DSSetShaderResources(0, 5, nullViews);
 	context->HSSetConstantBuffers(0, 1, nullBuffers);
-	context->DSSetConstantBuffers(0, 2, nullBuffers);
+	context->DSSetConstantBuffers(0, 1, nullBuffers);
 	context->HSSetSamplers(0, 1, &nullSampler);
 	context->DSSetSamplers(0, 1, &nullSampler);
 	context->IASetPrimitiveTopology(globals::game::shadowState->GetRuntimeData().topology);
@@ -3071,9 +3054,9 @@ void SnowDeformation::DrawSettings()
 	ImGui::SliderFloat(T(TKEY("lifetime"), "Lifetime"), &settings.Lifetime, 10.0f, 1800.0f, "%.0f s", ImGuiSliderFlags_AlwaysClamp);
 	if (auto _tt = Util::HoverTooltipWrapper())
 		ImGui::TextWrapped("%s", T(TKEY("lifetime_tooltip"), "Seconds until a print has filled back in to a tenth of its depth. Prints fill faster while it is snowing."));
-	ImGui::SliderFloat(T(TKEY("target_spacing"), "Vertex Spacing"), &settings.TargetSpacing, 0.5f, 16.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::SliderFloat(T(TKEY("triangle_size"), "Triangle Size"), &settings.TrianglePixels, 2.0f, 32.0f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
 	if (auto _tt = Util::HoverTooltipWrapper())
-		ImGui::TextWrapped("%s", T(TKEY("target_spacing_tooltip"), "Distance between generated vertices over marked snow near the camera, in game units. Lower is sharper and costs more."));
+		ImGui::TextWrapped("%s", T(TKEY("triangle_size_tooltip"), "On-screen size of the triangles generated over prints, in pixels. Lower is sharper and costs more."));
 
 	if (ImGui::TreeNodeEx(T(TKEY("debug"), "Debug"))) {
 		ImGui::Text("%s: %u", T(TKEY("debug_stamps"), "Stamps last frame"), debugShown.stamps);
@@ -3103,7 +3086,7 @@ void SnowDeformation::LoadSettings(json& o_json)
 	sanitize(settings.BlanketHeight, defaults.BlanketHeight, 0.0f, kMaxBlanketHeight);
 	sanitize(settings.Depth, defaults.Depth, 1.0f, 20.0f);
 	sanitize(settings.Lifetime, defaults.Lifetime, 10.0f, 1800.0f);
-	sanitize(settings.TargetSpacing, defaults.TargetSpacing, 0.5f, 16.0f);
+	sanitize(settings.TrianglePixels, defaults.TrianglePixels, 2.0f, 32.0f);
 	sanitize(settings.RimHeight, defaults.RimHeight, 0.0f, 1.0f);
 	sanitize(settings.TrenchShading, defaults.TrenchShading, 0.0f, 1.0f);
 }
