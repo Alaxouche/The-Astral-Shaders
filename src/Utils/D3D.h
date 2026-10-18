@@ -105,6 +105,9 @@ namespace Util
 	 * @param Program Entry point function name (defaults to "main").
 	 * @return The compiled shader object, or nullptr on failure. A failed compile is not retried until ClearShaderCompileFailures().
 	 */
+	/** @brief Description of the 2D texture behind a view; false when the view is null or not a 2D texture. */
+	bool GetTexture2DDesc(ID3D11View* View, D3D11_TEXTURE2D_DESC& OutDesc);
+
 	ID3D11DeviceChild* CompileShader(const wchar_t* FilePath, const std::vector<std::pair<const char*, const char*>>& Defines, const char* ProgramType, const char* Program = "main");
 
 	/**

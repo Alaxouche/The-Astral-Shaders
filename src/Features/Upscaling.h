@@ -83,8 +83,8 @@ public:
 		// DLSS Neural Rendering (NGX Feature 18). Off by default: it needs a runtime DLL the
 		// player supplies.
 		bool neuralRenderingEnabled = false;
-		// Accept a 310.8 runtime build outside the validated list.
-		bool neuralRenderingAllowUnvalidated = false;
+		// Per-situation profiles (normal, dialogue): run, material scope and region.
+		NR::Context::Profiles neuralRenderingContexts;
 		NR::Tuning neuralRenderingTuning;
 		bool reflexLowLatencyMode = false;
 		bool reflexLowLatencyBoost = false;
@@ -124,8 +124,9 @@ public:
 
 	struct UpscalingDataCB
 	{
-		float2 trueSamplingDim;
-		float2 pad0;
+		float2 trueSamplingDim;  // full render dim (this fork has no stereo)
+		uint eyeOffsetX = 0;     // X offset into stereo source buffers; always 0 here
+		uint pad0 = 0;
 	};
 
 	ConstantBuffer* jitterCB = nullptr;
@@ -169,6 +170,12 @@ public:
 	virtual void LoadSettings(json& o_json) override;
 	virtual void RestoreDefaultSettings() override;
 	virtual void DataLoaded() override;
+	/** @brief Per frame: the Neural Rendering crop and runtime selection follow the current settings. */
+	virtual void Reset() override
+	{
+		neuralRendering.Reset(settings.neuralRenderingEnabled, settings.neuralRenderingTuning.regionOfInterest, settings.neuralRenderingTuning.regionFit,
+			settings.neuralRenderingTuning.regionGroup, settings.neuralRenderingTuning.allowUnverifiedRuntime, settings.neuralRenderingTuning.runtimeVariant);
+	}
 
 	/**
 	 * @brief Installs Direct3D-related hooks for device and factory creation.
@@ -202,6 +209,23 @@ public:
 	winrt::com_ptr<ID3D11ComputeShader> encodeTexturesCS[4];          // One for each UpscaleMethod (kNONE, kTAA, kFSR, kDLSS)
 	winrt::com_ptr<ID3D11ComputeShader> encodeTexturesCSDepthOutput;  // FSR: converts R24G8_TYPELESS depth to R32_FLOAT
 	ID3D11ComputeShader* GetEncodeTexturesCS();
+
+	/** @brief Which outputs an EncodeTexturesCS variant writes besides the masks. */
+	enum class EncodeOutput
+	{
+		kMasksOnly,
+		kTypedDepth
+	};
+	/** @brief The encoder variant for one upscale method and output set (Neural Rendering builds its guides with it). */
+	ID3D11ComputeShader* GetEncodeTexturesCS(UpscaleMethod a_method, EncodeOutput a_output);
+	winrt::com_ptr<ID3D11ComputeShader> encodeTexturesVariants[4][2];
+
+	using EncodeInputViews = std::array<ID3D11ShaderResourceView*, 4>;
+	/**
+	 * @brief Current-frame encoder inputs (TAA mask, normals, motion, depth). Returns false if any is missing,
+	 * naming the first missing one in a_missing: a null view among them silently corrupts the masks the encoder writes.
+	 */
+	bool GetEncodeInputs(EncodeInputViews& a_views, const char*& a_missing) const;
 
 	winrt::com_ptr<ID3D11PixelShader> depthRefractionUpscalePS;
 	ID3D11PixelShader* GetDepthRefractionUpscalePS();

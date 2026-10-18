@@ -26,6 +26,21 @@ namespace Util
 	namespace PathHelpers
 	{
 		/**
+		 * Lists the immediate subdirectories of a directory without throwing. Entries are stepped
+		 * with an error code because a file removed mid-scan makes the throwing increment abort
+		 * the process.
+		 * @param root The directory to list
+		 * @return Absolute paths of the child directories, in directory order; empty if the scan fails
+		 */
+		std::vector<std::filesystem::path> SafeChildDirectories(const std::filesystem::path& root);
+
+		/** @brief std::filesystem::exists without throwing; false on any error. */
+		bool SafeExists(const std::filesystem::path& path);
+
+		/** @brief std::filesystem::absolute without throwing; the path unchanged on any error. */
+		std::filesystem::path SafeAbsolute(const std::filesystem::path& path);
+
+		/**
 		 * Gets the base Data directory path
 		 * @return Current working directory / "Data"
 		 */

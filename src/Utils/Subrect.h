@@ -101,4 +101,14 @@ namespace Util::Subrect
 		void ClampCurrentUV();
 		void ApplyPreset(int index);
 	};
+
+	/** @brief Disables blending and writes RGB only for the next ImGui draw command. */
+	void OpaquePreviewBlendCallback(const ImDrawList*, const ImDrawCmd*);
+
+	/**
+	 * @brief Draws an ImGui image of a render-target SRV with opaque RGB blending, seeding destination alpha to 1
+	 * first, so a target with non-1 alpha does not show as a transparency mask. No-op if a_srv is null.
+	 */
+	void ImageOpaque(ID3D11ShaderResourceView* a_srv, const ImVec2& a_size,
+		const ImVec2& a_uv0 = ImVec2(0, 0), const ImVec2& a_uv1 = ImVec2(1, 1));
 }  // namespace Util::Subrect

@@ -6,6 +6,7 @@
 #include "Common/LodLandscape.hlsli"
 #include "Common/Math.hlsli"
 #include "Common/MotionBlur.hlsli"
+#include "Common/NeuralRenderingCategory.hlsli"
 #include "Common/Permutation.hlsli"
 #include "Common/Random.hlsli"
 #include "Common/Shading.hlsli"
@@ -3795,9 +3796,37 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	psout.Masks = float4(0, 0, masksZ, psout.Diffuse.w);
 #		endif
 
+	// Neural Rendering's material category, read per pixel to set its strength (Masks2.g).
+	uint neuralRenderingCategory = NeuralRenderingCategory::None;
+#		if defined(FACEGEN) || defined(FACEGEN_RGB_TINT)
+	neuralRenderingCategory = NeuralRenderingCategory::Skin;
+#		elif defined(HAIR)
+	neuralRenderingCategory = NeuralRenderingCategory::Hair;
+#		elif defined(EYE)
+	neuralRenderingCategory = NeuralRenderingCategory::Eyes;
+#		elif defined(TREE_ANIM)
+	neuralRenderingCategory = NeuralRenderingCategory::Foliage;
+#		elif defined(LANDSCAPE) || defined(LODLANDSCAPE) || defined(LODLANDNOISE)
+	neuralRenderingCategory = NeuralRenderingCategory::Landscape;
+#		else
+	if (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::IsEye)
+		neuralRenderingCategory = NeuralRenderingCategory::Eyes;
+	else if (Permutation::PixelShaderDescriptor & Permutation::LightingFlags::CharacterLight)
+#			if defined(ENVMAP)
+		neuralRenderingCategory = NeuralRenderingCategory::Metal;
+#			else
+		neuralRenderingCategory = NeuralRenderingCategory::Cloth;
+#			endif
+#		endif
+
 	// Stored as 1 - vertexAO so the cleared default (0) means no occlusion
 	// for pixels that do not write to this RT (sky, water, grass, effects).
-	psout.Masks2 = float4(1.0 - vertexAO, 0, 0, psout.Diffuse.w);
+	// A blended class ID decodes to None, so hair snaps to fully replace or leave the category.
+	float masks2Blend = psout.Diffuse.w;
+#		if defined(HAIR)
+	masks2Blend = step(0.5, psout.Diffuse.w);
+#		endif
+	psout.Masks2 = float4(1.0 - vertexAO, NeuralRenderingCategory::Encode(neuralRenderingCategory), 0, masks2Blend);
 
 	float stochasticBlend = (screenNoise * screenNoise) < psout.Diffuse.w ? 1.0 : 0.0;
 	psout.NormalGlossiness.w = stochasticBlend;

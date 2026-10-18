@@ -6,6 +6,12 @@
 
 namespace Util
 {
+	/**
+	 * @brief Address of the per-frame call inside the engine's main update that main-thread hooks wrap.
+	 *        Several features chain a thunk here, so the address is resolved in one place.
+	 */
+	[[nodiscard]] std::uintptr_t MainUpdateCallSite();
+
 	/** @brief Forces weather and refreshes its cloud passes and sky model. */
 	void ForceWeather(RE::Sky* a_sky, RE::TESWeather* a_weather, bool a_override);
 

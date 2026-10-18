@@ -1590,6 +1590,17 @@ namespace Util
 	 * @param dllVersions  Vector of (name, version) pairs to display.
 	 * @param tableId  Unique ImGui table identifier.
 	 */
+	/**
+	 * Shows a selectable label that opens the given Data-relative directory in the file explorer when clicked.
+	 *
+	 * @param label  Display label for the clickable folder link.
+	 * @param pluginDir  Wide string path to the directory (opened on click).
+	 */
+	void DrawOpenFolderSelectable(const char* label, const wchar_t* pluginDir);
+
+	/** @brief "Select all" / "Select none" buttons over a list of per-item flags. */
+	void DrawSelectionButtons(std::span<uint8_t> selected, const char* selectAll, const char* selectNone);
+
 	void DrawDllVersionTable(
 		const char* label,
 		const wchar_t* pluginDir,

@@ -5,6 +5,10 @@
 #include "Common/SharedData.hlsli"
 
 #define ENABLE_LL SharedData::linearLightingSettings.enableLinearLighting
+// Open Shaders' ACEScg working space; this fork lights in Rec.709 only.
+#ifndef ENABLE_ACEScg
+#	define ENABLE_ACEScg false
+#endif
 
 #if defined(PSHADER) && defined(LIGHTING)
 cbuffer LLPerGeometry : register(b8)
@@ -46,9 +50,16 @@ namespace Color
 			dot(v4, kBlueVec4) + dot(v2, kBlueVec2));
 	}
 
+	static const float3 kRec709LuminanceWeights = float3(0.2125, 0.7154, 0.0721);
+
+	float RGBToLuminance(float3 color, float3 luminanceWeights)
+	{
+		return dot(color, luminanceWeights);
+	}
+
 	float RGBToLuminance(float3 color)
 	{
-		return dot(color, float3(0.2125, 0.7154, 0.0721));
+		return dot(color, kRec709LuminanceWeights);
 	}
 
 	float RGBToLuminanceAlternative(float3 color)

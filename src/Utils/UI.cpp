@@ -1406,6 +1406,23 @@ namespace Util
 		}
 	}
 
+	void DrawSelectionButtons(std::span<uint8_t> selected, const char* selectAll, const char* selectNone)
+	{
+		if (ImGui::SmallButton(selectAll))
+			std::ranges::fill(selected, uint8_t{ 1 });
+		ImGui::SameLine();
+		if (ImGui::SmallButton(selectNone))
+			std::ranges::fill(selected, uint8_t{ 0 });
+	}
+
+	void DrawOpenFolderSelectable(const char* label, const wchar_t* pluginDir)
+	{
+		if (ImGui::Selectable(label)) {
+			auto realPath = Util::PathHelpers::GetRealPathFromDataRelative(pluginDir);
+			ShellExecuteW(nullptr, L"open", realPath.empty() ? pluginDir : realPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+		}
+	}
+
 	void DrawDllVersionTable(
 		const char* label,
 		const wchar_t* pluginDir,

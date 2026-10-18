@@ -2,8 +2,9 @@
 
 cbuffer UpscalingData : register(b0)
 {
-	float2 TrueSamplingDim;
-	float2 pad0;
+	float2 TrueSamplingDim;  // per-eye render dim in VR, full render dim otherwise
+	uint EyeOffsetX;         // X offset into stereo source buffers; 0 for non-VR / left eye
+	uint pad0;
 };
 
 Texture2D<float2> TAAMask : register(t0);
@@ -19,19 +20,22 @@ RWTexture2D<float> DepthOutput : register(u3);
 #endif
 
 [numthreads(8, 8, 1)] void main(uint3 dispatchID : SV_DispatchThreadID) {
-	// Bounds check
+	// Bounds check in per-eye space; EyeOffsetX=0 makes this identical to the old path for non-VR
 	if (any(dispatchID.xy >= uint2(TrueSamplingDim)))
 		return;
 
-	float2 taaMask = TAAMask[dispatchID.xy];
-	float transparencyCompositionMask = NormalsWaterMask[dispatchID.xy].z;
+	// All source reads are in full stereo space; outputs are 0-based (per-eye or full-frame)
+	uint2 srcCoord = dispatchID.xy + uint2(EyeOffsetX, 0);
+
+	float2 taaMask = TAAMask[srcCoord];
+	float transparencyCompositionMask = NormalsWaterMask[srcCoord].z;
 
 #if defined(DLSS)
-	float depth = DepthMask[dispatchID.xy];
+	float depth = DepthMask[srcCoord];
 	float nearFactor = smoothstep(4096.0 * 2.5, 0.0, SharedData::GetScreenDepth(depth));
 
 	// Find longest motion vector in 5x5 neighborhood
-	float2 motionVector = MotionVectorMask[dispatchID.xy];
+	float2 motionVector = MotionVectorMask[srcCoord];
 	float2 longestMotionVector = motionVector;
 	float maxMotionLengthSq = dot(motionVector, motionVector);
 
@@ -41,11 +45,14 @@ RWTexture2D<float> DepthOutput : register(u3);
 		{
 			int2 samplePos = int2(dispatchID.xy) + int2(x, y);
 
-			// Bounds check
+			// Bounds check stays in per-eye space — prevents cross-eye contamination in VR
+			// and out-of-bounds reads in non-VR (EyeOffsetX=0 makes these equivalent)
 			if (any(samplePos < 0) || any(samplePos >= int2(TrueSamplingDim)))
 				continue;
 
-			float neighborDepth = DepthMask[samplePos];
+			// Source read uses full stereo offset
+			int2 srcPos = samplePos + int2(EyeOffsetX, 0);
+			float neighborDepth = DepthMask[srcPos];
 
 			// Take neighbor if it's longer AND closer
 #ifdef REVERSE_Z
@@ -53,7 +60,7 @@ RWTexture2D<float> DepthOutput : register(u3);
 #else
 			if (neighborDepth < depth) {
 #endif
-				float2 neighborMotionVector = MotionVectorMask[samplePos];
+				float2 neighborMotionVector = MotionVectorMask[srcPos];
 
 				// Square motion vector for length
 				float motionLengthSq = dot(neighborMotionVector, neighborMotionVector);
@@ -67,11 +74,15 @@ RWTexture2D<float> DepthOutput : register(u3);
 	}
 
 	MotionVectorOutput[dispatchID.xy] = lerp(longestMotionVector, motionVector, nearFactor);
+#else
+	// FSR has no disocclusion-dilation step of its own -- still needs a write here
+	// or callers (e.g. the foveated crop) copy stale/uninitialized UAV contents.
+	MotionVectorOutput[dispatchID.xy] = MotionVectorMask[srcCoord];
 #endif
 
 #if defined(DEPTH_OUTPUT)
-	// FSR and the D3D11/D3D12 runtime bridge require a typed depth format.
-	DepthOutput[dispatchID.xy] = DepthMask[dispatchID.xy];
+	// FSR, the D3D11/D3D12 runtime bridge and VR DLSS's eye-1 depth guide require a typed depth format.
+	DepthOutput[dispatchID.xy] = DepthMask[srcCoord];
 #endif
 
 	float reactiveMask = taaMask.x * 0.1 + taaMask.y;

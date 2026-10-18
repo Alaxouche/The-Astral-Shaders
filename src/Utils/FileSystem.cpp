@@ -10,6 +10,35 @@ namespace Util
 	// Path helper utilities implementation
 	namespace PathHelpers
 	{
+		bool SafeExists(const std::filesystem::path& path)
+		{
+			std::error_code ec;
+			return std::filesystem::exists(path, ec) && !ec;
+		}
+
+		std::filesystem::path SafeAbsolute(const std::filesystem::path& path)
+		{
+			std::error_code ec;
+			auto absolute = std::filesystem::absolute(path, ec);
+			return ec ? path : absolute;
+		}
+
+		std::vector<std::filesystem::path> SafeChildDirectories(const std::filesystem::path& root)
+		{
+			// Stepped with an error code: the throwing increment aborts the process when an entry
+			// is removed mid-scan.
+			std::vector<std::filesystem::path> children;
+			std::error_code ec;
+			for (auto it = std::filesystem::directory_iterator(root, ec); !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+				if (!it->is_directory(ec))
+					continue;
+				std::error_code absoluteError;
+				auto absolute = std::filesystem::absolute(it->path(), absoluteError);
+				children.push_back(absoluteError ? it->path() : absolute);
+			}
+			return children;
+		}
+
 		std::filesystem::path GetDataPath()
 		{
 			try {
