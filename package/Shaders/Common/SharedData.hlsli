@@ -435,7 +435,7 @@ namespace SharedData
 		uint GameVolumetricRaysDisableDithering;
 		float2 GameVolumetricRaysPad0;
 
-		float3 GameVolumetricRaysLightScale;
+		float3 GameVolumetricRaysSunColor;
 		float GameVolumetricRaysCustomContribution;
 
 		float3 GameVolumetricRaysCustomColor;
@@ -787,7 +787,11 @@ namespace SharedData
 		uint Enable;
 		float MotionStretch;
 		float MotionTransparency;
-		float pad0;
+		uint ScreenRefraction;
+		float RefractionFactor;
+		float MotionBluriness;
+		float Brightness;
+		uint Supersampling;
 	};
 
 	cbuffer FeatureData : register(b6)

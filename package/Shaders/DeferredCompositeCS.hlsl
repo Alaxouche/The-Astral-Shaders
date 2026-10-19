@@ -155,6 +155,7 @@ Texture2D<float3> CausticTexture : register(t22);
 	// pixels with no vertex AO contribution, so vertexAO defaults to 1.
 	float vertexAO = 1.0 - Masks2Texture[dispatchID.xy].x;
 	ssgiAo = saturate(ssgiAo / max(vertexAO, EPSILON_DIVISION));
+	const float ssgiDiffuseAo = ssgiAo;
 
 	float3 linAlbedo = Color::IrradianceToLinear(albedo / Color::PBRLightingScale);
 	float3 multiBounceSSGIAo = MultiBounceAO(linAlbedo, ssgiAo);
@@ -341,7 +342,7 @@ Texture2D<float3> CausticTexture : register(t22);
 
 		float skyOcclusion = 1.0;
 #	if defined(SSGI)
-		skyOcclusion = ssgiAo;
+		skyOcclusion = ssgiDiffuseAo;
 #	endif
 #	if defined(SKYLIGHTING)
 		skyOcclusion *= Skylighting::EvaluateDiffuse(Skylighting::Sample(positionWS.xyz, normalWS), normalWS);

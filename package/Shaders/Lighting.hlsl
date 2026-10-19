@@ -2475,8 +2475,17 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		if (SharedData::snowCoverSettings.AffectTreeTint && !(Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::NoFoliageTint))
 			SnowCover::ApplyFoliageColor(material.BaseColor, SnowCover::GetEnvironmentalMultiplier(adjustedWorldPos));
 #		elif defined(DO_ALPHA_TEST)
-		if (SharedData::snowCoverSettings.AffectTreeTint && (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::SnowLODTree))
-			SnowCover::ApplyFoliageColor(material.BaseColor, SnowCover::GetEnvironmentalMultiplier(adjustedWorldPos));
+		const bool snowLODTree = (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::SnowLODTree) != 0;
+		float3 treeSnowNormal = snowNormal;
+		if (snowLODTree) {
+			treeSnowNormal = normalize(snowNormal + float3(0, 0, 0.5));
+			snowNormal = treeSnowNormal;
+			if (SharedData::snowCoverSettings.AffectTreeTint)
+				SnowCover::ApplyFoliageColor(material.BaseColor, SnowCover::GetEnvironmentalMultiplier(adjustedWorldPos));
+#			if defined(LOD)
+			snowOcclusion *= SnowCover::GetObjectFade(length(viewPosition.xyz));
+#			endif
+		}
 #		endif
 #		if defined(DO_ALPHA_TEST) && defined(LOD_BLENDING) && !defined(TREE_ANIM)
 		if (snowBillboard)
@@ -2503,8 +2512,14 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		elif defined(TREE_ANIM)
 			worldNormal = normalize(lerp(worldNormal, treeSnowNormal, snowFactor * 0.75));
 #		else
-			if (!snowBillboard)
-				worldNormal = normalize(lerp(worldNormal, normalize(mul(tbn, snowNormal)), snowFactor * 0.75));
+			if (!snowBillboard) {
+#			if defined(DO_ALPHA_TEST)
+				float3 snowShadingNormal = snowLODTree ? treeSnowNormal : normalize(mul(tbn, snowNormal));
+#			else
+				float3 snowShadingNormal = normalize(mul(tbn, snowNormal));
+#			endif
+				worldNormal = normalize(lerp(worldNormal, snowShadingNormal, snowFactor * 0.75));
+			}
 #		endif
 		}
 #		if defined(LODLANDNOISE)
@@ -2681,6 +2696,12 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	// sharply without this floor.
 	static const float wetnessMinPuddleRoughness = 0.05;
 	waterRoughnessSpecular = max(saturate(1.0 - wetnessGlossinessSpecular), wetnessMinPuddleRoughness);
+
+	float3 wetnessNormalDdx = ddx_coarse(wetnessNormal);
+	float3 wetnessNormalDdy = ddy_coarse(wetnessNormal);
+	float wetnessKernelRoughness2 = min(0.5 * (dot(wetnessNormalDdx, wetnessNormalDdx) + dot(wetnessNormalDdy, wetnessNormalDdy)), 0.18);
+	float wetnessAlpha = waterRoughnessSpecular * waterRoughnessSpecular;
+	waterRoughnessSpecular = min(sqrt(sqrt(saturate(wetnessAlpha * wetnessAlpha + wetnessKernelRoughness2))), max(waterRoughnessSpecular, 0.99));
 #		if defined(CHARACTER_RAIN_SURFACE)
 	float3 characterSpotSurfaceNormal = worldNormal.xyz;
 	float characterSpotRoughness = 1.0f;
