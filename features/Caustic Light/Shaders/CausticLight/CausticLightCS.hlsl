@@ -10,7 +10,7 @@
 //
 // Output: irradiance in the units of Lighting.hlsl's diffuse light, added by DeferredCompositeCS (t22).
 
-#include "Common/Color.hlsli"
+#include "Common/ColorManagement.hlsli"
 #include "Common/FrameBuffer.hlsli"
 #include "Common/GBuffer.hlsli"
 #include "Common/SharedData.hlsli"

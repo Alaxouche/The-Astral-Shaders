@@ -7,6 +7,7 @@
 #include <DirectXTex.h>
 #include <pystring/pystring.h>
 
+#include "Features/SkySync.h"
 #include "I18n/I18n.h"
 #include "State.h"
 #include "Util.h"
@@ -194,7 +195,7 @@ void TerrainShadows::DrawSettings()
 {
 	ImGui::Checkbox(T(TKEY("enable_terrain_shadow"), "Enable Terrain Shadow"), &settings.EnableTerrainShadow);
 
-	if (ImGui::CollapsingHeader(T(TKEY("debug"), "Debug"))) {
+	if (Util::ShowDebugSections() && ImGui::CollapsingHeader(T(TKEY("debug"), "Debug"))) {
 		std::string curr_worldspace = "N/A";
 		std::string curr_worldspace_name = "N/A";
 		auto tes = RE::TES::GetSingleton();
@@ -234,10 +235,7 @@ void TerrainShadows::DrawSettings()
 
 void TerrainShadows::ClearShaderCache()
 {
-	if (shadowUpdateProgram) {
-		shadowUpdateProgram->Release();
-		shadowUpdateProgram = nullptr;
-	}
+	shadowUpdateProgram = nullptr;
 
 	CompileComputeShaders();
 }
@@ -516,7 +514,10 @@ bool TerrainShadows::UpdateShadow(bool a_refreshImmediately)
 	if (a_refreshImmediately)
 		shadowUpdateIdx = 0;
 	if (shadowUpdateIdx == 0) {
-		const auto worldDirection = sunLight->GetWorldDirection();
+		const auto celestialDirection = globals::features::skySync.GetCelestialLightDirection(globals::game::sky);
+		auto worldDirection = celestialDirection ? -*celestialDirection : sunLight->GetWorldDirection();
+		if (celestialDirection)
+			worldDirection.z = std::min(worldDirection.z, 0.0f);
 		float3 dirLightDir = { worldDirection.x, worldDirection.y, worldDirection.z };
 		if (dirLightDir.z > 0)
 			dirLightDir = -dirLightDir;

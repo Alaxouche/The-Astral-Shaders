@@ -12,6 +12,10 @@
 
 namespace SharedData
 {
+	static const uint TonemapOwnerVanilla = 0;
+	static const uint TonemapOwnerPostProcessing = 1;
+	static const uint TonemapOwnerEffects11 = 2;
+
 	cbuffer SharedData : register(b5)
 	{
 		float4 WaterData[25];
@@ -35,7 +39,8 @@ namespace SharedData
 		float MipBias;            // Offset to mip level for TAA sharpness
 		float WaterSystemHeight;  // TES::GetWaterHeight in camera-relative Z; -FLT_MAX when no water body found
 		uint PostWaterComposite;
-		float2 pad0;
+		uint ResetHistory;
+		uint TonemapOwner;
 		float4 AmbientSHR;
 		float4 AmbientSHG;
 		float4 AmbientSHB;
@@ -265,9 +270,9 @@ namespace SharedData
 		float EnvIBLSaturation;
 		float SkyIBLSaturation;
 		float FogAmount;
-		uint DALCMode;  // 0: Luminance Ratio, 1: Color Ratio, 2: DALC + Sky, 3: DALC + Sky (Directional)
-		float AdditiveAmount;
-		float ReflectiveAmount;
+		uint DALCMode;       // 0: Luminance Ratio, 1: Color Ratio, 2: DALC + Sky, 3: DALC + Sky (Directional)
+		uint ENBSkyFalloff;  // Effects 11 owns IBL: darken sky irradiance from below
+		float pad0;
 	};
 
 	struct ExtendedTranslucencySettings
@@ -280,26 +285,11 @@ namespace SharedData
 
 	struct LinearLightingSettings
 	{
-		uint enableLinearLighting;
-		uint isDirLightLinear;
-		float dirLightMult;
-		float lightGamma;
-		float colorGamma;
-		float emitColorGamma;
-		float glowmapGamma;
-		float ambientGamma;
-		float fogGamma;
-		float fogAlphaGamma;
-		float effectGamma;
-		float effectAlphaGamma;
-		float skyGamma;
-		float waterGamma;
-		float vlGamma;
-		float vanillaDiffuseColorMult;
+		uint isMainOrLoadingMenu;
+		float diffuseGamma;
 		float directionalLightMult;
 		float pointLightMult;
 		float ambientMult;
-		float emitColorMult;
 		float glowmapMult;
 		float effectLightingMult;
 		float membraneEffectMult;
@@ -307,7 +297,14 @@ namespace SharedData
 		float projectedEffectMult;
 		float deferredEffectMult;
 		float otherEffectMult;
-		uint pad0;
+		float particleEffectMult;
+		float lightSpriteEffectMult;
+		float fireEffectMult;
+		float fireEffectCurve;
+		float diffuseCurve;
+		float diffuseWhiteReflectance;
+		float waterGamma;
+		float pad;
 	};
 
 	struct ENBSettings
@@ -402,7 +399,7 @@ namespace SharedData
 
 		float MasserBillboardTan;
 		float SecundaBillboardTan;
-		float SkyScatteringPad0;
+		float SkyScaleMultiplier;
 		float SkyScatteringPad1;
 
 		float3 VolumetricFogColorFilter;
@@ -610,12 +607,6 @@ namespace SharedData
 		float4 FireMeltSpheres[8];
 	};
 
-	struct PostProcessingSettings
-	{
-		uint DisableVanillaTonemapping;
-		uint3 pad0;
-	};
-
 	struct PhysSkyData
 	{
 		// DYNAMIC
@@ -791,7 +782,7 @@ namespace SharedData
 		float RefractionFactor;
 		float MotionBluriness;
 		float Brightness;
-		uint Supersampling;
+		float pad0;
 	};
 
 	cbuffer FeatureData : register(b6)
@@ -819,7 +810,6 @@ namespace SharedData
 		SkinData skinData;
 		VanillaFresnelSettings vanillaFresnelSettings;
 		SnowCoverSettings snowCoverSettings;
-		PostProcessingSettings postProcessingSettings;
 		PhysSkyData physSkyData;
 		LivingWindowsSettings livingWindowsSettings;
 		VolumetricLightingSettings volumetricLightingSettings;
@@ -876,6 +866,35 @@ namespace SharedData
 		return GetScreenDepth(depth);
 	}
 
+	static const float WaterBlendWidth = 0.25;
+	static const float WaterBlendRange = 128.0;
+
+	float4 GetWaterTile(int2 cellInt)
+	{
+		float4 waterData = float4(1.0, 1.0, 1.0, -2147483648);
+		[flatten] if (all(cellInt >= 0) && all(cellInt < 5))
+			waterData = WaterData[cellInt.x + cellInt.y * 5];
+		return waterData;
+	}
+
+	float4 BlendWaterData(int2 cellInt, float2 cellFrac, float z)
+	{
+		const int2 side = int2(cellFrac.x < 0.5 ? -1 : 1, cellFrac.y < 0.5 ? -1 : 1);
+		const float2 edge = 0.5 - 0.5 * smoothstep(0.0, WaterBlendWidth, min(cellFrac, 1.0 - cellFrac));
+		const float4 weights = float4((1.0 - edge.x) * (1.0 - edge.y), edge.x * (1.0 - edge.y), (1.0 - edge.x) * edge.y, edge.x * edge.y);
+
+		const float4 own = GetWaterTile(cellInt);
+		const float4 acrossX = GetWaterTile(cellInt + int2(side.x, 0));
+		const float4 acrossY = GetWaterTile(cellInt + int2(0, side.y));
+		const float4 acrossXY = GetWaterTile(cellInt + side);
+
+		const float4 above = clamp(z - float4(own.w, acrossX.w, acrossY.w, acrossXY.w), -WaterBlendRange, WaterBlendRange);
+		const float ownAbove = z - own.w;
+		const float blendedAbove = dot(weights, above) + saturate(2.0 * weights.x - 1.0) * (ownAbove - above.x);
+		const float3 color = own.xyz * weights.x + acrossX.xyz * weights.y + acrossY.xyz * weights.z + acrossXY.xyz * weights.w;
+		return float4(color, z - blendedAbove);
+	}
+
 	// Returns water data for the tile containing worldPosition (camera-relative XY).
 	float4 GetWaterData(float3 worldPosition)
 	{
@@ -888,14 +907,7 @@ namespace SharedData
 		cellF -= cellFrac;                                  // align to cell borders
 		cellInt = round(cellF);
 
-		uint waterTile = (uint)clamp(cellInt.x + (cellInt.y * 5), 0, 24);  // remap xy to 0-24
-
-		float4 waterData = float4(1.0, 1.0, 1.0, -2147483648);
-
-		[flatten] if (cellInt.x < 5 && cellInt.x >= 0 && cellInt.y < 5 && cellInt.y >= 0)
-			waterData = WaterData[waterTile];
-
-		return waterData;
+		return BlendWaterData(cellInt, cellFrac, worldPosition.z);
 	}
 
 	float3 GetAmbient(float3 normal)

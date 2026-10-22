@@ -95,6 +95,7 @@ struct LandscapeSeams : Feature
 	struct Quad
 	{
 		std::array<RE::TESLandTexture*, EngineLayers> slots{};
+		std::array<RE::TESLandTexture*, MaxLayers> renderable{};
 		Border border{};
 		std::unique_ptr<WeightGrid> grid;
 		RE::BSGeometry* geometry = nullptr;
@@ -122,7 +123,7 @@ struct LandscapeSeams : Feature
 private:
 	struct Hooks;
 
-	void Heal(const QuadKey& a_key, const Quad& a_quad, Healed& a_out) const;
+	void Heal(const QuadKey& a_key, const Quad& a_quad, Healed& a_out, bool a_extrasOnly) const;
 	std::shared_ptr<Resources> CreateResources(const Healed& a_healed) const;
 	void Rebuild(const std::vector<QuadKey>& a_keys);
 	void RebuildAll();

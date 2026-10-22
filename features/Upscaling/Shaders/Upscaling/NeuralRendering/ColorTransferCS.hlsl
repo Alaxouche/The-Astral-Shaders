@@ -67,14 +67,14 @@ float3 NeutwoEncode(float3 value)
 
 float3 ProductionToLinear(float3 nativeColor)
 {
-	float3 linearColor = ENABLE_LL ? nativeColor : Color::SkyrimGammaToLinear(nativeColor);
-	return (ENABLE_LL && ENABLE_ACEScg) ? AP1TosRGB(linearColor) : linearColor;
+	float3 linearColor = LL_ACTIVE ? nativeColor : TransferFunctions::GameGammaToLinear(nativeColor);
+	return (LL_ACTIVE && ENABLE_ACEScg) ? AP1TosRGB(linearColor) : linearColor;
 }
 
 float3 ProductionFromLinear(float3 linearColor)
 {
-	float3 working = (ENABLE_LL && ENABLE_ACEScg) ? sRGBToAP1(linearColor) : linearColor;
-	return ENABLE_LL ? working : Color::LinearToSkyrimGamma(max(working, 0.0));
+	float3 working = (LL_ACTIVE && ENABLE_ACEScg) ? sRGBToAP1(linearColor) : linearColor;
+	return LL_ACTIVE ? working : TransferFunctions::LinearToGameGamma(max(working, 0.0));
 }
 
 float3 ToLinear(float3 value)
@@ -93,7 +93,7 @@ float3 ToLinear(float3 value)
 	case NR::kConversionSRGBToGamma22:
 		return ProxySrgbToLinear(value);
 	case NR::kConversionSkyrimGammaToGamma22:
-		return Color::SkyrimGammaToLinear(value);
+		return TransferFunctions::GameGammaToLinear(value);
 	case NR::kConversionLinearToSkyrimGamma:
 		return value;
 	case NR::kConversionLinearToLinear:
@@ -119,7 +119,7 @@ float3 FromLinear(float3 value)
 	case NR::kConversionSkyrimGammaToGamma22:
 		return pow(max(value, 0.0), 1.0 / 2.2);
 	case NR::kConversionLinearToSkyrimGamma:
-		return Color::LinearToSkyrimGamma(max(value, 0.0));
+		return TransferFunctions::LinearToGameGamma(max(value, 0.0));
 	case NR::kConversionLinearToLinear:
 		return value;
 	default:

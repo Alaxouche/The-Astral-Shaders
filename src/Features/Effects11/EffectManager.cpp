@@ -320,8 +320,6 @@ void EffectManager::RegisterSettings()
 	settingManager.RegisterColorTimeOfDaySetting("ColorFilter", "VOLUMETRICFOG", { 1.0f, 1.0f, 1.0f }, true);
 
 	settingManager.RegisterTimeOfDaySetting("MultiplicativeAmount", "IMAGEBASEDLIGHTING", 0.0f, 0.0f, 10.0f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("AdditiveAmount", "IMAGEBASEDLIGHTING", 0.0f, 0.0f, 0.5f, 0.01f, true);
-	settingManager.RegisterTimeOfDaySetting("ReflectiveAmount", "IMAGEBASEDLIGHTING", 0.0f, 0.0f, 4.0f, 0.01f, true);
 
 	settingManager.RegisterTimeOfDaySetting("GlowIntensity", "SUNGLARE", 1.0f, 0.0f, 1000.0f, 0.01f, true);
 
@@ -336,9 +334,8 @@ void EffectManager::RegisterSettings()
 	settingManager.RegisterBoolSetting("Enable", "RAIN", true, false);
 	settingManager.RegisterTimeOfDaySetting("MotionStretch", "RAIN", 0.28f, 0.0f, 1.0f, 0.01f, true);
 	settingManager.RegisterTimeOfDaySetting("MotionTransparency", "RAIN", 0.1f, 0.0f, 1.0f, 0.01f, true);
-	settingManager.RegisterBoolSetting("EnableSupersampling", "RAIN", false, false);
 	settingManager.RegisterFloatSetting("RefractionFactor", "RAIN", 1.0f, 0.0f, 2.0f, 0.01f, false);
-	settingManager.RegisterTimeOfDaySetting("MotionBluriness", "RAIN", 1.0f, 0.0f, 6.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("MotionBluriness", "RAIN", 0.0f, 0.0f, 1.0f, 0.01f, true);
 	settingManager.RegisterTimeOfDaySetting("Brightness", "RAIN", 1.0f, 0.0f, 10.0f, 0.01f, true);
 
 	settingManager.RegisterBoolSetting("Enable", "NIGHTEYE", true, false);
@@ -351,7 +348,7 @@ void EffectManager::RegisterSettings()
 	settingManager.RegisterTimeOfDaySetting("LowClip", "NIGHTEYE", 0.0f, 0.0f, 1.0f, 0.01f, true);
 	settingManager.RegisterFloatSetting("FadeTime", "NIGHTEYE", 0.5f, 0.0f, 5.0f, 0.01f, false);
 
-	settingManager.RegisterTimeOfDaySetting("Amount", "CLOUDSHADOWS", 0.8f, 0.0f, 4.0f, 0.01f, true);
+	settingManager.RegisterTimeOfDaySetting("Amount", "CLOUDSHADOWS", 0.5f, 0.0f, 4.0f, 0.01f, true);
 
 	settingManager.RegisterTimeOfDaySetting("Intensity", "GAMEVOLUMETRICRAYS", 1.0f, 0.0f, 1000.0f, 0.01f, true);
 	settingManager.RegisterTimeOfDaySetting("RangeFactor", "GAMEVOLUMETRICRAYS", 1.0f, 0.0f, 100.0f, 0.01f, true);
@@ -419,7 +416,6 @@ void EffectManager::RegisterSettings()
 
 	ids.enableRain = settingManager.GetSettingID("Enable", "RAIN");
 	ids.rainRefractionFactor = settingManager.GetSettingID("RefractionFactor", "RAIN");
-	ids.rainSupersampling = settingManager.GetSettingID("EnableSupersampling", "RAIN");
 
 	ids.nightEyeEnable = settingManager.GetSettingID("Enable", "NIGHTEYE");
 	ids.nightEyeFadeTime = settingManager.GetSettingID("FadeTime", "NIGHTEYE");

@@ -61,9 +61,8 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 	// can be seen rather than guessed at.
 	static std::once_flag reportOnce;
 	std::call_once(reportOnce, [] {
-		logger::warn("[FeatureBuffer] tail struct sizes: SnowCover {}, PostProcessing {}, PhysicalSky {}, LivingWindows {}",
+		logger::warn("[FeatureBuffer] tail struct sizes: SnowCover {}, PhysicalSky {}, LivingWindows {}",
 			sizeof(SnowCover::PerFrame),
-			sizeof(decltype(globals::features::postProcessing.GetCommonBufferData())),
 			sizeof(PhysicalSky::CbData),
 			sizeof(LivingWindows::GPUSettings));
 	});
@@ -71,7 +70,7 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 	return _GetFeatureBufferData(
 		globals::features::grassLighting.settings,
 		globals::features::extendedMaterials.settings,
-		globals::features::dynamicCubemaps.settings,
+		globals::features::dynamicCubemaps.GetCommonBufferData(),
 		globals::features::terrainShadows.GetCommonBufferData(),
 		globals::features::lightLimitFix.GetCommonBufferData(),
 		globals::features::wetnessEffects.GetCommonBufferData(),
@@ -92,7 +91,6 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 		globals::features::skin.GetCommonBufferData(),
 		globals::features::vanillaFresnel.settings,
 		globals::features::snowCover.GetCommonBufferData(),
-		globals::features::postProcessing.GetCommonBufferData(),
 		globals::features::physicalSky.cbData,
 		globals::features::livingWindows.GetCommonBufferData(),
 		globals::features::volumetricLighting.GetCommonBufferData(),

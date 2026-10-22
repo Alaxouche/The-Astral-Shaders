@@ -394,7 +394,7 @@ void PhysicalSky::SettingsGeneral()
 
 	ImGui::SeparatorText(T(TKEY("post_processing"), "Post Processing"));
 	{
-		const bool llEnabled = globals::features::linearLighting.settings.enableLinearLighting;
+		const bool llEnabled = globals::features::linearLighting.IsLinearLightingActive();
 		ImGui::BeginDisabled(llEnabled);
 		if (ImGui::BeginTable("tonemap", 4, ImGuiTableFlags_SizingStretchSame, { -1, 0 })) {
 			ImGui::TableNextColumn();
@@ -531,8 +531,8 @@ void PhysicalSky::SettingsAtmosphere()
 									 "It keeps the zenith sky blue, especially at sunrise or sunset."));
 
 		ImGui::ColorEdit3(T(TKEY("absorption"), "Absorption"), &settings.ozoneAbsorption.x, ImGuiColorEditFlags_DisplayHSV | ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR);
-		ImGui::DragFloat(T(TKEY("mean_altitude"), "Mean Altitude"), &settings.ozoneAltitude, .1f, 0.f, 100.f, "%.3f km");
-		ImGui::DragFloat(T(TKEY("layer_thickness"), "Layer Thickness"), &settings.ozoneThickness, .1f, 0.f, 50.f, "%.3f km");
+		ImGui::SliderFloat(T(TKEY("mean_altitude"), "Mean Altitude"), &settings.ozoneAltitude, 0.f, 100.f, "%.3f km");
+		ImGui::SliderFloat(T(TKEY("layer_thickness"), "Layer Thickness"), &settings.ozoneThickness, 0.f, 50.f, "%.3f km");
 		ImGui::PopID();
 	}
 
@@ -589,8 +589,8 @@ void PhysicalSky::SettingsVolumetricClouds()
 
 	ImGui::SeparatorText(T(TKEY("composition"), "Low Clouds"));
 	{
-		ImGui::DragFloat(T(TKEY("ndf_altitude_offset"), "NDF Base Altitude"), &low.ndfAltitudeOffset, 1.f, 0.f, 20000.f, "%.0f m", ImGuiSliderFlags_AlwaysClamp);
-		ImGui::DragFloat(T(TKEY("ndf_altitude_scale"), "NDF Height Span"), &low.ndfAltitudeScale, 1.f, 1.f, 20000.f, "%.0f m", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SliderFloat(T(TKEY("ndf_altitude_offset"), "NDF Base Altitude"), &low.ndfAltitudeOffset, 0.f, 20000.f, "%.0f m", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SliderFloat(T(TKEY("ndf_altitude_scale"), "NDF Height Span"), &low.ndfAltitudeScale, 1.f, 20000.f, "%.0f m", ImGuiSliderFlags_AlwaysClamp);
 		if (auto _tt = Util::HoverTooltipWrapper())
 			ImGui::Text("%s", T(TKEY("ndf_altitude_encoding"), "Altitude = base altitude + NDF height * height span. Applies to both generated and imported maps."));
 		ImGui::SliderFloat2(T(TKEY("ndf_scale"), "NDF Scale"), &low.ndfScale.x, 1.f, 50.f, "%.2f km");
@@ -998,7 +998,6 @@ void PhysicalSky::Reset()
 
 	if (!allGood) {
 		cbData.enabled = allGood;
-		linearLighting.isDirLightLinear = false;
 		volMainHistoryValid = false;
 		return;
 	}
@@ -1044,7 +1043,7 @@ void PhysicalSky::Reset()
 		.padSunDisk = 0.0f,
 		.secundaColor = settings.secundaColor,
 		.enabled = allGood,
-		.tonemapper = linearLighting.settings.enableLinearLighting ? 0 : settings.tonemapper,
+		.tonemapper = linearLighting.IsLinearLightingActive() ? 0 : settings.tonemapper,
 		.vanillaMix = settings.vanillaMix,
 		.zBottom = zBottom,
 		.rPlanet = settings.planetRadius / Util::Units::GAME_UNIT_TO_KM,
@@ -1084,15 +1083,12 @@ void PhysicalSky::Reset()
 	};
 
 	if (settings.overrideDirLight) {
-		linearLighting.isDirLightLinear = true;
-		const float pbrCompensationMult = linearLighting.settings.enableLinearLighting ? 1.0f : RE::NI_PI;  // Colors should match PBR values when not using linear lighting
+		const float pbrCompensationMult = linearLighting.IsLinearLightingActive() ? 1.0f : RE::NI_PI;  // Colors should match PBR values when not using linear lighting
 		auto LightConvFn = [pbrCompensationMult](float3 color) {
 			color /= pbrCompensationMult;
 			return RE::NiColor(color.x, color.y, color.z);
 		};
 		skySync.lightColors = { LightConvFn(cbData.sunlightColor), LightConvFn(cbData.masserColor), LightConvFn(cbData.secundaColor) };
-	} else {
-		linearLighting.isDirLightLinear = false;
 	}
 
 	RE::NiPoint3 posCam = { 0, 0, 0 };

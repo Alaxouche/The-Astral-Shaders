@@ -1,6 +1,6 @@
 
 #include "Common/BRDF.hlsli"
-#include "Common/Color.hlsli"
+#include "Common/ColorManagement.hlsli"
 #include "Common/FrameBuffer.hlsli"
 #include "Common/GBuffer.hlsli"
 #include "Common/MotionBlur.hlsli"
@@ -134,14 +134,19 @@ Texture2D<float3> CausticTexture : register(t22);
 
 	float glossiness = normalGlossiness.z;
 
-	float3 linDiffuseColor = Color::IrradianceToLinear(diffuseColor);
+#if defined(DEBUG_VIEW)
+	float3 debugV = -normalize(positionWS.xyz);
+	float3 debugCubemapIrradiance = 0;
+#endif
+
+	float3 linDiffuseColor = ColorManagement::SceneToLinear(diffuseColor);
 
 #if defined(CAUSTIC_LIGHT)
 	// Added like one more light in the forward diffuse's own space, capped at 2.8 x the light already there (the
 	// brightest share the original fitted under a bridge) so a dark corner does not flare up. It joins after the SSGI
 	// ambient split below, which would otherwise count it as light to occlude.
 	float3 caustic = min(CausticTexture[dispatchID.xy] * albedo, max(diffuseColor, 0.02) * 2.8);
-	float3 linCaustic = Color::IrradianceToLinear(diffuseColor + caustic) - linDiffuseColor;
+	float3 linCaustic = ColorManagement::SceneToLinear(diffuseColor + caustic) - linDiffuseColor;
 #endif
 	float3 normalWS = normalize(mul(FrameBuffer::CameraViewInverse, float4(normalVS, 0)).xyz);
 
@@ -155,9 +160,8 @@ Texture2D<float3> CausticTexture : register(t22);
 	// pixels with no vertex AO contribution, so vertexAO defaults to 1.
 	float vertexAO = 1.0 - Masks2Texture[dispatchID.xy].x;
 	ssgiAo = saturate(ssgiAo / max(vertexAO, EPSILON_DIVISION));
-	const float ssgiDiffuseAo = ssgiAo;
 
-	float3 linAlbedo = Color::IrradianceToLinear(albedo / Color::PBRLightingScale);
+	float3 linAlbedo = ColorManagement::SceneToLinear(albedo / Color::PBRLightingScale);
 	float3 multiBounceSSGIAo = MultiBounceAO(linAlbedo, ssgiAo);
 
 	float3 directionalAmbientColor = 0;
@@ -202,11 +206,11 @@ Texture2D<float3> CausticTexture : register(t22);
 		directionalAmbientColor *= maxScale;
 
 		diffuseColor = max(0.0, diffuseColor - directionalAmbientColor);
-		linDiffuseColor = Color::IrradianceToLinear(diffuseColor);
-		linDiffuseColor *= sqrt(multiBounceSSGIAo);
-		diffuseColor = Color::IrradianceToGamma(linDiffuseColor);
-		diffuseColor += Color::IrradianceToGamma(Color::IrradianceToLinear(directionalAmbientColor) * multiBounceSSGIAo);
-		linDiffuseColor = Color::IrradianceToLinear(diffuseColor);
+		diffuseColor = ColorManagement::SceneColor::ScaleByLinear(diffuseColor, sqrt(multiBounceSSGIAo));
+
+		directionalAmbientColor = ColorManagement::SceneColor::ScaleByLinear(directionalAmbientColor, multiBounceSSGIAo);
+		diffuseColor += directionalAmbientColor;
+		linDiffuseColor = ColorManagement::SceneToLinear(diffuseColor);
 	}
 
 	linDiffuseColor += ssgiIl * linAlbedo;
@@ -253,8 +257,8 @@ Texture2D<float3> CausticTexture : register(t22);
 			if (SharedData::iblSettings.DALCMode >= 2) {
 				// Mode 2/3: DALC-normalized env scaled by DALCAmount + sky overlay
 				float envLum = Color::RGBToLuminance(EnvTexture.SampleLevel(LinearSampler, R, 15));
-				envSpecular = Color::IrradianceToLinear((envSample / max(envLum, 0.001)) * directionalAmbientColorSpecular) * SharedData::iblSettings.DALCAmount;
-				skySpecular = Color::IrradianceToLinear(max(0, fullSample - envSample)) * SharedData::iblSettings.SkyIBLScale;
+				envSpecular = ColorManagement::SceneToLinear((envSample / max(envLum, 0.001)) * directionalAmbientColorSpecular) * SharedData::iblSettings.DALCAmount;
+				skySpecular = ColorManagement::SceneToLinear(max(0, fullSample - envSample)) * SharedData::iblSettings.SkyIBLScale;
 #		if defined(SKYLIGHTING)
 				envSpecular *= (SharedData::iblSettings.DALCMode == 3) ? skylightingVisibility : 1.0;
 				skySpecular *= skylightingSpecular;
@@ -262,8 +266,8 @@ Texture2D<float3> CausticTexture : register(t22);
 			} else {
 				// Mode 0/1: IBL ratio-based
 				float3 ratio = ImageBasedLighting::GetIBLRatio();
-				envSpecular = Color::IrradianceToLinear(envSample * ratio) * SharedData::iblSettings.EnvIBLScale;
-				skySpecular = Color::IrradianceToLinear(max(0, fullSample - envSample)) * SharedData::iblSettings.SkyIBLScale;
+				envSpecular = ColorManagement::SceneToLinear(envSample * ratio) * SharedData::iblSettings.EnvIBLScale;
+				skySpecular = ColorManagement::SceneToLinear(max(0, fullSample - envSample)) * SharedData::iblSettings.SkyIBLScale;
 #		if defined(SKYLIGHTING)
 				skySpecular *= skylightingSpecular;
 #		endif
@@ -281,29 +285,29 @@ Texture2D<float3> CausticTexture : register(t22);
 			float3 specularIrradiance = EnvTexture.SampleLevel(LinearSampler, R, level);
 			float specularIrradianceLuminance = Color::RGBToLuminance(EnvTexture.SampleLevel(LinearSampler, R, 15));
 			specularIrradiance = (specularIrradiance / max(specularIrradianceLuminance, 0.001)) * directionalAmbientColorSpecular;
-			finalIrradiance = Color::IrradianceToLinear(specularIrradiance);
+			finalIrradiance = ColorManagement::SceneToLinear(specularIrradiance);
 #	elif defined(SKYLIGHTING)
 			float3 specularIrradianceReflections = 0.0;
 			if (skylightingSpecular > 0.0) {
 				specularIrradianceReflections = EnvReflectionsTexture.SampleLevel(LinearSampler, R, level);
 				float lum = Color::RGBToLuminance(EnvReflectionsTexture.SampleLevel(LinearSampler, R, 15));
 				specularIrradianceReflections = (specularIrradianceReflections / max(lum, 0.001)) * directionalAmbientColorSpecular;
-				specularIrradianceReflections = Color::IrradianceToLinear(specularIrradianceReflections);
+				specularIrradianceReflections = ColorManagement::SceneToLinear(specularIrradianceReflections);
 			}
 			float3 specularIrradiance = 0.0;
 			if (skylightingSpecular < 1.0) {
 				specularIrradiance = EnvTexture.SampleLevel(LinearSampler, R, level);
 				float lum = Color::RGBToLuminance(EnvTexture.SampleLevel(LinearSampler, R, 15));
-				float dalcScaled = Color::IrradianceToGamma(Color::IrradianceToLinear(directionalAmbientColorSpecular) * skylightingSpecular);
+				float dalcScaled = ColorManagement::SceneColor::ScaleByLinear(directionalAmbientColorSpecular, skylightingSpecular);
 				specularIrradiance = (specularIrradiance / max(lum, 0.001)) * dalcScaled;
-				specularIrradiance = Color::IrradianceToLinear(specularIrradiance);
+				specularIrradiance = ColorManagement::SceneToLinear(specularIrradiance);
 			}
 			finalIrradiance = lerp(specularIrradiance, specularIrradianceReflections, skylightingSpecular);
 #	else
 			float3 specularIrradiance = EnvReflectionsTexture.SampleLevel(LinearSampler, R, level);
 			float specularIrradianceLuminance = Color::RGBToLuminance(EnvReflectionsTexture.SampleLevel(LinearSampler, R, 15));
 			specularIrradiance = (specularIrradiance / max(specularIrradianceLuminance, 0.001)) * directionalAmbientColorSpecular;
-			finalIrradiance = Color::IrradianceToLinear(specularIrradiance);
+			finalIrradiance = ColorManagement::SceneToLinear(specularIrradiance);
 #	endif
 		}
 
@@ -328,37 +332,7 @@ Texture2D<float3> CausticTexture : register(t22);
 
 #endif
 
-#if defined(IBL)
-#	ifdef REVERSE_Z
-	const bool isSkyPixel = depth == 0.0;
-#	else
-	const bool isSkyPixel = depth == 1.0;
-#	endif
-	[branch] if (SharedData::iblSettings.EnableIBL && !isSkyPixel && (SharedData::iblSettings.AdditiveAmount > 0.0 || SharedData::iblSettings.ReflectiveAmount > 0.0))
-	{
-		static const float skyIBLMip = 5.0;
-		float3 viewWS = -normalize(positionWS.xyz);
-		float3 reflectionWS = reflect(-viewWS, normalWS);
-
-		float skyOcclusion = 1.0;
-#	if defined(SSGI)
-		skyOcclusion = ssgiDiffuseAo;
-#	endif
-#	if defined(SKYLIGHTING)
-		skyOcclusion *= Skylighting::EvaluateDiffuse(Skylighting::Sample(positionWS.xyz, normalWS), normalWS);
-#	endif
-
-		float3 skyDiffuse = max(0, EnvReflectionsTexture.SampleLevel(LinearSampler, normalWS, skyIBLMip) - EnvTexture.SampleLevel(LinearSampler, normalWS, skyIBLMip));
-		skyDiffuse = Color::IrradianceToLinear(skyDiffuse) * saturate(normalWS.z * 0.5001 + 0.501);
-
-		float3 skyReflection = max(0, EnvReflectionsTexture.SampleLevel(LinearSampler, reflectionWS, skyIBLMip) - EnvTexture.SampleLevel(LinearSampler, reflectionWS, skyIBLMip));
-		skyReflection = Color::IrradianceToLinear(skyReflection) * saturate(1.1 - abs(dot(viewWS, normalWS))) * saturate(reflectionWS.z);
-
-		color += (skyDiffuse * SharedData::iblSettings.AdditiveAmount + skyReflection * SharedData::iblSettings.ReflectiveAmount) * skyOcclusion;
-	}
-#endif
-
-	color = Color::IrradianceToGamma(color);
+	color = ColorManagement::LinearToScene(color);
 
 #if defined(PHYSICAL_SKY)
 	if (SharedData::physSkyData.enabled && depth < 1 - 1e-6) {

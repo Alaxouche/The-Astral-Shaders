@@ -138,8 +138,9 @@ public:
 	/**
 	 * @brief Installs swap chain Present vtable hooks and OMSetBlendState detour for HDR pipeline.
 	 * @param swapChain The DXGI swap chain to hook.
+	 * @param originalPresent Present before other plugins patched its vtable slot.
 	 */
-	static void InstallSwapChainPresentHooks(IDXGISwapChain* swapChain);
+	static void InstallSwapChainPresentHooks(IDXGISwapChain* swapChain, std::uintptr_t originalPresent);
 	/**
 	 * @brief Handles the swap chain Present call, drawing ImGui overlay and running HDR compositing.
 	 * @param swapChain The DXGI swap chain.
@@ -176,8 +177,8 @@ public:
 		float isSceneLinear;             ///< 1.0 = Linear Lighting active, scene already linear
 		float pad0;                      ///< 1.0 = main menu/loading screen active
 		float fgTweenMenuMidAlphaBoost;  ///< 1.0 = TweenMenu (pause) open — FG UIBrightnessCS mid-alpha boost only
-		float previewSDR;                ///< 1.0 = emit sRGB SDR (crop preview) instead of PQ HDR10
-		float applyAutoHDR;              ///< 1.0 = Effects11 replaced ISHDR, so expand its SDR result into HDR
+		float previewSDR;                ///< 1.0 = emit gamma 2.2 SDR (crop preview) instead of PQ HDR10
+		float applyAutoHDR;              ///< 1.0 = expand SDR tonemap output (Effects11 or PP SDR tonemapper + AutoHDR) into HDR
 		float pad2;
 		float pad3;
 	};
@@ -191,8 +192,8 @@ public:
 
 	Texture2D* hdrTexture = nullptr;
 	Texture2D* outputTexture = nullptr;
-	Texture2D* uiTexture = nullptr;          // Separate UI render target for proper compositing
-	Texture2D* cleanSceneCapture = nullptr;  // Pre-blur copy of hdrTexture for clean captures
+	Texture2D* uiTexture = nullptr;            // Separate UI render target for proper compositing
+	Texture2D* cleanSceneCapture = nullptr;    // Pre-blur copy of hdrTexture for clean captures
 	uint cleanSceneCaptureFrame = UINT32_MAX;  // frameCount when cleanSceneCapture was last refreshed
 
 	ID3D11ComputeShader* hdrOutputCS = nullptr;

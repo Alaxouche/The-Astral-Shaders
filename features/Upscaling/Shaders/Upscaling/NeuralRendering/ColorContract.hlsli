@@ -12,7 +12,7 @@ namespace NR
 	{
 		tone = isfinite(tone) ? tone : 0.0;
 		float gain = exp2(clamp(tone, -maxToneStops, maxToneStops));
-		return ENABLE_LL ? gain : Color::LinearToSkyrimGamma(gain);
+		return LL_ACTIVE ? gain : TransferFunctions::LinearToGameGamma(gain);
 	}
 }
 

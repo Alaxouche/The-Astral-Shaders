@@ -684,7 +684,10 @@ void CirrusMapManager::DrawSettings(CirrusSettings& settings, TextureManager& te
 	textureChoice(T(TKEY("cirrus_weather_rg"), "Coverage / Type RG"), settings.weatherPath, 2);
 	textureChoice(T(TKEY("cirrus_patterns_rgb"), "Wispy / Round / Streaky RGB"), settings.patternsPath, 3);
 	if (settings.patternsPath.empty()) {
-		ImGui::InputScalar(T(TKEY("cirrus_pattern_seed"), "Pattern Seed"), ImGuiDataType_U32, &settings.patternSeed);
+		{
+			constexpr uint32_t seedMin = 0, seedMax = 99999;  // Ctrl+click types any seed
+			ImGui::SliderScalar(T(TKEY("cirrus_pattern_seed"), "Pattern Seed"), ImGuiDataType_U32, &settings.patternSeed, &seedMin, &seedMax);
+		}
 		ImGui::SliderFloat(T(TKEY("cirrus_pattern_warp"), "Pattern Warp"), &settings.patternWarp, 0.f, 0.5f);
 		ImGui::SliderFloat(T(TKEY("cirrus_pattern_detail"), "Pattern Detail"), &settings.patternDetail, 0.f, 1.f);
 	}
