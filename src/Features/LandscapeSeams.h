@@ -32,8 +32,8 @@ struct LandscapeSeams : Feature
 	static constexpr uint32_t TexturesPerExtra = 4;
 	static constexpr uint32_t NumPSTextures = 2 + MaxExtraLayers * TexturesPerExtra;
 	// Pixel shader slots of Weights, Quad, then Color/Normal/Aux/Displacement per extra layer;
-	// must match LandscapeSeams.hlsli. Upstream's contiguous t104-t121 is taken in this fork, and t122 is Fur Shells.
-	static constexpr std::array<uint32_t, NumPSTextures> PSTextureSlots = { 46, 47, 48, 49, 51, 52, 54, 56, 57, 58, 59, 69, 127, 101, 123, 124, 125, 126 };
+	// must match LandscapeSeams.hlsli. Upstream's contiguous t104-t121 is taken in this fork, t122/t123 are Fur Shells and t127 Night Eye.
+	static constexpr std::array<uint32_t, NumPSTextures> PSTextureSlots = { 46, 47, 48, 49, 51, 52, 54, 56, 57, 58, 59, 69, 117, 101, 118, 124, 125, 126 };
 
 	struct Settings
 	{

@@ -45,10 +45,10 @@ namespace LandscapeSeams
 
 	Texture2D<float4> Color2 : register(t59);
 	Texture2D<float4> Normal2 : register(t69);
-	Texture2D<float4> Aux2 : register(t127);  // t99 is Advanced Skin's SK map
+	Texture2D<float4> Aux2 : register(t117);  // t99 is Advanced Skin's SK map, t127 Night Eye's eyeshine mask
 	Texture2D<float4> Displacement2 : register(t101);
 
-	Texture2D<float4> Color3 : register(t123);
+	Texture2D<float4> Color3 : register(t118);  // t123 is Fur Shells' depth
 	Texture2D<float4> Normal3 : register(t124);
 	Texture2D<float4> Aux3 : register(t125);
 	Texture2D<float4> Displacement3 : register(t126);
