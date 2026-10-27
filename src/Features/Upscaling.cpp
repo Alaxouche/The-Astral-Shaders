@@ -686,10 +686,9 @@ void Upscaling::LoadSettings(json& o_json)
 		logger::warn("[Upscaling] Loaded upscaleMethod {} out of range, clamping to {}", settings.upscaleMethod, enumCount ? enumCount - 1 : 0);
 		settings.upscaleMethod = enumCount ? enumCount - 1 : 0;
 	}
-	constexpr auto maxNoDLSSMethod = static_cast<uint>(UpscaleMethod::kFSR);
-	if (settings.upscaleMethodNoDLSS > maxNoDLSSMethod) {
-		logger::warn("[Upscaling] Loaded upscaleMethodNoDLSS {} out of range, clamping to {}", settings.upscaleMethodNoDLSS, maxNoDLSSMethod);
-		settings.upscaleMethodNoDLSS = maxNoDLSSMethod;
+	if (settings.upscaleMethodNoDLSS > static_cast<uint>(UpscaleMethod::kFSR)) {
+		logger::warn("[Upscaling] Loaded upscaleMethodNoDLSS {} out of range, clamping to {}", settings.upscaleMethodNoDLSS, static_cast<uint>(UpscaleMethod::kFSR));
+		settings.upscaleMethodNoDLSS = static_cast<uint>(UpscaleMethod::kFSR);
 	}
 	settings.dlssgFramesToGenerate = std::max(settings.dlssgFramesToGenerate, 1u);
 	if (settings.qualityMode > 4) {
@@ -764,6 +763,44 @@ struct BSImageSpace_Init_FXAA
 	}
 	static inline REL::Relocation<decltype(thunk)> func;
 };
+
+struct FaceGen_CopyRenderTarget
+{
+	static RE::NiTexture::RendererData* thunk(RE::BSGraphics::Renderer* a_renderer, RE::RENDER_TARGET a_target, D3D11_USAGE a_usage)
+	{
+		auto source = a_renderer->GetRuntimeData().renderTargets[a_target].texture;
+		if (!source) {
+			logger::error("[Upscaling] FaceGen texture copy skipped: missing source render target");
+			return nullptr;
+		}
+
+		// CommonLib's GetSingleton() wrongly dereferences this global: the manager is stored inline, not behind a pointer
+		static REL::Relocation<RE::BSGraphics::RenderTargetManager*> renderTargetManager{ REL::RelocationID(524970, 411451) };
+		const auto& properties = renderTargetManager->renderTargetData[a_target];
+		using CreateTexture = RE::NiTexture::RendererData*(RE::BSGraphics::Renderer*, uint32_t, uint32_t, const void*, D3D11_USAGE, DXGI_FORMAT, bool);
+		static REL::Relocation<CreateTexture> createTexture{ REL::RelocationID(75511, 77303) };
+		auto texture = createTexture(a_renderer, properties.width, properties.height, nullptr, a_usage, DXGI_FORMAT_R8G8B8A8_UNORM, false);
+		if (!texture) {
+			logger::error("[Upscaling] FaceGen texture allocation failed ({}x{}, usage {})", properties.width, properties.height, static_cast<uint32_t>(a_usage));
+			return nullptr;
+		}
+
+		if (!texture->texture || (a_usage != D3D11_USAGE_STAGING && !texture->resourceView)) {
+			logger::error("[Upscaling] FaceGen texture allocation returned incomplete resources ({}x{})", properties.width, properties.height);
+			if (texture->resourceView)
+				texture->resourceView->Release();
+			if (texture->texture)
+				texture->texture->Release();
+			delete texture;
+			return nullptr;
+		}
+
+		globals::d3d::context->CopyResource(texture->texture, source);
+		return texture;
+	}
+	static inline REL::Relocation<decltype(thunk)> func;
+};
+
 void Upscaling::PostPostLoad()
 {
 	neuralRendering.InstallHooks();
@@ -781,7 +818,14 @@ void Upscaling::PostPostLoad()
 	stl::write_thunk_call<Main_PostProcessing>(REL::RelocationID(100430, 107148).address() + REL::Relocate(0x1F0, 0x1E7));
 
 	// Patches facegen texture generation to not use dynamic resolution
-	stl::detour_thunk<BSFaceGenManager_UpdatePendingCustomizationTextures>(REL::RelocationID(26455, 27041));
+	const auto faceGenUpdate = REL::RelocationID(26455, 27041).address();
+	const auto faceGenCopy = faceGenUpdate + Util::VersionedRelocation::Select(0x119, 0x187, 0x19E);
+	if (Util::VersionedRelocation::IsCallTo(faceGenCopy, REL::RelocationID(75524, 77318).address())) {
+		stl::write_thunk_call<FaceGen_CopyRenderTarget>(faceGenCopy);
+	} else {
+		logger::warn("[Upscaling] FaceGen texture allocation guard not installed: unexpected copy call");
+	}
+	stl::detour_thunk<BSFaceGenManager_UpdatePendingCustomizationTextures>(faceGenUpdate);
 
 	// Patches precipitation camera to not use dynamic resolution
 	stl::write_thunk_call<Main_RenderPrecipitation>(REL::RelocationID(35560, 36559).address() + Util::VersionedRelocation::Select(0x3A1, 0x3A1, 0x3BF));
@@ -1439,8 +1483,27 @@ void Upscaling::PostDisplay()
 
 void Upscaling::TimerSleepQPC(int64_t targetQPC)
 {
+	constexpr DWORD kHighResolutionTimer = 0x00000002;
+	static const HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, kHighResolutionTimer, TIMER_ALL_ACCESS);
+	static const int64_t frequency = [] {
+		LARGE_INTEGER value;
+		QueryPerformanceFrequency(&value);
+		return value.QuadPart;
+	}();
+
 	LARGE_INTEGER currentQPC;
+	QueryPerformanceCounter(&currentQPC);
+	const int64_t spinTicks = frequency / 1000;
+	const int64_t remaining = targetQPC - currentQPC.QuadPart;
+	if (timer && remaining > spinTicks) {
+		LARGE_INTEGER due;
+		due.QuadPart = -((remaining - spinTicks) * 10000000LL / frequency);
+		if (SetWaitableTimerEx(timer, &due, 0, nullptr, nullptr, nullptr, 0))
+			WaitForSingleObject(timer, 100);
+	}
+
 	do {
+		YieldProcessor();
 		QueryPerformanceCounter(&currentQPC);
 	} while (currentQPC.QuadPart < targetQPC);
 }
@@ -1602,11 +1665,6 @@ void Upscaling::LoadUpscalingSDKs()
 HANDLE Upscaling::GetFrameLatencyWaitableObject() const
 {
 	return dx12SwapChain.GetFrameLatencyWaitableObject();
-}
-
-float Upscaling::GetFrameTime() const
-{
-	return dx12SwapChain.GetFrameTime();
 }
 
 // Backend interface methods

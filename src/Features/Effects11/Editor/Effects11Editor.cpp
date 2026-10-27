@@ -87,7 +87,6 @@ namespace
 		{ "BLOOM", Group::Camera },
 		{ "LENS", Group::Camera },
 		{ "DEPTHOFFIELD", Group::Camera },
-		{ "NIGHTEYE", Group::Camera },
 		{ "WATER", Group::WaterAndRain },
 		{ "RAIN", Group::WaterAndRain },
 	};
@@ -171,8 +170,6 @@ namespace
 			return { T("feature.effects11.category.lens", "Lens"), T("feature.effects11.category.lens_desc", "Overall lens effect amount handed to the shaders.") };
 		if (a_category == "DEPTHOFFIELD")
 			return { T("feature.effects11.category.depthoffield", "Depth of Field"), T("feature.effects11.category.depthoffield_desc", "How quickly focus and aperture follow the scene.") };
-		if (a_category == "NIGHTEYE")
-			return { T("feature.effects11.category.nighteye", "Night Eye"), T("feature.effects11.category.nighteye_desc", "Tint, exposure and contrast applied while a Night Eye power (Khajiit, vampire, werewolf or modded) is active on the player.") };
 		if (a_category == "WATER")
 			return { T("feature.effects11.category.water", "Water"), T("feature.effects11.category.water_desc", "Waves, color, reflections and lighting of water.") };
 		if (a_category == "RAIN")
@@ -890,10 +887,13 @@ void Effects11Editor::DrawCategory(const std::string& a_category, const char* a_
 		Util::Text::WrappedInfo("%s", fallback.c_str());
 	}
 
-	if (a_category == "NIGHTEYE") {
-		if (EffectManager::GetSingleton().enbEffect.PresetHandlesNightEye())
-			Util::Text::WrappedInfo("%s", T(TKEY("nighteye_preset"), "This preset's enbeffect.fx handles Night Eye itself (KNActive), so these values are not applied."));
-		Util::TextUnformattedDisabled(globals::features::effects11.IsNightEyeActive() ? T(TKEY("nighteye_active"), "A Night Eye effect is active on the player.") : T(TKEY("nighteye_inactive"), "No Night Eye effect is active on the player."));
+	if (a_category == "RAIN" && usable) {
+		auto& rainSettings = globals::features::rainRefraction.settings;
+		if (ImGui::SliderFloat(T(TKEY("rain_visibility"), "Drop Visibility"), &rainSettings.Visibility, RainRefraction::kMinVisibility, RainRefraction::kMaxVisibility, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+			globals::menu->MarkUnsavedChanges();
+		Util::AddTooltip(T(TKEY("rain_visibility_tip"),
+			"Exaggerates how much each drop differs from the scene behind it, so rain stands out more. 1 = physically based.\n"
+			"Saved with Community Shaders' Save Settings, not with the preset."));
 	}
 
 	if (isParticle)
@@ -947,7 +947,8 @@ void Effects11Editor::DrawCategoryWeatherToggle(const std::string& a_category)
 
 void Effects11Editor::DrawParticleOwnershipToggle()
 {
-	ImGui::Checkbox(T(TKEY("cs_particles"), "Let Community Shaders handle particles"), &globals::features::effects11.settings.IgnorePresetParticles);
+	if (ImGui::Checkbox(T(TKEY("cs_particles"), "Let Community Shaders handle particles"), &globals::features::effects11.settings.IgnorePresetParticles))
+		globals::menu->MarkUnsavedChanges();
 	Util::AddTooltip(T(TKEY("cs_particles_tip"),
 		"Lights smoke, mist and waterfalls with the weather's own Effect Lighting colour, scaled to follow the preset's direct and ambient lighting intensities, instead of the preset's [PARTICLE] values.\n"
 		"Saved with Community Shaders' Save Settings, not with the preset."));
@@ -1595,25 +1596,6 @@ void Effects11Editor::DrawLauncher()
 		T("feature.effects11.open_presets_tooltip", "Load and switch Effects 11 presets on the Presets page."));
 
 	ImGui::Spacing();
-	const float scale = Util::GetUIScale();
-	const ImVec2 buttonSize((std::min)(ImGui::GetContentRegionAvail().x, 320.0f * scale), ImGui::GetFrameHeight() * 1.6f);
-	if (ImGui::Button(T(TKEY("open_editor"), "Open Effects 11 Editor"), buttonSize))
-		Open(true);
-	if (!menuSettings.Effects11EditorKey.empty()) {
-		ImGui::SameLine();
-		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (buttonSize.y - ImGui::GetTextLineHeight()) * 0.5f);
-		const auto hotkey = I18n::GetSingleton()->Format(TKEY("editor_hotkey"),
-			{ { "key", Util::Input::KeyIdToString(menuSettings.Effects11EditorKey) } }, "Hotkey: {key}");
-		Util::TextUnformattedDisabled(hotkey.c_str());
-	}
-	ImGui::PushTextWrapPos(0.0f);
-	Util::TextUnformattedDisabled(T(TKEY("launcher_body"),
-		"The editor opens over the game, like the ENB editor, so every change shows live. "
-		"Close it or press Esc to come back here."));
-	ImGui::PopTextWrapPos();
-
-	ImGui::Spacing();
-	ImGui::Separator();
 
 	// The shared selector drives UseEffect, which is saved to enbseries.ini with the rest of the preset
 	const bool wasEnabled = globals::features::effects11.IsPresetEnabled();
@@ -1633,6 +1615,31 @@ void Effects11Editor::DrawLauncher()
 	DrawParticleOwnershipToggle();
 
 	DrawTonemapWarning();
+
+	ImGui::Spacing();
+	ImGui::Separator();
+
+	{
+		// Without a preset Effects 11 cannot be selected, so the editor stays open to explain how to get one.
+		const Util::LockedSection modeLock(presetLoaded && PostProcessingMode::Get() != PostProcessingMode::Mode::Effects11,
+			T(TKEY("not_active_mode"), "Effects 11 is not the active mode, so the editor shows no changes. Select Effects 11 above to use it."));
+		const float scale = Util::GetUIScale();
+		const ImVec2 buttonSize((std::min)(ImGui::GetContentRegionAvail().x, 320.0f * scale), ImGui::GetFrameHeight() * 1.6f);
+		if (ImGui::Button(T(TKEY("open_editor"), "Open Effects 11 Editor"), buttonSize))
+			Open(true);
+		if (!menuSettings.Effects11EditorKey.empty()) {
+			ImGui::SameLine();
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (buttonSize.y - ImGui::GetTextLineHeight()) * 0.5f);
+			const auto hotkey = I18n::GetSingleton()->Format(TKEY("editor_hotkey"),
+				{ { "key", Util::Input::KeyIdToString(menuSettings.Effects11EditorKey) } }, "Hotkey: {key}");
+			Util::TextUnformattedDisabled(hotkey.c_str());
+		}
+		ImGui::PushTextWrapPos(0.0f);
+		Util::TextUnformattedDisabled(T(TKEY("launcher_body"),
+			"The editor opens over the game, like the ENB editor, so every change shows live. "
+			"Close it or press Esc to come back here."));
+		ImGui::PopTextWrapPos();
+	}
 
 	ImGui::SeparatorText(T("menu.settings.tab_keybindings", "Keybindings"));
 	Util::InputComboWidget(T("menu.settings.effects11_editor_key", "Effects 11 Editor Key:"), menuSettings.Effects11EditorKey,

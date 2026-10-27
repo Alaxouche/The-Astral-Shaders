@@ -1359,18 +1359,18 @@ void PhysicalSky::RestoreSamplers()
 void PhysicalSky::ModifyGrass()
 {
 	auto context = globals::d3d::context;
-	// s2-s4 are Grass Lighting's TruePBR samplers in this fork; see RunGrass.hlsl.
-	context->PSGetSamplers(5, 1, originalPSGrassSampler.put());
+	// s2-s6 are PBR grass samplers (normal, RMAOS, subsurface, fuzz, emissive); see RunGrass.hlsl.
+	context->PSGetSamplers(7, 1, originalPSGrassSampler.put());
 
 	auto sampler = sampTileable.get();
-	context->PSSetSamplers(5, 1, &sampler);
+	context->PSSetSamplers(7, 1, &sampler);
 }
 
 void PhysicalSky::RestoreGrassSampler()
 {
 	auto context = globals::d3d::context;
 	auto sampler = originalPSGrassSampler.get();
-	context->PSSetSamplers(5, 1, &sampler);
+	context->PSSetSamplers(7, 1, &sampler);
 	originalPSGrassSampler = nullptr;
 }
 

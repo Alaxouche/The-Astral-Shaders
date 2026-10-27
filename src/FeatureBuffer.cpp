@@ -8,7 +8,6 @@
 #include "Features/ExponentialHeightFog.h"
 #include "Features/ExtendedMaterials.h"
 #include "Features/ExtendedTranslucency.h"
-#include "Features/FoliageLighting.h"
 #include "Features/GrassLighting.h"
 #include "Features/HairBacklighting.h"
 #include "Features/HairSpecular.h"
@@ -17,6 +16,7 @@
 #include "Features/LODBlending.h"
 #include "Features/LightLimitFix.h"
 #include "Features/LinearLighting.h"
+#include "Features/NightEye.h"
 #include "Features/PostProcessing.h"
 #include "Features/LivingWindows.h"
 #include "Features/PhysicalSky.h"
@@ -87,7 +87,6 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 		globals::features::terrainBlending.GetCommonBufferData(),
 		globals::features::exponentialHeightFog.GetCommonBufferData(),
 		globals::features::truePBR.settings,
-		globals::features::foliageLighting.loaded ? globals::features::foliageLighting.settings : FoliageLighting::Settings{ 0, 0, 0, 0.0f, 0, {} },
 		globals::features::skin.GetCommonBufferData(),
 		globals::features::vanillaFresnel.settings,
 		globals::features::snowCover.GetCommonBufferData(),
@@ -97,5 +96,6 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 		globals::features::nightSky.GetCommonBufferData(),
 		globals::features::horizonFix.GetCommonBufferData(),
 		globals::features::hairBacklighting.settings,
-		globals::features::rainRefraction.GetCommonBufferData());
+		globals::features::rainRefraction.GetCommonBufferData(),
+		globals::features::nightEye.GetCommonBufferData());
 }

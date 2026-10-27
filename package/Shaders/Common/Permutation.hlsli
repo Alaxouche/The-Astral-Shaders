@@ -80,12 +80,17 @@ namespace Permutation
 		static const uint IsEye = (1 << 7);
 		static const uint NoSnow = (1 << 8);
 		static const uint NoFoliageTint = (1 << 9);
-		static const uint IsAurora = (1 << 10);
 		static const uint IsMoon = (1 << 11);
 		static const uint NoSkyScattering = (1 << 12);
 		static const uint SnowRooftop = (1 << 13);
 		static const uint SnowLODTree = (1 << 14);
 		static const uint SourceAlphaBlend = (1 << 15);
+		static const uint NightEyeEyeshine = (1 << 16);
+		static const uint NightEyeMask = (1 << 17);
+		static const uint NightEyeActor = (1 << 18);
+		static const uint NightEyeEnemy = (1 << 19);
+		static const uint NightEyeAlly = (1 << 20);
+		static const uint ProjectedTextureIsSRGB = (1 << 21);
 		// Character rain flags reserve the high end so upstream's next sequential flag never collides.
 		static const uint IsCharacterRainSurface = (1u << 30);
 		static const uint IsHeldWeapon = (1u << 29);
@@ -120,7 +125,7 @@ namespace Permutation
 		float EffectRadius;
 		uint BaseTextureIsWorking;
 		uint RenderToUI;
-		uint pad;
+		float GrassCanopyHeight;  // Model-space height of the grass mesh being drawn
 
 		// Living Windows: world-space bounding sphere of the drawn glass shape (xyz centre, w radius;
 		// negative w marks a facade shape, zero a draw that is not window glass).

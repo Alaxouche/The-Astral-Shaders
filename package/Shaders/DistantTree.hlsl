@@ -213,21 +213,34 @@ PS_OUTPUT main(PS_INPUT input)
 		discard;
 	}
 
+	float3 ddx = ddx_coarse(input.WorldPosition.xyz);
+	float3 ddy = ddy_coarse(input.WorldPosition.xyz);
+	float3 normal = -normalize(cross(ddx, ddy));
+
+	float3 directionalAmbientColor = max(0, Color::Ambient(SharedData::GetAmbient(normal)));
+#		if defined(IBL)
+	if (SharedData::iblSettings.EnableIBL) {
+		directionalAmbientColor = ImageBasedLighting::GetDiffuseIBL(directionalAmbientColor, -normal);
+	}
+#		endif
+
 #		if defined(DEFERRED)
 	float3 viewPosition = mul(FrameBuffer::CameraView, float4(input.WorldPosition.xyz, 1)).xyz;
 	float2 screenUV = FrameBuffer::ViewToUV(viewPosition);
 	float screenNoise = Random::InterleavedGradientNoise(input.Position.xy, SharedData::FrameCount);
 
 	float dirShadow = 1;
+	float cloudScatter = 0.0;
 
 #			if defined(SCREEN_SPACE_SHADOWS)
 	dirShadow = lerp(1.0, ScreenSpaceShadows::GetScreenSpaceShadow(input.Position.xyz, screenUV, screenNoise), 0.8);
 #			endif
 
 	if (dirShadow != 0.0)
-		dirShadow *= ShadowSampling::GetWorldShadow(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz);
+		dirShadow *= ShadowSampling::GetWorldShadow(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, cloudScatter);
 
-	float3 diffuseColor = Color::DirectionalLight(SharedData::DirLightColor.xyz) * dirShadow * 0.5 * Color::BRDFScale;
+	float3 dirLightColor = Color::DirectionalLight(SharedData::DirLightColor.xyz);
+	float3 diffuseColor = dirLightColor * dirShadow * 0.5 * Color::BRDFScale + ShadowSampling::GetCloudScatterLighting(dirLightColor, cloudScatter, normal);
 
 #			if defined(EXP_HEIGHT_FOG)
 	if (SharedData::exponentialHeightFogSettings.enabled) {
@@ -241,9 +254,6 @@ PS_OUTPUT main(PS_INPUT input)
 	diffuseColor *= PhysSky::GetDirlightTransmittance(input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz, SampShadowMaskSampler);
 #			endif
 
-	float3 ddx = ddx_coarse(input.WorldPosition.xyz);
-	float3 ddy = ddy_coarse(input.WorldPosition.xyz);
-	float3 normal = -normalize(cross(ddx, ddy));
 
 #			if defined(SNOW_COVER)
 	if (SharedData::snowCoverSettings.EnableSnowCover) {
@@ -268,13 +278,6 @@ PS_OUTPUT main(PS_INPUT input)
 			skylight *= saturate(input.WorldPosition.z - SharedData::GetWaterData(input.WorldPosition.xyz).w);
 		}
 		SnowCover::ApplySnowFoliageBase(baseColor.xyz, snowNormal, snowPosition, snowEnvMult, snowMult * skylight);
-	}
-#			endif
-
-	float3 directionalAmbientColor = max(0, Color::Ambient(SharedData::GetAmbient(normal)));
-#			if defined(IBL)
-	if (SharedData::iblSettings.EnableIBL) {
-		directionalAmbientColor = ImageBasedLighting::GetDiffuseIBL(directionalAmbientColor, -normal);
 	}
 #			endif
 	diffuseColor += directionalAmbientColor;
@@ -308,9 +311,11 @@ PS_OUTPUT main(PS_INPUT input)
 	psout.Albedo = float4(baseColor.xyz, 1);
 	psout.Masks = float4(0, 0, 1, 0);
 #		else
-	float dirShadow = ShadowSampling::GetWorldShadow(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz);
+	float cloudScatter;
+	float dirShadow = ShadowSampling::GetWorldShadow(input.WorldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz, cloudScatter);
 
-	float3 diffuseColor = Color::DirectionalLight(SharedData::DirLightColor.xyz) * dirShadow * 0.5 * Color::BRDFScale;
+	float3 dirLightColor = Color::DirectionalLight(SharedData::DirLightColor.xyz);
+	float3 diffuseColor = dirLightColor * dirShadow * 0.5 * Color::BRDFScale + ShadowSampling::GetCloudScatterLighting(dirLightColor, cloudScatter, normal);
 
 #			if defined(EXP_HEIGHT_FOG)
 	if (SharedData::exponentialHeightFogSettings.enabled) {
@@ -324,9 +329,6 @@ PS_OUTPUT main(PS_INPUT input)
 	diffuseColor *= PhysSky::GetDirlightTransmittance(input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz, SampShadowMaskSampler);
 #			endif
 
-	float3 ddx = ddx_coarse(input.WorldPosition.xyz);
-	float3 ddy = ddy_coarse(input.WorldPosition.xyz);
-	float3 normal = normalize(cross(ddx, ddy));
 
 #			if defined(SNOW_COVER)
 	if (SharedData::snowCoverSettings.EnableSnowCover) {
@@ -351,13 +353,6 @@ PS_OUTPUT main(PS_INPUT input)
 			skylight *= saturate(input.WorldPosition.z - SharedData::GetWaterData(input.WorldPosition.xyz).w);
 		}
 		SnowCover::ApplySnowFoliageBase(baseColor.xyz, snowNormal, snowPosition, snowEnvMult, snowMult * skylight);
-	}
-#			endif
-
-	float3 directionalAmbientColor = Color::Ambient(SharedData::GetAmbient(normal));
-#			if defined(IBL)
-	if (SharedData::iblSettings.EnableIBL) {
-		directionalAmbientColor = ImageBasedLighting::GetDiffuseIBL(directionalAmbientColor, -normal);
 	}
 #			endif
 	diffuseColor += directionalAmbientColor;

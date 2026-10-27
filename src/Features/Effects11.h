@@ -5,7 +5,6 @@
 
 #include <array>
 #include <memory>
-#include <unordered_set>
 #include <winrt/base.h>
 
 // C4324: the aligned PerFrame cache member pads the struct
@@ -33,9 +32,6 @@ public:
 				T("feature.effects11.key_feature_5", "Dynamic UI variable system") }
 		};
 	}
-
-	/** @brief The active preset belongs to the active preset pack, so nothing goes in the user config. */
-	virtual bool UsesMainSettings() const override { return false; }
 
 	struct alignas(16) PerFrame
 	{
@@ -151,12 +147,7 @@ public:
 		float StarsAnimationTime;
 		float StarsAnimationDensity;
 		float StarsAnimationIntensity;
-		float AuroraIntensity;
-
-		float AuroraCurve;
 		uint FixBlackCrush;
-		float NightSkyPad0;
-		float NightSkyPad1;
 
 		uint VolumetricRaysSampleCount;
 		uint GameVolumetricRaysDisableDithering;
@@ -182,7 +173,6 @@ public:
 	static_assert(offsetof(PerFrame, SkyScatteringSunIntensity) % 16 == 0);
 	static_assert(offsetof(PerFrame, CloudsColorFilter) % 16 == 0);
 	static_assert(offsetof(PerFrame, MasserBillboardTan) % 16 == 0);
-	static_assert(offsetof(PerFrame, AuroraCurve) % 16 == 0);
 
 	struct Settings
 	{
@@ -262,10 +252,6 @@ public:
 	 * @return False when Effects 11 left the intensity alone this tick.
 	 */
 	bool GetGameVolumetricRaysIntensityEndpoints(float& a_last, float& a_current) const;
-	virtual void DataLoaded() override;
-	void UpdateNightEye();
-	bool IsNightEyeActive() const { return nightEye.active; }
-	float GetNightEyeFactor() const { return nightEye.factor; }
 	void OverrideWeather(RE::Sky* a_sky);
 	void CheckCommonData();
 	void OverridePointLightColor(float3& a_color);
@@ -313,16 +299,6 @@ private:
 		float desaturation = 0.0f;
 		float intensity = 1.0f;
 	} pointLighting;
-
-	struct NightEyeState
-	{
-		bool active = false;
-		float factor = 0.0f;
-	} nightEye;
-	std::unordered_set<RE::TESImageSpaceModifier*> nightEyeImods;
-	RE::BGSKeyword* nightEyeKeyword = nullptr;
-	bool IsNightEyeSetting(const RE::EffectSetting* a_setting) const;
-	bool HasNightEyeEffect() const;
 
 	// The feature buffer is rebuilt several times per frame, so GetCommonBufferData's lookups are replayed from here
 	PerFrame perFrameCache{};

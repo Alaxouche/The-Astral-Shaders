@@ -25,6 +25,7 @@
 #include "Features/InteriorSun.h"
 #include "Features/LandscapeSeams.h"
 #include "Features/LightLimitFix.h"
+#include "Features/NightEye.h"
 #include "Features/PostProcessing.h"
 #include "Features/RainRefraction.h"
 #include "Features/ReverseZ.h"
@@ -271,6 +272,8 @@ namespace LightingExtensions
 			globals::state->UpdateLightingShaderPermutation(pass);
 			func(shader, pass, renderFlags);
 			globals::state->UpdateLightingVariant(pass);
+			if (globals::features::nightEye.loaded)
+				globals::features::nightEye.SetupGeometry(pass);
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
@@ -284,8 +287,9 @@ namespace EffectExtensions
 		{
 			func(shader, pass, renderFlags);
 			ExternalEmittance::UpdatePermutation(pass);
-			globals::state->UpdateEffectShaderPermutation(pass);
 			globals::state->permutationData.EffectRadius = pass->geometry->worldBound.radius;
+			if (globals::features::nightEye.loaded)
+				globals::features::nightEye.SetupGeometry(pass);
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
@@ -331,21 +335,20 @@ namespace GrassExtensions
 	{
 		static void thunk(RE::BSShader* shader, RE::BSRenderPass* pass, uint32_t renderFlags)
 		{
-			// Replace vanilla setup and pixel constants for passes handled by Grass Optimizations.
-			if (!globals::features::grassOptimizations.SetupGrassPass(shader, pass)) {
-				func(shader, pass, renderFlags);
-				LegacyGraphicsCompatibility::BindLegacyGrassPerGeometryToPixelShader();
-			}
+			// Grass Optimizations' setup replaces this for its buckets, and covered shapes draw nothing.
+			if (globals::features::grassOptimizations.SetupGrassPass(shader, pass) != GrassOptimizations::GrassPassSetup::kNative)
+				return;
+
+			func(shader, pass, renderFlags);
+			LegacyGraphicsCompatibility::BindLegacyGrassPerGeometryToPixelShader();
 
 			auto state = globals::state;
+			const auto* shaderProperty = static_cast<RE::BSShaderProperty*>(pass->geometry->GetGeometryRuntimeData().shaderProperty.get());
+			state->SetGrassSphereNormal(shaderProperty && shaderProperty->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kEffectLighting));
 
-			state->permutationData.ExtraShaderDescriptor &= ~static_cast<uint32_t>(State::ExtraShaderDescriptors::GrassSphereNormal);
-
-			if (auto* shaderProperty = static_cast<RE::BSShaderProperty*>(pass->geometry->GetGeometryRuntimeData().shaderProperty.get())) {
-				if (shaderProperty->flags.any(RE::BSShaderProperty::EShaderPropertyFlag::kEffectLighting)) {
-					state->permutationData.ExtraShaderDescriptor |= static_cast<uint32_t>(State::ExtraShaderDescriptors::GrassSphereNormal);
-				}
-			}
+			// Grass meshes are rooted at the model origin, so the model bound's center sits about halfway up the mesh.
+			const auto& bound = pass->geometry->GetModelData().modelBound;
+			state->permutationData.GrassCanopyHeight = bound.center.z > 1.0f ? 2.0f * bound.center.z : std::max(bound.center.z + bound.radius, 1.0f);
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
@@ -408,6 +411,7 @@ namespace WeatherExtensions
 			globals::features::volumetricLighting.BeginSkyUpdate();
 			// Moonlight colours feed Effects11's grading; the dim must follow it, as its colour filter lifts zero
 			globals::features::skySync.ApplyMoonlightColors(sky);
+			globals::features::volumetricLighting.DetectNightRenderData();
 			if (globals::features::effects11.loaded)
 				globals::features::effects11.OnSkyUpdateColors(sky);
 			globals::features::skySync.OnSkyUpdateColors(sky);
@@ -463,10 +467,14 @@ namespace PostProcessingExtensions
 			const auto input = static_cast<RE::RENDER_TARGET>(a3);
 			const auto output = static_cast<RE::RENDER_TARGET>(a4);
 
+			auto& nightEye = globals::features::nightEye;
+
 			// Effects11 replaces the pass outright; when it does, the vanilla call is skipped
 			// and HandlePostProcessing fixes up the render-target state the pass would have set.
-			if (state->HandlePostProcessing(input, output))
+			if (state->HandlePostProcessing(input, output)) {
+				nightEye.RenderPostProcess(output);
 				return;
+			}
 
 			// Post Processing runs its pipeline into kMAIN/kMAIN_COPY, then lets the vanilla
 			// pass run so ISHDR can take its POSTPROCESS passthrough branch.
@@ -475,6 +483,7 @@ namespace PostProcessingExtensions
 				postProcessing.PreProcess(input);
 
 			func(a1, a2, a3, a4, a5);
+			nightEye.RenderPostProcess(output);
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
@@ -524,7 +533,15 @@ struct IDXGISwapChain_Present
 			SyncInterval,
 			Flags,
 			[&](IDXGISwapChain* swapChain, UINT syncInterval, UINT presentFlags) {
-				return func(swapChain, syncInterval, presentFlags);
+				LARGE_INTEGER frequency, presentStart, presentEnd;
+				QueryPerformanceFrequency(&frequency);
+				QueryPerformanceCounter(&presentStart);
+				const HRESULT presentResult = func(swapChain, syncInterval, presentFlags);
+				QueryPerformanceCounter(&presentEnd);
+				const float presentMs = static_cast<float>(static_cast<double>(presentEnd.QuadPart - presentStart.QuadPart) * 1000.0 / static_cast<double>(frequency.QuadPart));
+				auto& smoothPresentTimeMs = globals::state->smoothPresentTimeMs;
+				smoothPresentTimeMs = smoothPresentTimeMs * 0.95f + presentMs * 0.05f;
+				return presentResult;
 			});
 
 		globals::state->Reset();
@@ -1047,6 +1064,13 @@ namespace Hooks
 		{
 			auto& hiz = globals::features::hiZOcclusion;
 			if (hiz.loaded && hiz.settings.enableHiZCulling) {
+				const uint32_t renderMode = accum->GetRuntimeData().renderMode;
+				const uint8_t pass = renderMode < 30 ? HiZOcclusion::GetPassKind(renderMode) : 0;
+				const bool collectStats = hiz.IsCollectingStats();
+				if (!collectStats && (pass == 0 || !hiz.settings.cullRenderMode[renderMode])) {
+					return func(accum, object, flags);
+				}
+
 				auto* geo = netimmerse_cast<RE::BSGeometry*>(object);
 
 				if (!geo || geo->worldBound.radius <= 0.0f) {
@@ -1058,17 +1082,16 @@ namespace Hooks
 					return func(accum, object, flags);
 				}
 
-				hiz.stats.accumRegisterCalls.fetch_add(1, std::memory_order_relaxed);
-
-				const uint32_t renderMode = accum->GetRuntimeData().renderMode;
+				if (collectStats)
+					hiz.stats.accumRegisterCalls.fetch_add(1, std::memory_order_relaxed);
 
 				if (renderMode >= 30) {
 					return func(accum, object, flags);
 				}
 
-				hiz.stats.renderModeCalls[renderMode].fetch_add(1, std::memory_order_relaxed);
+				if (collectStats)
+					hiz.stats.renderModeCalls[renderMode].fetch_add(1, std::memory_order_relaxed);
 
-				const uint8_t pass = HiZOcclusion::GetPassKind(renderMode);
 				const bool allowCulling = pass != 0 && hiz.settings.cullRenderMode[renderMode] &&
 				                          (pass != HiZOcclusion::kCameraPass || HiZOcclusion::IsMainViewRegistration(renderMode, accum)) &&
 				                          !globals::features::skylighting.inOcclusion &&
@@ -1339,9 +1362,9 @@ namespace Hooks
 		stl::write_thunk_call<BSLightingShader_SetupGeometry_GeometrySetupConstantPointLights>(REL::RelocationID(100565, 107300).address() + Util::VersionedRelocation::Select(0x523, 0xB0E, 0xB30));
 
 		// Hook engine primary object registration for HIZ Occlusion
-		if (REL::Module::IsAE() && !Util::VersionedRelocation::IsAtLeastAE1799()) {
-			const auto registerObjectCall = REL::RelocationID(0, 76558).address() + 0xD3;
-			if (*reinterpret_cast<const std::uint8_t*>(registerObjectCall) == 0xE8) {
+		if (!REL::Module::IsVR()) {
+			const auto registerObjectCall = REL::RelocationID(74809, 76558).address() + REL::Relocate(0x73, 0xD3);
+			if (Util::VersionedRelocation::IsCallTo(registerObjectCall, REL::RelocationID(99923, 106567).address())) {
 				logger::info("Hooking BSAccumProcess::RegisterObject for HiZ Occlusion");
 				stl::write_thunk_call<BSAccumProcess_RegisterObject>(registerObjectCall);
 				globals::features::hiZOcclusion.cullingHookInstalled = true;
@@ -1349,7 +1372,7 @@ namespace Hooks
 				logger::warn("HiZ Occlusion: unexpected code at BSAccumProcess::RegisterObject call site, early culling disabled");
 			}
 		} else {
-			logger::info("HiZ Occlusion: culling is only supported on AE before 1.7.99, skipping it on this game version");
+			logger::info("HiZ Occlusion: culling is not supported on Skyrim VR, skipping it");
 		}
 	}
 

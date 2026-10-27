@@ -20,7 +20,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	MotionTransparency,
 	ScreenRefraction,
 	RefractionFactor,
-	RefractionBlur)
+	RefractionBlur,
+	Visibility)
 
 namespace
 {
@@ -49,6 +50,17 @@ namespace
 		HRESULT hr = DirectX::LoadFromWICFile(a_path.c_str(), DirectX::WIC_FLAGS_IGNORE_SRGB, nullptr, image);
 		if (FAILED(hr))
 			return fail(std::format("Failed to load texture (invalid image, HRESULT 0x{:08X})", static_cast<uint32_t>(hr)));
+
+		// Fit the drop billboard to the texture's alpha coverage, which needs 8-bit RGBA texels
+		DirectX::ScratchImage rgbaImage;
+		const auto* source = image.GetImage(0, 0, 0);
+		if (source->format != DXGI_FORMAT_R8G8B8A8_UNORM) {
+			hr = DirectX::Convert(*source, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, rgbaImage);
+			if (FAILED(hr))
+				return fail(std::format("Failed to load texture (invalid image, HRESULT 0x{:08X})", static_cast<uint32_t>(hr)));
+			source = rgbaImage.GetImage(0, 0, 0);
+		}
+		result.footprint = RainRefractionTexture::GetFootprint({ source->pixels, source->slicePitch }, source->width, source->height, source->rowPitch);
 
 		DirectX::ScratchImage mipImage;
 		hr = DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::TEX_FILTER_DEFAULT, 0, mipImage);
@@ -88,11 +100,16 @@ namespace
 
 void RainRefraction::DrawSettings()
 {
-	const Util::LockedSection enbLock(IsManagedByENB(),
-		T("common.settings_managed_by_enb", "This setting is managed by Effects 11."));
-
 	if (!defaultRaindrops.status.empty())
 		Util::Text::WrappedWarning("%s", defaultRaindrops.status.c_str());
+
+	ImGui::SliderFloat(T(TKEY("visibility"), "Drop Visibility"), &settings.Visibility, kMinVisibility, kMaxVisibility, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	if (auto _tt = Util::HoverTooltipWrapper()) {
+		ImGui::Text("%s", T(TKEY("visibility_tooltip"), "Exaggerates how much each drop differs from the scene behind it, so rain stands out more.\n1 = physically based. Also applies while Effects 11 manages the other rain settings."));
+	}
+
+	const Util::LockedSection enbLock(IsManagedByENB(),
+		T("common.settings_managed_by_enb", "This setting is managed by Effects 11."));
 
 	ImGui::Checkbox(T(TKEY("enable"), "Enable"), &settings.Enable);
 	if (auto _tt = Util::HoverTooltipWrapper()) {
@@ -132,6 +149,7 @@ void RainRefraction::LoadSettings(json& o_json)
 	settings.MotionTransparency = std::clamp(settings.MotionTransparency, 0.0f, 1.0f);
 	settings.RefractionFactor = std::clamp(settings.RefractionFactor, 0.0f, kMaxRefractionFactor);
 	settings.RefractionBlur = std::clamp(settings.RefractionBlur, 0.0f, kMaxRefractionBlur);
+	settings.Visibility = std::clamp(settings.Visibility, kMinVisibility, kMaxVisibility);
 }
 
 void RainRefraction::SaveSettings(json& o_json)
@@ -205,7 +223,8 @@ RainRefraction::PerFrame RainRefraction::GetCommonBufferData()
 		.ScreenRefraction = settings.ScreenRefraction,
 		.RefractionFactor = settings.RefractionFactor,
 		.MotionBluriness = settings.RefractionBlur,
-		.Brightness = 1.0f
+		.Brightness = 1.0f,
+		.Visibility = settings.Visibility
 	};
 
 	if (IsManagedByENB()) {
@@ -219,6 +238,9 @@ RainRefraction::PerFrame RainRefraction::GetCommonBufferData()
 		data.Brightness = std::max(settingManager.GetInterpolatedTimeOfDayValue("Brightness", "RAIN"), 0.0f);
 	}
 	data.Enable = data.Enable && GetRaindropSRV() && alphaBlendState;
+	const auto& footprint = IsManagedByENB() && presetRaindrops.srv ? presetRaindrops.footprint : defaultRaindrops.footprint;
+	data.TextureBounds = float4{ footprint.uvBounds[0], footprint.uvBounds[1], footprint.uvBounds[2], footprint.uvBounds[3] };
+	data.TextureRadiusScale = float2{ footprint.radiusScale[0], footprint.radiusScale[1] };
 
 	perFrameCache = data;
 	return data;
@@ -234,15 +256,18 @@ bool RainRefraction::IsRefractiveRainPass()
 
 void RainRefraction::ModifyParticle()
 {
-	if (!IsRefractiveRainPass())
+	if (globals::state->currentPixelDescriptor != static_cast<uint32_t>(SIE::ShaderCache::ParticleShaderTechniques::EnvCubeRain))
 		return;
 
+	// The rain vertex shader reads the Enable flag whether or not refraction is active this frame
 	auto context = globals::d3d::context;
-	ID3D11ShaderResourceView* srv = GetRaindropSRV();
-	context->PSSetShaderResources(80, 1, &srv);
-
 	ID3D11Buffer* cbs[] = { globals::state->sharedDataCB->CB(), globals::state->featureDataCB->CB() };
 	context->VSSetConstantBuffers(5, 2, cbs);
+	if (!perFrameCache.Enable)
+		return;
+
+	ID3D11ShaderResourceView* srv = GetRaindropSRV();
+	context->PSSetShaderResources(80, 1, &srv);
 }
 
 void RainRefraction::ParticleShaderHacks()

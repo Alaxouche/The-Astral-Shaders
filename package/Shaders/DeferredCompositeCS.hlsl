@@ -173,7 +173,7 @@ Texture2D<float3> CausticTexture : register(t22);
 #		if defined(SKYLIGHTING)
 		float3 positionMS = positionWS.xyz;
 		sh2 skylightingSH = Skylighting::Sample(positionMS.xyz, normalWS);
-		float skylightingDiffuse = Skylighting::EvaluateDiffuse(skylightingSH, normalWS);
+		float skylightingDiffuse = Skylighting::EvaluateDiffuse(skylightingSH, normalWS, Skylighting::GetFadeOutFactor(positionMS));
 		directionalAmbientColor = ImageBasedLighting::GetDiffuseIBLOccluded(vanillaDALC, -normalWS, skylightingDiffuse) * albedo;
 #		else
 		directionalAmbientColor = ImageBasedLighting::GetDiffuseIBL(vanillaDALC, -normalWS) * albedo;
@@ -241,11 +241,11 @@ Texture2D<float3> CausticTexture : register(t22);
 
 #	if defined(SKYLIGHTING)
 		float3 positionMS = positionWS.xyz;
-		positionMS.z = min(positionMS.z, SharedData::skylightingSettings.PosOffset.z + Skylighting::ARRAY_SIZE.z * 0.5 - Skylighting::CELL_SIZE.z);
 
-		sh2 skylightingSH = Skylighting::Sample(positionMS.xyz, R);
-		float skylightingSpecular = Skylighting::EvaluateSpecular(skylightingSH, specularLobe);
-		float skylightingVisibility = Skylighting::EvaluateVisibility(skylightingSH);
+		sh2 skylightingSH = Skylighting::Sample(Skylighting::ClampToArrayHeight(positionMS), R);
+		float skylightingFadeOut = Skylighting::GetHorizontalFadeOutFactor(positionMS);
+		float skylightingSpecular = Skylighting::EvaluateSpecular(skylightingSH, specularLobe, skylightingFadeOut);
+		float skylightingVisibility = Skylighting::EvaluateVisibility(skylightingSH, skylightingFadeOut);
 #	endif
 
 #	if defined(IBL)
@@ -258,7 +258,7 @@ Texture2D<float3> CausticTexture : register(t22);
 				// Mode 2/3: DALC-normalized env scaled by DALCAmount + sky overlay
 				float envLum = Color::RGBToLuminance(EnvTexture.SampleLevel(LinearSampler, R, 15));
 				envSpecular = ColorManagement::SceneToLinear((envSample / max(envLum, 0.001)) * directionalAmbientColorSpecular) * SharedData::iblSettings.DALCAmount;
-				skySpecular = ColorManagement::SceneToLinear(max(0, fullSample - envSample)) * SharedData::iblSettings.SkyIBLScale;
+				skySpecular = ColorManagement::SceneToLinear(max(0, fullSample - envSample)) * SharedData::iblSettings.SkySpecularIBLScale;
 #		if defined(SKYLIGHTING)
 				envSpecular *= (SharedData::iblSettings.DALCMode == 3) ? skylightingVisibility : 1.0;
 				skySpecular *= skylightingSpecular;
@@ -267,7 +267,7 @@ Texture2D<float3> CausticTexture : register(t22);
 				// Mode 0/1: IBL ratio-based
 				float3 ratio = ImageBasedLighting::GetIBLRatio();
 				envSpecular = ColorManagement::SceneToLinear(envSample * ratio) * SharedData::iblSettings.EnvIBLScale;
-				skySpecular = ColorManagement::SceneToLinear(max(0, fullSample - envSample)) * SharedData::iblSettings.SkyIBLScale;
+				skySpecular = ColorManagement::SceneToLinear(max(0, fullSample - envSample)) * SharedData::iblSettings.SkySpecularIBLScale;
 #		if defined(SKYLIGHTING)
 				skySpecular *= skylightingSpecular;
 #		endif

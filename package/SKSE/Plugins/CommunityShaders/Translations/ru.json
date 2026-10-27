@@ -1,11 +1,5 @@
 {
-    "_meta": {
-        "auto_generated": true,
-        "generator": "tools/extract-i18n.py",
-        "language": "Russian",
-        "locale": "ru",
-        "note": "НЕ РЕДАКТИРУЙТЕ ВРУЧНУЮ. Запустите: python tools/extract-i18n.py --write"
-    },
+    "_meta": {},
     "cs_editor.actions": "Действия",
     "cs_editor.active": "Активно:",
     "cs_editor.add_new_marker": "Добавить новый маркер",
@@ -786,7 +780,7 @@
     "feature.perf_overlay.position": "Позиция:",
     "feature.perf_overlay.post_fg_calculated": "Post-FG: расчётное время (2x Pre-FG)",
     "feature.perf_overlay.post_fg_fps": "Post-FG FPS:",
-    "feature.perf_overlay.post_fg_graph_tooltip": "FSR Frame Generation использует расчётные временны́е данные (2x Pre-FG).\nDLSS Frame Generation предоставляет измеренные временны́е данные.",
+    "feature.perf_overlay.post_fg_graph_tooltip": "Frame Generation использует расчётные временны́е данные (2x Pre-FG).",
     "feature.perf_overlay.raw_fps": "Исходный FPS:",
     "feature.perf_overlay.reset_position": "Сбросить позицию",
     "feature.perf_overlay.restore_defaults": "Восстановить значения по умолчанию",
@@ -815,11 +809,6 @@
     "feature.performance_overlay.key_feature_6": "Цветовое кодирование метрик производительности с настраиваемыми порогами",
     "feature.performance_overlay.key_feature_7": "Перемещаемое окно оверлея с сохранением позиции",
     "feature.performance_overlay.name": "Оверлей производительности",
-    "feature.render_doc.description": "Поддержка захвата RenderDoc внутри приложения и удобный интерфейс.",
-    "feature.render_doc.key_feature_1": "Прикрепление комментариев к захватам, отображаемых в интерфейсе RenderDoc",
-    "feature.render_doc.key_feature_2": "Открытие папки захватов",
-    "feature.render_doc.key_feature_3": "Управление файлами захватов",
-    "feature.render_doc.name": "RenderDoc",
     "feature.renderdoc.cancel": "Отмена",
     "feature.renderdoc.capture_active": "Захват RenderDoc активен.",
     "feature.renderdoc.capture_control": "Управление захватом",
@@ -949,7 +938,6 @@
     "feature.screenshot.hdr_bit_depth_tooltip": "Квантование для 48 bpp RGB PNG. 11-бит — хорошее значение по умолчанию; большие значения увеличивают размер файла с убывающей отдачей.",
     "feature.screenshot.hdr_note": "HDR включён: сохраняет отображаемый кадр в формате PNG с метаданными HDR10 (48 bpp RGB, cICP/cLLi). Используйте HDR-совместимый просмотрщик, например Windows Photos (HDR включён) или Special K SKIF.",
     "feature.screenshot.hotkey": "Горячая клавиша",
-    "feature.screenshot.hotkey_collision": "Эта горячая клавиша конфликтует с ванильным PrintScreen; оба сохранения будут выполнены. Установите bAllowScreenShot=0 в Skyrim.ini для отключения ванильного, или выберите другую горячую клавишу.",
     "feature.screenshot.name": "Скриншот",
     "feature.screenshot.open": "Открыть",
     "feature.screenshot.output": "Вывод",
@@ -1211,7 +1199,7 @@
     "feature.upscaling.sharpness": "Резкость",
     "feature.upscaling.streamline_logging": "Журналирование Streamline",
     "feature.upscaling.streamline_logging_restart_note": "Изменение этой настройки требует перезапуска.",
-    "feature.upscaling.streamline_logging_tooltip": "Журналирование Streamline управляет детальностью журналов бэкенда NVIDIA Streamline. Полезно для отладки проблем с DLSS/DLSS-G.",
+    "feature.upscaling.streamline_logging_tooltip": "Журналирование Streamline управляет детальностью журналов бэкенда NVIDIA Streamline. Полезно для отладки проблем с DLSS.",
     "feature.upscaling.upscale_preset": "Пресет апскейлинга",
     "feature.upscaling.use_fps_limit": "Использовать ограничение FPS",
     "feature.upscaling.use_fps_limit_tooltip_1": "Использует внутреннее ограничение FPS Reflex для более стабильного времени кадра.",
@@ -1855,7 +1843,6 @@
     "menu.setup.new_install_line1": "Похоже, это новая установка, обновление или",
     "menu.setup.new_install_line2": "переустановка Bottled Shaders.",
     "menu.setup.press_any_key": "Нажмите любую клавишу для назначения...",
-    "menu.setup.press_to_close": "Нажмите Escape или Enter для продолжения",
     "menu.toggle_error_message_tooltip": "Скрыть или показать сообщение об ошибке шейдера. Установка неисправна. Проверьте обновления и порядок загрузки. Подробности в BottledShaders.log и на странице Nexus Mods или Discord.",
     "menu.window_title": "{name} {version}",
     "overlay.modified_features": "Обнаружены функции, возможно изменившие шейдеры. Проверьте «Проблемы с функциями».",
@@ -1869,5 +1856,6 @@
     "ui.copy": "Копировать",
     "ui.dont_ask_again": "Больше не спрашивать",
     "ui.search": "Поиск...",
-    "ui.search_features": "Поиск функций..."
+    "ui.search_features": "Поиск функций...",
+    "menu.window_title_dev": "{name} {version} {build}"
 }

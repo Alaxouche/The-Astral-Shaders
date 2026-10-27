@@ -17,6 +17,7 @@
 #include "Features/CSEditor.h"
 #include "Features/CausticLight.h"
 #include "Features/CloudShadows.h"
+#include "Features/DetailMaps.h"
 #include "Features/Effects11.h"
 #include "Features/ExponentialHeightFog.h"
 #include "Features/HDRDisplay.h"
@@ -49,6 +50,7 @@
 #ifdef TRACY_ENABLE
 static thread_local std::vector<TracyCZoneCtx> s_tracyPerfZones;
 #endif
+static thread_local std::vector<bool> s_perfEventEmitted;
 
 void State::UpdateLightingShaderPermutation(RE::BSRenderPass* a_pass)
 {
@@ -73,14 +75,18 @@ void State::BeginLightingVariants(RE::BSShader* a_shader, bool a_skipPixelShader
 		!shaderCache->IsEnabled() || !shaderCache->IsAsync() || !ShaderEnabled(RE::BSShader::Type::Lighting))
 		return;
 
+	auto& detailMaps = globals::features::detailMaps;
+	detailMaps.InvalidateBindings();
 	const auto liteDescriptor = SIE::ShaderCache::GetLiteLightingDescriptor(modifiedPixelDescriptor);
-	if (!liteDescriptor)
+	const bool detailEligible = detailMaps.IsEligible(modifiedPixelDescriptor);
+	if (!liteDescriptor && !detailEligible)
 		return;
 
 	lightingVariant.shader = a_shader;
 	lightingVariant.descriptor = modifiedPixelDescriptor;
 	lightingVariant.vanillaDescriptor = currentPixelDescriptor;
 	lightingVariant.liteDescriptor = liteDescriptor;
+	lightingVariant.detailEligible = detailEligible;
 }
 
 void State::UpdateLightingVariant(RE::BSRenderPass* a_pass)
@@ -89,24 +95,40 @@ void State::UpdateLightingVariant(RE::BSRenderPass* a_pass)
 	if (!variant.shader)
 		return;
 
-	constexpr auto noSnowCover = static_cast<uint>(SIE::ShaderCache::LightingShaderFlags::NoSnowCover);
-	constexpr auto noWetness = static_cast<uint>(SIE::ShaderCache::LightingShaderFlags::NoWetness);
-	bool useLite = ((variant.liteDescriptor & noSnowCover) == 0 || globals::features::snowCover.IsSnowFree(a_pass, variant.descriptor, variant.vanillaDescriptor)) &&
-	               ((variant.liteDescriptor & noWetness) == 0 || globals::features::wetnessEffects.IsDry(a_pass, variant.descriptor));
-
-	if (useLite && !variant.resolved) {
+	auto shaderCache = globals::shaderCache;
+	if (!variant.resolved) {
 		variant.resolved = true;
-		auto shaderCache = globals::shaderCache;
 		auto* full = shaderCache->FindPixelShader(*variant.shader, variant.descriptor);
-		auto* lite = full ? shaderCache->FindPixelShader(*variant.shader, variant.liteDescriptor) : nullptr;
+		auto* lite = full && variant.liteDescriptor ? shaderCache->FindPixelShader(*variant.shader, variant.liteDescriptor) : nullptr;
 		variant.full = full ? reinterpret_cast<ID3D11PixelShader*>(full->shader) : nullptr;
 		variant.lite = lite ? reinterpret_cast<ID3D11PixelShader*>(lite->shader) : nullptr;
 	}
-	useLite = useLite && variant.lite;
+	if (!variant.full)
+		return;
 
-	if (useLite != variant.liteBound) {
-		globals::d3d::context->PSSetShader(useLite ? variant.lite : variant.full, nullptr, 0);
-		variant.liteBound = useLite;
+	ID3D11PixelShader* target = variant.full;
+	if (variant.detailEligible && globals::features::detailMaps.BindPass(a_pass)) {
+		if (!variant.detailResolved) {
+			variant.detailResolved = true;
+			auto* detail = shaderCache->GetPixelShader(*variant.shader, variant.descriptor | static_cast<uint>(SIE::ShaderCache::LightingShaderFlags::DetailMaps));
+			variant.detail = detail ? reinterpret_cast<ID3D11PixelShader*>(detail->shader) : nullptr;
+		}
+		if (variant.detail)
+			target = variant.detail;
+	}
+
+	if (target == variant.full && variant.lite) {
+		constexpr auto noSnowCover = static_cast<uint>(SIE::ShaderCache::LightingShaderFlags::NoSnowCover);
+		constexpr auto noWetness = static_cast<uint>(SIE::ShaderCache::LightingShaderFlags::NoWetness);
+		const bool useLite = ((variant.liteDescriptor & noSnowCover) == 0 || globals::features::snowCover.IsSnowFree(a_pass, variant.descriptor, variant.vanillaDescriptor)) &&
+		                     ((variant.liteDescriptor & noWetness) == 0 || globals::features::wetnessEffects.IsDry(a_pass, variant.descriptor));
+		if (useLite)
+			target = variant.lite;
+	}
+
+	if (target != (variant.bound ? variant.bound : variant.full)) {
+		globals::d3d::context->PSSetShader(target, nullptr, 0);
+		variant.bound = target;
 	}
 }
 
@@ -134,28 +156,6 @@ void State::UpdateSkyShaderPermutation(RE::BSRenderPass* a_pass)
 	}
 	if (skyProperty->uiSkyObjectType == RE::BSSkyShaderProperty::SkyObject::SO_MOON) {
 		permutationData.ExtraShaderDescriptor |= static_cast<uint32_t>(State::ExtraShaderDescriptors::IsMoon);
-	}
-}
-
-void State::UpdateEffectShaderPermutation(RE::BSRenderPass* a_pass)
-{
-	constexpr auto isAurora = static_cast<uint32_t>(ExtraShaderDescriptors::IsAurora);
-	permutationData.ExtraShaderDescriptor &= ~isAurora;
-
-	if (!a_pass || !a_pass->geometry)
-		return;
-	if (!(currentVertexDescriptor & static_cast<uint32_t>(SIE::ShaderCache::EffectShaderFlags::SkyObject)))
-		return;
-
-	const auto sky = globals::game::sky;
-	if (!sky || !sky->auroraRoot)
-		return;
-
-	for (const RE::NiAVObject* node = a_pass->geometry; node; node = node->parent) {
-		if (node == sky->auroraRoot.get()) {
-			permutationData.ExtraShaderDescriptor |= isAurora;
-			return;
-		}
 	}
 }
 
@@ -246,8 +246,6 @@ void State::Draw()
 
 void State::Debug()
 {
-	auto lock = Lock();
-
 	if (frameChecker.IsNewFrame()) {
 		// Smooth draw calls and frame times for all shader types
 		for (int i = 0; i < magic_enum::enum_integer(RE::BSShader::Type::Total) + 1; ++i) {
@@ -292,7 +290,7 @@ void State::Debug()
 		drawCalls[magic_enum::enum_integer(RE::BSShader::Type::Total)]++;
 	}
 
-	if (currentShader && updateShader && frameAnnotations) {
+	if (currentShader && updateShader && AnnotateDraws()) {
 		BeginPerfEvent(std::format("Draw: CS {}::{:x}::{}", magic_enum::enum_name(currentShader->shaderType.get()), permutationData.PixelShaderDescriptor, currentShader->fxpFilename));
 		SetPerfMarker(std::format("Defines: {}", SIE::ShaderCache::GetDefinesString(*currentShader, permutationData.PixelShaderDescriptor)));
 		EndPerfEvent();
@@ -357,6 +355,14 @@ bool State::HandlePostProcessing(RE::RENDER_TARGET a_input, RE::RENDER_TARGET a_
  * shader descriptor tracking, increments and atomically publishes the frame
  * count, and disables reflection and improved snow shaders.
  */
+void State::SetGrassSphereNormal(bool sphereNormal)
+{
+	if (sphereNormal)
+		permutationData.ExtraShaderDescriptor |= static_cast<uint32_t>(ExtraShaderDescriptors::GrassSphereNormal);
+	else
+		permutationData.ExtraShaderDescriptor &= ~static_cast<uint32_t>(ExtraShaderDescriptors::GrassSphereNormal);
+}
+
 void State::Reset()
 {
 	globals::profiler->EndFrame();
@@ -402,7 +408,11 @@ void State::Reset()
 	}
 
 	// Disable "improved" snow shader, unsupported
-	RE::GetINISetting("bEnableImprovedSnow:Display")->data.b = false;
+	static RE::Setting* improvedSnow = nullptr;
+	if (!improvedSnow)
+		improvedSnow = RE::GetINISetting("bEnableImprovedSnow:Display");
+	if (improvedSnow)
+		improvedSnow->data.b = false;
 
 	activeReflections = false;
 }
@@ -754,6 +764,7 @@ void State::MarkSettingsSaved()
 	settingsChanged = false;
 	coreSettingsChanged = false;
 	savedCoreHash = HashCoreSettings();
+	globals::menu->ClearUnsavedChanges();
 }
 
 void State::CheckFeatureSettingsChanged(Feature* feature)
@@ -1221,7 +1232,8 @@ void State::SetupResources()
 	D3D11_TEXTURE2D_DESC texDesc{};
 	renderer->GetRuntimeData().renderTargets[RE::RENDER_TARGETS::kMAIN].texture->GetDesc(&texDesc);
 
-	globals::d3d::context->QueryInterface(__uuidof(pPerf), reinterpret_cast<void**>(&pPerf));
+	pPerf = nullptr;
+	globals::d3d::context->QueryInterface(__uuidof(ID3DUserDefinedAnnotation), pPerf.put_void());
 
 	featureLevel = globals::d3d::device->GetFeatureLevel();
 
@@ -1371,8 +1383,23 @@ uint32_t State::GetRuntimePixelBits(const RE::BSShader& a_shader)
 	return a_shader.shaderType.get() == RE::BSShader::Type::Water ? static_cast<uint32_t>(SIE::ShaderCache::WaterShaderFlags::Wading) : 0u;
 }
 
+bool State::PerfEventsConsumed() const
+{
+	if ((pPerf && pPerf->GetStatus()) || NvPerf::RangesActive())
+		return true;
+#ifdef TRACY_ENABLE
+	return TracyIsConnected;
+#else
+	return false;
+#endif
+}
+
 void State::BeginPerfEvent(std::string_view title)
 {
+	const bool emit = PerfEventsConsumed();
+	s_perfEventEmitted.push_back(emit);
+	if (!emit)
+		return;
 #ifdef TRACY_ENABLE
 	// Use dynamic source location so Tracy displays the title as the zone name
 	// rather than the static function name "BeginPerfEvent".
@@ -1392,6 +1419,14 @@ void State::BeginPerfEvent(std::string_view title)
 
 void State::EndPerfEvent()
 {
+	if (s_perfEventEmitted.empty()) {
+		logger::warn("EndPerfEvent called without a matching BeginPerfEvent");
+		return;
+	}
+	const bool emitted = s_perfEventEmitted.back();
+	s_perfEventEmitted.pop_back();
+	if (!emitted)
+		return;
 #ifdef TRACY_ENABLE
 	if (!s_tracyPerfZones.empty()) {
 		TracyCZoneEnd(s_tracyPerfZones.back());
@@ -1407,6 +1442,8 @@ void State::EndPerfEvent()
 
 void State::SetPerfMarker(std::string_view title)
 {
+	if (!PerfEventsConsumed())
+		return;
 	pPerf->SetMarker(std::wstring(title.begin(), title.end()).c_str());
 }
 

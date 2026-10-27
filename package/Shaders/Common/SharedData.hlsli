@@ -59,21 +59,10 @@ namespace SharedData
 		// Only read by the GRASS_OPTIMIZATIONS permutation, for grass drawn with an LOD mesh.
 		float MidLODBrightness;
 		float FarLODBrightness;
-
-		float VertexAOStrength;
-		float SoftLighting;
-		float RootOcclusion;
-		float TipScattering;
-
-		float NormalStrength;
-		float SpecularAAStrength;
-		bool EnableWrappedLighting;
-		float SphereNormalStrength;
-
-		float ClassicScattering;
-		float TransmissionSaturation;
-		float AmbientFloor;
-		float AmbientSkyBias;
+		float PBRWrappedLightingAmount;
+		float SubsurfaceBalance;
+		float CanopyOcclusion;
+		float ClumpShading;
 	};
 
 	struct CPMSettings
@@ -144,7 +133,6 @@ namespace SharedData
 		float MaxRainWetness;
 		float MaxPuddleWetness;
 		float MaxShoreWetness;
-		float GrassWetnessRoughness;
 
 		uint ShoreRange;
 		float PuddleRadius;
@@ -174,9 +162,7 @@ namespace SharedData
 		float RippleRadius;
 		float RippleBreadth;
 		float RippleLifetimeRcp;
-
-		float GrassWetnessDarkening;
-		float3 pad0;
+		float pad0;
 	};
 
 	struct SkylightingSettings
@@ -196,7 +182,8 @@ namespace SharedData
 	struct CloudShadowsSettings
 	{
 		float Opacity;
-		float3 pad0;
+		float Scattering;
+		float2 pad0;
 	};
 
 	struct ProceduralSunSettings
@@ -272,7 +259,7 @@ namespace SharedData
 		float FogAmount;
 		uint DALCMode;       // 0: Luminance Ratio, 1: Color Ratio, 2: DALC + Sky, 3: DALC + Sky (Directional)
 		uint ENBSkyFalloff;  // Effects 11 owns IBL: darken sky irradiance from below
-		float pad0;
+		float SkySpecularIBLScale;
 	};
 
 	struct ExtendedTranslucencySettings
@@ -421,12 +408,7 @@ namespace SharedData
 		float StarsAnimationTime;
 		float StarsAnimationDensity;
 		float StarsAnimationIntensity;
-		float AuroraIntensity;
-
-		float AuroraCurve;
 		uint FixBlackCrush;
-		float NightSkyPad0;
-		float NightSkyPad1;
 
 		uint VolumetricRaysSampleCount;
 		uint GameVolumetricRaysDisableDithering;
@@ -513,18 +495,11 @@ namespace SharedData
 		float VertexAOStrength;
 		uint EnableMicroShadows;
 		float MicroShadowStrength;
-		uint pad;
-	};
-
-	struct FoliageLightingSettings
-	{
-		uint EnableFoliageScattering;
-		uint EnableFoliageAmbientBoost;
-		uint EnableFoliageAmbientFlip;
-		float FoliageAmbientAmount;
-		uint EnableGrassScattering;
+		uint EnableMultiScatter;
+		uint EnableHorizonOcclusion;
 		uint3 pad;
 	};
+
 
 	struct SkinData
 	{
@@ -541,7 +516,6 @@ namespace SharedData
 	{
 		uint Enable;
 		uint EnableGGX;
-		uint EnableGGXOnGrass;
 		uint EnableDynamicCubemapsConversion;
 		uint EnableEyeSpecialHandling;
 		float RoughnessMultiplier;
@@ -550,7 +524,7 @@ namespace SharedData
 		float MinF0;
 		float CubemapToF0Multiplier;
 		float ComplexMaterialF0Multiplier;
-		float pad;
+		float2 pad;
 	};
 
 	struct SnowCoverSettings
@@ -782,7 +756,19 @@ namespace SharedData
 		float RefractionFactor;
 		float MotionBluriness;
 		float Brightness;
-		float pad0;
+		float Visibility;
+		float4 TextureBounds;
+		float2 TextureRadiusScale;
+		float2 pad0;
+	};
+
+	struct NightEyeSettings
+	{
+		float4 Eye;
+		float4 Actor;
+		float4 Enemy;
+		float4 Ally;
+		float4 Neutral;
 	};
 
 	cbuffer FeatureData : register(b6)
@@ -806,7 +792,6 @@ namespace SharedData
 		TerrainBlendingSettings terrainBlendingSettings;
 		ExponentialHeightFogSettings exponentialHeightFogSettings;
 		TruePBRSettings truePBRSettings;
-		FoliageLightingSettings foliageLightingSettings;
 		SkinData skinData;
 		VanillaFresnelSettings vanillaFresnelSettings;
 		SnowCoverSettings snowCoverSettings;
@@ -817,6 +802,7 @@ namespace SharedData
 		HorizonFixSettings horizonFixSettings;
 		HairBacklightingSettings hairBacklightingSettings;
 		RainRefractionSettings rainRefractionSettings;
+		NightEyeSettings nightEyeSettings;
 	};
 
 	Texture2D<float4> DepthTexture : register(t17);

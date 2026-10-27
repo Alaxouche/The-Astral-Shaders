@@ -248,6 +248,7 @@ void PerformanceOverlay::RestoreDefaultSettings()
 	this->state.smoothFrameTimeMs = 0.0f;
 	this->state.postFGSmoothFps = 0.0f;
 	this->state.postFGSmoothFrameTimeMs = 0.0f;
+	ResetFrameStats();
 	this->state.minFrameTime = 1000.0f;
 	this->state.maxFrameTime = 0.0f;
 	this->state.smoothedMinFrameTime = 0.0f;
@@ -352,7 +353,7 @@ void PerformanceOverlay::DrawOverlay()
 	}
 
 	// Create the window
-	Util::BeginWithRoundedClose(T(TKEY("overlay_title"), "Performance Overlay"), nullptr, windowFlags);
+	Util::BeginWithRoundedClose(std::format("{}{}", T(TKEY("overlay_title"), "Performance Overlay"), kWindowId).c_str(), nullptr, windowFlags);
 
 	// Remember window position for next frame
 	if (ImGui::IsWindowAppearing()) {
@@ -423,17 +424,15 @@ void PerformanceOverlay::DrawFPS()
 		ImGui::Text(this->state.isFrameGenerationActive ? T(TKEY("raw_fps"), "Raw FPS:") : T(TKEY("fps"), "FPS:"));
 		ImGui::TableNextColumn();
 
-		// Check if buffer is full for the avg
-		auto frameData = this->state.frameTimeHistory.GetData();
-		size_t validFrameCount = std::count_if(frameData.begin(), frameData.end(), [](float ft) { return ft > 0.0f; });
-		bool bufferIsFull = validFrameCount == frameData.size();
+		ImGui::Text("%.1f (%.2f ms)", this->state.smoothFps, this->state.smoothFrameTimeMs);
 
-		if (bufferIsFull) {
-			float avgFrameTime = std::accumulate(frameData.begin(), frameData.end(), 0.0f) / frameData.size();
-			float avgFps = (avgFrameTime > 0.001f) ? 1000.0f / avgFrameTime : 0.0f;
-			ImGui::Text("%.1f (%.2f ms) | Avg: %.1f", this->state.smoothFps, this->state.smoothFrameTimeMs, avgFps);
-		} else {
-			ImGui::Text("%.1f (%.2f ms)", this->state.smoothFps, this->state.smoothFrameTimeMs);
+		if (this->state.avgFps > 0.0f) {
+			ImGui::TableNextColumn();
+			ImGui::Text("%s", T(TKEY("avg_fps"), "Avg:"));
+			ImGui::TableNextColumn();
+			ImGui::Text("%.1f | %s %.1f", this->state.avgFps, T(TKEY("one_percent_low"), "1% Low:"), this->state.onePercentLowFps);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("%s", T(TKEY("avg_fps_tooltip"), "Average FPS (frames / time) and 1% low (FPS of the 99th percentile frame time) over the last 5 seconds."));
 		}
 
 		if (this->state.isFrameGenerationActive) {
@@ -1570,9 +1569,12 @@ std::pair<std::vector<DrawCallRow>, std::vector<DrawCallRow>> PerformanceOverlay
 	if (std::abs(otherFrameTime) < 1e-4f)
 		otherFrameTime = 0.0f;
 
+	globals::profiler->KeepActive();
 	float csPassesTime = globals::profiler->GetTotalTimeMs();
 	float csPercent = smoothedFrameTime > 0.0f ? (csPassesTime / smoothedFrameTime) * 100.0f : 0.0f;
-	float remainingOtherTime = std::max(0.0f, otherFrameTime - csPassesTime);
+	float presentTime = std::min(globals::state->smoothPresentTimeMs, std::max(0.0f, otherFrameTime));
+	float presentPercent = smoothedFrameTime > 0.0f ? (presentTime / smoothedFrameTime) * 100.0f : 0.0f;
+	float remainingOtherTime = std::max(0.0f, otherFrameTime - presentTime - csPassesTime);
 	float remainingOtherPercent = smoothedFrameTime > 0.0f ? (remainingOtherTime / smoothedFrameTime) * 100.0f : 0.0f;
 
 	std::optional<float> otherTestFrameTime, otherTestCostPerCall, totalTestFrameTime, totalTestCostPerCall;
@@ -1592,6 +1594,12 @@ std::pair<std::vector<DrawCallRow>, std::vector<DrawCallRow>> PerformanceOverlay
 		std::string("GPU time spent in Astral Shaders compute passes (profiled)."),
 		true, std::nullopt, std::nullopt
 	};
+	DrawCallRow presentRow = {
+		"Present:", magic_enum::enum_integer(SpecialShaderType::Present), kDrawCallsNotApplicable, presentTime, presentPercent,
+		0.0f,
+		std::string("CPU time blocked in Present waiting for the GPU and frame pacing.\nHigh means GPU-bound; near zero means CPU-bound."),
+		true, std::nullopt, std::nullopt
+	};
 	DrawCallRow otherRow = {
 		"Other:", magic_enum::enum_integer(SpecialShaderType::Other), kDrawCallsNotApplicable, remainingOtherTime, remainingOtherPercent,
 		0.0f,
@@ -1609,6 +1617,7 @@ std::pair<std::vector<DrawCallRow>, std::vector<DrawCallRow>> PerformanceOverlay
 	};
 	std::vector<DrawCallRow> summaryRows;
 	summaryRows.push_back(csPassesRow);
+	summaryRows.push_back(presentRow);
 	summaryRows.push_back(otherRow);
 	summaryRows.push_back(totalRow);
 	return { mainRows, summaryRows };
@@ -1916,6 +1925,62 @@ void PerformanceOverlay::UpdateSummaryTestData(float smoothedFrameTime, float ot
 // PERFORMANCE OVERLAY STATE MANAGEMENT
 // ============================================================================
 
+void PerformanceOverlay::ResetFrameStats()
+{
+	state.intervalFrameTimeSumMs = 0.0;
+	state.intervalFrameCount = 0;
+	state.statsFrameTimes.clear();
+	state.statsFrameTimeSumMs = 0.0;
+	state.avgFps = 0.0f;
+	state.onePercentLowFps = 0.0f;
+}
+
+void PerformanceOverlay::AccumulateFrameStats()
+{
+	// The overlay only updates while drawn; a gap means the measured delta spans hidden frames
+	const uint32_t frame = globals::state->frameCount;
+	const bool contiguous = frame == state.lastStatsFrame + 1;
+	const bool repeat = frame == state.lastStatsFrame;
+	state.lastStatsFrame = frame;
+	if (repeat)
+		return;
+	if (!contiguous) {
+		ResetFrameStats();
+		return;
+	}
+	if (state.frameTimeMs <= 0.0f)
+		return;
+
+	state.intervalFrameTimeSumMs += state.frameTimeMs;
+	state.intervalFrameCount++;
+
+	// Every frame counts, hitches included, so the average matches frames / elapsed time
+	state.statsFrameTimes.push_back(state.frameTimeMs);
+	state.statsFrameTimeSumMs += state.frameTimeMs;
+	constexpr double windowMs = Settings::kStatsWindowSeconds * 1000.0;
+	while (state.statsFrameTimes.size() > 1 && state.statsFrameTimeSumMs - state.statsFrameTimes.front() >= windowMs) {
+		state.statsFrameTimeSumMs -= state.statsFrameTimes.front();
+		state.statsFrameTimes.pop_front();
+	}
+}
+
+void PerformanceOverlay::UpdateFrameStats()
+{
+	if (state.statsFrameTimes.empty() || state.statsFrameTimeSumMs < Settings::kStatsMinSeconds * 1000.0) {
+		state.avgFps = 0.0f;
+		state.onePercentLowFps = 0.0f;
+		return;
+	}
+
+	state.avgFps = Util::CalcFPS(static_cast<float>(state.statsFrameTimeSumMs / state.statsFrameTimes.size()));
+
+	// 1% low as the FPS of the 99th percentile frame time (CapFrameX "P1")
+	std::vector<float> sorted(state.statsFrameTimes.begin(), state.statsFrameTimes.end());
+	const size_t idx = static_cast<size_t>(0.99 * static_cast<double>(sorted.size() - 1));
+	std::nth_element(sorted.begin(), sorted.begin() + idx, sorted.end());
+	state.onePercentLowFps = Util::CalcFPS(sorted[idx]);
+}
+
 void PerformanceOverlay::UpdateGraphValues()
 {
 	// Check if Frame Generation is active
@@ -1938,6 +2003,8 @@ void PerformanceOverlay::UpdateGraphValues()
 	state.frameTimeMs = Util::CalcFrameTime(elapsedCounter, state.frequency);
 	state.fps = Util::CalcFPS(state.frameTimeMs);
 
+	AccumulateFrameStats();
+
 	// Calculate smooth values for display using the user-defined update interval
 	// Initialize overlay timing frequency if needed
 	if (state.overlayTimingFrequency.QuadPart == 0) {
@@ -1951,22 +2018,22 @@ void PerformanceOverlay::UpdateGraphValues()
 	                  static_cast<float>(state.overlayTimingFrequency.QuadPart);
 	state.lastUpdateTime = now;
 
-	if (!state.graphSampleGate.ShouldSample())
-		return;
+	const bool sampleGraph = state.graphSampleGate.ShouldSample();
 
-	// Insert latest frame time into circular buffer
-	float oldFrameTime = state.frameTimeHistory.GetData()[state.frameTimeHistory.GetHeadIdx()];  // what is the point of oldFrameTime?
-	state.frameTimeHistory.Push(state.frameTimeMs);
+	if (sampleGraph) {
+		const float oldFrameTime = state.frameTimeHistory.GetData()[state.frameTimeHistory.GetHeadIdx()];
+		state.frameTimeHistory.Push(state.frameTimeMs);
 
-	// Maintain instantaneous min/max tracking
-	if (state.frameTimeMs > state.maxFrameTime) {
-		state.maxFrameTime = state.frameTimeMs;
-	} else if (state.frameTimeMs < state.minFrameTime) {
-		state.minFrameTime = state.frameTimeMs;
-	} else if (oldFrameTime == state.minFrameTime) {
-		state.minFrameTime = *std::ranges::min_element(state.frameTimeHistory.GetData());
-	} else if (oldFrameTime == state.maxFrameTime) {
-		state.maxFrameTime = *std::ranges::max_element(state.frameTimeHistory.GetData());
+		// Maintain instantaneous min/max tracking
+		if (state.frameTimeMs > state.maxFrameTime) {
+			state.maxFrameTime = state.frameTimeMs;
+		} else if (state.frameTimeMs < state.minFrameTime) {
+			state.minFrameTime = state.frameTimeMs;
+		} else if (oldFrameTime == state.minFrameTime) {
+			state.minFrameTime = *std::ranges::min_element(state.frameTimeHistory.GetData());
+		} else if (oldFrameTime == state.maxFrameTime) {
+			state.maxFrameTime = *std::ranges::max_element(state.frameTimeHistory.GetData());
+		}
 	}
 
 	float avgFrameTime = kDefaultFrameTimeMs,
@@ -2009,21 +2076,28 @@ void PerformanceOverlay::UpdateGraphValues()
 			state.postFGFps = state.fps * multiplier;
 		}
 
-		// Update post-FG smooth values when timer elapses
-		if (state.updateTimer <= 0.0f) {
-			state.postFGSmoothFps = state.postFGFps;
-			state.postFGSmoothFrameTimeMs = state.postFGFrameTimeMs;
-		}
-
 		// Update post-FG frametime history
-		state.postFGFrameTimeHistory.Push(state.postFGFrameTimeMs);
+		if (sampleGraph)
+			state.postFGFrameTimeHistory.Push(state.postFGFrameTimeMs);
 	}
 
 	// Update smooth values with user-specified interval
 	state.updateTimer += deltaTime;
 	if (state.updateTimer >= settings.UpdateInterval) {
-		state.smoothFps = state.fps;  // Sampling white noise won't give you smoothed noise. This is useless.
-		state.smoothFrameTimeMs = state.frameTimeMs;
+		if (state.intervalFrameCount > 0 && state.intervalFrameTimeSumMs > 0.0) {
+			state.smoothFrameTimeMs = static_cast<float>(state.intervalFrameTimeSumMs / state.intervalFrameCount);
+			state.smoothFps = Util::CalcFPS(state.smoothFrameTimeMs);
+		} else {
+			state.smoothFps = state.fps;
+			state.smoothFrameTimeMs = state.frameTimeMs;
+		}
+		state.intervalFrameTimeSumMs = 0.0;
+		state.intervalFrameCount = 0;
+		UpdateFrameStats();
+		if (state.isFrameGenerationActive) {
+			state.postFGSmoothFps = state.postFGFps;
+			state.postFGSmoothFrameTimeMs = state.postFGFrameTimeMs;
+		}
 		state.updateTimer = 0.0f;
 	}
 }

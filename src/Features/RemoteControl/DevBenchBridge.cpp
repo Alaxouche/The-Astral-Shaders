@@ -14,6 +14,7 @@
 #ifdef DEVBENCH_BRIDGE_ENABLED
 
 #	include "Feature.h"
+#	include "Features/DeveloperTools.h"
 #	include "Features/RemoteControl/NvPerf.h"
 #	include "Features/RenderDoc.h"
 #	include "Features/ScreenshotFeature.h"
@@ -23,6 +24,7 @@
 #	include "CSEditor/SceneManager/SceneSettingsManager.h"
 #	include "ShaderCache.h"
 #	include "State.h"
+#	include "Utils/FileSystem.h"
 
 #	include <DevBenchAPI.h>
 #	include <nlohmann/json.hpp>
@@ -42,7 +44,9 @@ namespace
 {
 	using json = nlohmann::json;
 
-	std::unordered_set<Feature*> g_bootLoadedFeatures;
+	// Main thread only: the only features toggle may switch back on. One off for any other
+	// reason was never loaded, or turned itself off during boot, and must stay off.
+	std::unordered_set<Feature*> g_toggledOffFeatures;
 
 	// Current render frame, used as a coarse "enqueued at" stamp so callers can poll
 	// inspect(kind=state) until frame_count advances past it (i.e. a queued main-thread
@@ -252,9 +256,11 @@ namespace
 			const bool explicitVal = a_args.value("enabled", false);
 			task->AddTask([target, hasExplicit, explicitVal, shortName]() {
 				const bool applied = hasExplicit ? explicitVal : !target->loaded;
-				if (applied && !g_bootLoadedFeatures.contains(target))
+				if (applied && !target->loaded && !g_toggledOffFeatures.contains(target))
 					return;
 				SceneSettingsManager::SceneLayerGuard sceneLayerGuard;
+				if (target->loaded && !applied)
+					g_toggledOffFeatures.insert(target);
 				target->loaded = applied;
 				if (auto* dvb = DevBenchAPI::GetDevBenchInterface001()) {
 					const std::string payload = json{ { "shortName", shortName }, { "enabled", applied } }.dump();
@@ -368,6 +374,7 @@ namespace
 				auto* profiler = globals::profiler;
 				if (!profiler)
 					return json{ { "error", "profiler unavailable" } };
+				profiler->KeepActive(3600);
 				json passes = json::array();
 				for (const auto& r : profiler->GetStatistics()) {
 					if (!r.valid)
@@ -512,8 +519,8 @@ namespace
 			// UI/render thread reads.
 			return RunOnMainThread([frameCount, frame]() -> json {
 				auto* renderDoc = &globals::features::renderDoc;
-				if (!renderDoc->loaded)
-					return json{ { "error", "RenderDoc feature is not loaded" }, { "hint", "communityshaders.feature(action='list') shows RenderDoc.loaded" } };
+				if (!globals::features::developerTools.loaded)
+					return json{ { "error", "Developer Tools feature is not loaded" }, { "hint", "communityshaders.feature(action='list') shows DeveloperTools.loaded" } };
 				if (!renderDoc->IsAvailable())
 					return json{ { "error", "RenderDoc API not available — attach RenderDoc or load the in-app DLL" } };
 				if (frameCount == 1)
@@ -610,7 +617,7 @@ namespace
 			{ "startFrame", a_result.startFrame }, { "endFrame", a_result.endFrame }, { "samples", a_result.samples },
 			{ "passesPerSample", a_result.passesPerSample }, { "droppedRanges", a_result.droppedRanges },
 			{ "droppedTraceBytes", a_result.droppedTraceBytes }, { "ranges", a_result.ranges }, { "metrics", std::move(metrics) },
-			{ "unsupportedMetrics", std::move(unsupported) }, { "summary", std::move(summary) }, { "csvPath", a_result.csvPath.string() } };
+			{ "unsupportedMetrics", std::move(unsupported) }, { "summary", std::move(summary) }, { "csvPath", Util::PathHelpers::ToUtf8(a_result.csvPath) } };
 		if (a_detail) {
 			json ranges = json::array();
 			for (const auto& range : a_result.rangeResults)
@@ -639,7 +646,7 @@ namespace
 			const auto device = NvPerf::GetDeviceInfo();
 			return json{ { "built", device.built }, { "available", device.available }, { "gpuSupported", device.gpuSupported },
 				{ "device", device.deviceName }, { "chip", device.chipName }, { "deviceError", device.error },
-				{ "library", device.libraryPath.string() }, { "capture", StatusJson(NvPerf::GetStatus()) } };
+				{ "library", Util::PathHelpers::ToUtf8(device.libraryPath) }, { "capture", StatusJson(NvPerf::GetStatus()) } };
 		}
 
 		if (action == "metrics") {
@@ -810,10 +817,6 @@ namespace DevBenchBridge
 	 */
 	void Install()
 	{
-		for (auto* feature : Feature::GetFeatureList())
-			if (feature->loaded)
-				g_bootLoadedFeatures.insert(feature);
-
 		auto* dvb = DevBenchAPI::GetDevBenchInterface001();
 		if (!dvb) {
 			logger::info("DevBenchBridge: devbench not present; CS tools not registered");
@@ -839,7 +842,7 @@ namespace DevBenchBridge
 		dvb->RegisterTool("communityshaders.shadercache", shadercacheDesc, &ShadercacheToolHandler, nullptr);
 
 		static constexpr const char* captureDesc =
-			R"({"description":"Trigger a frame capture on the next render. Kind-dispatched. kind=renderdoc: RenderDoc multi-frame capture via the in-app API, honors frames (1-120, default 1); RenderDoc must be attached/loaded (check communityshaders.feature list for RenderDoc.loaded). kind=screenshot: lossless screenshot via the Screenshot feature; frames is ignored. Fire-and-forget — no artifact path is returned synchronously.","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["renderdoc","screenshot"]},"frames":{"type":"number"}},"required":["kind"]}})";
+			R"({"description":"Trigger a frame capture on the next render. Kind-dispatched. kind=renderdoc: RenderDoc multi-frame capture via the in-app API, honors frames (1-120, default 1); RenderDoc must be attached/loaded (check communityshaders.feature list for DeveloperTools.loaded). kind=screenshot: lossless screenshot via the Screenshot feature; frames is ignored. Fire-and-forget — no artifact path is returned synchronously.","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["renderdoc","screenshot"]},"frames":{"type":"number"}},"required":["kind"]}})";
 		dvb->RegisterTool("communityshaders.capture", captureDesc, &CaptureToolHandler, nullptr);
 
 		static constexpr const char* nvperfDesc =

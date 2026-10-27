@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <d3d11.h>
 #include <functional>
 #include <string>
@@ -19,7 +20,7 @@ class Profiler
 {
 public:
 	static constexpr uint32_t kMaxTimers = 128;
-	static constexpr uint32_t kFrameLatency = 3;
+	static constexpr uint32_t kFrameLatency = 6;
 	static constexpr uint32_t kHistorySize = 300;
 	// Must exceed the longest legitimate gap between samples of a still-running pass;
 	// the DynamicCubemaps state machine spreads its passes over 6 frames.
@@ -113,20 +114,23 @@ public:
 		endPerfEvent = std::move(endCb);
 	}
 
-	/** @brief Begins a new profiling frame; collects results from the oldest in-flight frame. */
+	/** @brief Collects resolved frames; begins one unless the ring is full. */
 	void BeginFrame();
 
 	/**
 	 * @brief Begins a named GPU/CPU timing pass within the current frame.
 	 * @param name Pass identifier (e.g. "Feature::PassName"). Implicitly calls BeginFrame if needed.
 	 */
-	void BeginPass(const std::string& name);
+	void BeginPass(std::string_view name);
 
 	/** @brief Ends the current timing pass and records the CPU/GPU timestamps. */
 	void EndPass();
 
 	/** @brief Ends the current profiling frame and advances the ring buffer write cursor. */
 	void EndFrame();
+
+	void KeepActive(uint32_t frames = 2) { activeUntilFrame.store(frameCounter.load(std::memory_order_relaxed) + frames, std::memory_order_relaxed); }
+	bool IsActive() const { return frameCounter.load(std::memory_order_relaxed) <= activeUntilFrame.load(std::memory_order_relaxed); }
 
 	/** @brief Gets the live timings and history from the last collected frame. Rolling statistics are left at zero; see GetStatistics. */
 	const std::vector<TimerResult>& GetResults() const { return results; }
@@ -183,7 +187,6 @@ private:
 		};
 		std::vector<TimerPair> timers;
 		uint32_t activeCount = 0;
-		bool inFlight = false;
 	};
 
 	ID3D11DeviceContext* context = nullptr;
@@ -191,10 +194,16 @@ private:
 	FrameQueries frames[kFrameLatency];
 	uint32_t writeFrame = 0;
 	uint32_t readFrame = 0;
-	uint32_t framesSinceInit = 0;
+	// Ended frames awaiting collection, oldest at readFrame.
+	uint32_t pendingFrames = 0;
 	bool initialized = false;
 	bool frameActive = false;
+	bool passOpen = false;
+	// Ring was full at BeginFrame; the whole frame is unprofiled.
+	bool frameSkipped = false;
 	double cpuTicksToMs = 0.0;
+	std::atomic<uint64_t> frameCounter{ 0 };
+	std::atomic<uint64_t> activeUntilFrame{ 0 };
 
 	PerfEventCallback beginPerfEvent;
 	PerfEventCallback endPerfEvent;

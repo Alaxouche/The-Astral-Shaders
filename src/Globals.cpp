@@ -6,13 +6,14 @@
 #include "Features/CSEditor.h"
 #include "Features/CausticLight.h"
 #include "Features/CloudShadows.h"
+#include "Features/DetailMaps.h"
+#include "Features/DeveloperTools.h"
 #include "Features/DynamicCubemaps.h"
 #include "Features/Effects11.h"
 #include "Features/ExponentialHeightFog.h"
 #include "Features/ExtendedMaterials.h"
 #include "Features/ExtendedTranslucency.h"
 #include "Features/FootstepParticles.h"
-#include "Features/FoliageLighting.h"
 #include "Features/FurShells.h"
 #include "Features/GrassCollision.h"
 #include "Features/GrassLighting.h"
@@ -28,6 +29,7 @@
 #include "Features/LandscapeSeams.h"
 #include "Features/LightLimitFix.h"
 #include "Features/LinearLighting.h"
+#include "Features/NightEye.h"
 #include "Features/PerformanceOverlay.h"
 #include "Features/PostProcessing.h"
 #include "Features/LivingWindows.h"
@@ -83,7 +85,6 @@ namespace globals
 		ExtendedMaterials extendedMaterials{};
 		GrassCollision grassCollision{};
 		GrassLighting grassLighting{};
-		FoliageLighting foliageLighting{};
 		GrassOptimizations grassOptimizations{};
 		IBL ibl{};
 		LightLimitFix lightLimitFix{};
@@ -116,6 +117,7 @@ namespace globals
 		Upscaling upscaling{};
 		HDRDisplay hdrDisplay{};
 		Effects11 effects11{};
+		DeveloperTools developerTools{};
 		RenderDoc renderDoc{};
 		RemoteControl remoteControl{};
 		ScreenshotFeature screenshotFeature{};
@@ -127,7 +129,9 @@ namespace globals
 		SnowCover snowCover{};
 		FootstepParticles footstepParticles{};
 		HairBacklighting hairBacklighting{};
+		NightEye nightEye{};
 		FurShells furShells{};
+		DetailMaps detailMaps{};
 		LandscapeSeams landscapeSeams{};
 		SnowDeformation snowDeformation{};
 		CausticLight causticLight{};
@@ -292,9 +296,21 @@ namespace globals
 	void CacheFramebuffer()
 	{
 		using namespace game;
-		auto frameBuffer = (FrameBuffer*)mappedFrameBuffer->pData;
-		features::reverseZ.FixupMappedFrameBuffer(*frameBuffer);
-		frameBufferCached.data = *frameBuffer;
+		static_assert(sizeof(FrameBuffer) % sizeof(__m128i) == 0);
+
+		auto* source = static_cast<__m128i*>(mappedFrameBuffer->pData);
+		auto* destination = reinterpret_cast<__m128i*>(&frameBufferCached.data);
+
+		if (reinterpret_cast<uintptr_t>(source) % alignof(__m128i) == 0) {
+			for (size_t i = 0; i < sizeof(FrameBuffer) / sizeof(__m128i); ++i)
+				_mm_storeu_si128(destination + i, _mm_stream_load_si128(source + i));
+		} else {
+			frameBufferCached.data = *reinterpret_cast<FrameBuffer*>(source);
+		}
+
+		if (features::reverseZ.FixupMappedFrameBuffer(frameBufferCached.data))
+			*reinterpret_cast<FrameBuffer*>(source) = frameBufferCached.data;
+
 		mappedFrameBuffer = nullptr;
 	}
 

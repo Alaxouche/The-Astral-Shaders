@@ -1,5 +1,6 @@
 #include "LinearLighting.h"
 
+#include <DirectXTex.h>
 #include <cmath>
 
 #include "../I18n/I18n.h"
@@ -294,12 +295,30 @@ RE::NiColor LinearLighting::LightColorToWorking(const RE::NiLight* light, bool e
 	auto color = effect ? static_cast<const RE::NiDirectionalLight*>(light)->GetDirectionalLightRuntimeData().effectColor : diffuse;
 	if (!IsLinearLightingActive())
 		return color;
-	auto* const point = skyrim_cast<RE::NiPointLight*>(const_cast<RE::NiLight*>(light));
+
+	struct Memo
+	{
+		const RE::NiLight* light = nullptr;
+		RE::NiColor source{};
+		RE::NiColor result{};
+		uint32_t frame = 0;
+		bool effect = false;
+		bool aces = false;
+	};
+	static thread_local Memo memo;
+	const bool aces = IsACEScgActive();
+	const uint32_t frame = globals::state->frameCount;
+	if (memo.light == light && memo.frame == frame && memo.effect == effect && memo.aces == aces && memo.source == color)
+		return memo.result;
+
+	const auto source = color;
+	auto* const point = netimmerse_cast<RE::NiPointLight*>(const_cast<RE::NiLight*>(light));
 	const bool linear = point && LLFCommon::RuntimeLightDataExt::Get(point)->flags.any(LightLimitFix::LightFlags::Linear);
 	if (!linear)
 		Util::ColorSpace::SRGBToLinear(&color.red);
-	if (IsACEScgActive())
+	if (aces)
 		Util::ColorSpace::SRGBGamutToAP1(&color.red);
+	memo = { light, source, color, frame, effect, aces };
 	return color;
 }
 
@@ -357,6 +376,19 @@ namespace
 			auto* previous = std::exchange(geometryPass, pass);
 			const SKSE::stl::scope_exit restore([previous]() noexcept { geometryPass = previous; });
 			func(shader, pass, renderFlags);
+			if constexpr (Type == RE::BSShader::Type::Lighting) {
+				constexpr auto projectedTextureIsSRGB = static_cast<uint>(State::ExtraShaderDescriptors::ProjectedTextureIsSRGB);
+				auto& descriptor = globals::state->permutationData.ExtraShaderDescriptor;
+				descriptor &= ~projectedTextureIsSRGB;
+				if (globals::state->currentPixelDescriptor & static_cast<uint>(SIE::ShaderCache::LightingShaderFlags::ProjectedUV)) {
+					if (auto* srv = globals::game::shadowState->GetRuntimeData().PSTexture[3]) {
+						D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
+						srv->GetDesc(&desc);
+						if (DirectX::IsSRGB(desc.Format))
+							descriptor |= projectedTextureIsSRGB;
+					}
+				}
+			}
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
@@ -464,7 +496,7 @@ namespace
 					WriteRGB(Group::PerGeometry, 0, ll.SRGBToWorking(effect->emittanceColor ? *effect->emittanceColor : RE::NiColor{ 1.f, 1.f, 1.f }));
 				}
 				if (!membrane && (descriptor & (1u << 16)) && pass->numLights && pass->sceneLights && pass->sceneLights[0]) {
-					if (const auto* light = skyrim_cast<RE::NiDirectionalLight*>(pass->sceneLights[0]->light.get())) {
+					if (const auto* light = netimmerse_cast<RE::NiDirectionalLight*>(pass->sceneLights[0]->light.get())) {
 						const float scale = RE::ImageSpaceManager::GetSingleton()->GetRuntimeData().data.baseData.hdr.sunlightScale;
 						WriteRGB(Group::PerGeometry, 11, ll.LightColorToWorking(light, true) * (light->GetLightRuntimeData().fade * scale));
 					}
@@ -633,8 +665,9 @@ namespace ImageSpaceColorManagement
 void LinearLighting::Load()
 {
 	ApplyGameGamma();
-	// Needs Post Processing's display transform, as in Reset(); without it the game renders in gamma space.
-	configuredLinearLighting = loaded && settings.enableLinearLighting && globals::features::postProcessing.loaded;
+	// Matches Reset() so a saved Vanilla mode does not cost a shader reload on the first frame.
+	configuredLinearLighting = loaded && settings.enableLinearLighting && globals::features::postProcessing.loaded &&
+	                           !PostProcessingMode::IsVanillaPending();
 	configuredACEScg = configuredLinearLighting && settings.enableACEScg;
 
 	// Installed regardless of the toggle so Reset() can enable Linear Lighting without a restart.

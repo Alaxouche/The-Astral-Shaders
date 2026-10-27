@@ -1,5 +1,7 @@
 #pragma once
 
+#include "RainRefraction/TextureFootprint.h"
+
 #include <winrt/base.h>
 
 #include "Buffer.h"
@@ -33,8 +35,10 @@ public:
 	static constexpr float kMaxMotionStretch = 3.0f;
 	static constexpr float kMaxRefractionFactor = 2.0f;
 	static constexpr float kMaxRefractionBlur = 1.0f;
+	static constexpr float kMinVisibility = 1.0f;
+	static constexpr float kMaxVisibility = 4.0f;
 
-	/** @brief User settings, used while Effects 11 is not active; mirrors the preset's [RAIN] Enable, MotionStretch, MotionTransparency, RefractionFactor and MotionBluriness. */
+	/** @brief User settings. All but Visibility are used only while Effects 11 is not active, mirroring the preset's [RAIN] Enable, MotionStretch, MotionTransparency, RefractionFactor and MotionBluriness. */
 	struct Settings
 	{
 		bool Enable = true;
@@ -43,6 +47,7 @@ public:
 		bool ScreenRefraction = true;
 		float RefractionFactor = 1.0f;
 		float RefractionBlur = 0.0f;
+		float Visibility = 1.5f;
 	} settings;
 
 	/** @brief Feature buffer data, matching RainRefractionSettings in SharedData.hlsli; Enable is cleared when the raindrop texture or blend state is missing. */
@@ -55,7 +60,10 @@ public:
 		float RefractionFactor;
 		float MotionBluriness;
 		float Brightness;
-		float pad0;
+		float Visibility;
+		float4 TextureBounds{ 0, 0, 1, 1 };  ///< UV rectangle of the raindrop texture's alpha coverage
+		float2 TextureRadiusScale{ 1, 1 };   ///< Billboard half-extents per unit drop radius
+		float2 pad0{};
 	};
 	STATIC_ASSERT_ALIGNAS_16(PerFrame);
 
@@ -63,6 +71,7 @@ public:
 	struct RaindropTexture
 	{
 		winrt::com_ptr<ID3D11ShaderResourceView> srv;
+		RainRefractionTexture::Footprint footprint;
 		std::string status;  ///< Failure reason; empty when loaded
 	};
 
@@ -87,7 +96,7 @@ public:
 	/** @brief Loads enbraindrops.png from the Effects 11 preset folder; called whenever a preset is applied. */
 	void LoadPresetRaindrops(const std::filesystem::path& a_presetPath);
 
-	/** @brief Binds the raindrop texture and the vertex shader feature buffers for refractive rain passes. */
+	/** @brief Binds the vertex shader feature buffers for rain passes, plus the raindrop texture while refraction is active. */
 	void ModifyParticle();
 	/** @brief Switches refractive rain passes to alpha blending and binds the scene behind the rain. */
 	void ParticleShaderHacks();

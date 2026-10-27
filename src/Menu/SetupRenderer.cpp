@@ -10,16 +10,6 @@
 
 // Static member definitions
 bool SetupRenderer::isFirstTimeSetupShown = false;
-uint32_t SetupRenderer::keyThatClosedDialog = 0;
-
-bool SetupRenderer::ShouldSkipKeyRelease(uint32_t key)
-{
-	if (keyThatClosedDialog && key == keyThatClosedDialog) {
-		keyThatClosedDialog = 0;
-		return true;
-	}
-	return false;
-}
 
 void SetupRenderer::RenderFirstTimeSetupDialog()
 {
@@ -81,7 +71,7 @@ void SetupRenderer::RenderFirstTimeSetupDialog()
 	ImGui::Spacing();
 
 	// Description - centered
-	const char* description = T("menu.setup.choose_hotkey", "Please choose a hotkey to access the menu:");
+	const char* description = T("menu.setup.choose_hotkey", "Click the key below to choose a menu hotkey:");
 	centerText(description);
 	ImGui::Text("%s", description);
 
@@ -94,12 +84,12 @@ void SetupRenderer::RenderFirstTimeSetupDialog()
 	ImGui::SetWindowFontScale(isCapturing ? HOTKEY_TEXT_SCALE_CAPTURING : HOTKEY_TEXT_SCALE);
 
 	// Format hotkey with brackets to make it look like a button
+	const std::string toggleKeyName = Util::Input::KeyIdToString(menu->GetSettings().ToggleKey);
 	std::string hotkeyStr;
 	if (isCapturing) {
 		hotkeyStr = "[ ... ]";
 	} else {
-		auto& keys = menu->GetSettings().ToggleKey;
-		hotkeyStr = std::string("[ ") + Util::Input::KeyIdToString(keys) + " ]";
+		hotkeyStr = "[ " + toggleKeyName + " ]";
 	}
 
 	ImVec2 hotkeyTextSize = ImGui::CalcTextSize(hotkeyStr.c_str());
@@ -136,8 +126,8 @@ void SetupRenderer::RenderFirstTimeSetupDialog()
 
 	// Handle click to start hotkey capture
 	if (clicked && !isCapturing) {
-		// Prevent starting capture if this click was caused by Enter key,
-		// because we want Enter to close the dialog instead.
+		// Prevent starting capture if this click was caused by Enter key
+		// (keyboard nav), so a reflexive Enter press doesn't enter capture mode.
 		if (!ImGui::IsKeyPressed(ImGuiKey_Enter))
 			menu->settingToggleKey = true;
 	}
@@ -173,18 +163,14 @@ void SetupRenderer::RenderFirstTimeSetupDialog()
 
 	ImGui::Spacing();
 
-	// Check for Enter or Escape key to close, but only if not capturing a hotkey
-	bool escapePressed = ImGui::IsKeyPressed(ImGuiKey_Escape);
-	if ((ImGui::IsKeyPressed(ImGuiKey_Enter) || escapePressed) && !isCapturing) {
-		MarkFirstTimeSetupComplete(escapePressed ? VK_ESCAPE : VK_RETURN);
-	}
-
 	// Help text with breathing animation
-	const char* helpText = T("menu.setup.press_to_close", "Press Escape or Enter to continue");
+	const std::string helpText = I18n::GetSingleton()->Format("menu.setup.press_hotkey_to_continue",
+		{ { "key", toggleKeyName } },
+		"Press {key} to continue");
 
 	ImGui::SetWindowFontScale(HELP_TEXT_SCALE);
-	centerText(helpText);
-	Util::DrawBreathingText(helpText);
+	centerText(helpText.c_str());
+	Util::DrawBreathingText(helpText.c_str(), themeSettings.StatusPalette.InfoColor);
 
 	ImGui::SetWindowFontScale(1.0f);
 
@@ -204,7 +190,7 @@ bool SetupRenderer::ShouldShowFirstTimeSetup()
 	return !menu->GetSettings().FirstTimeSetupCompleted;
 }
 
-void SetupRenderer::MarkFirstTimeSetupComplete(uint32_t closingKey)
+void SetupRenderer::MarkFirstTimeSetupComplete()
 {
 	// Set the flag in the Menu settings
 	auto menu = Menu::GetSingleton();
@@ -217,5 +203,4 @@ void SetupRenderer::MarkFirstTimeSetupComplete(uint32_t closingKey)
 	globals::state->Save();
 
 	isFirstTimeSetupShown = true;
-	keyThatClosedDialog = closingKey;
 }

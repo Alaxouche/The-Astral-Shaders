@@ -23,9 +23,12 @@ namespace Plugin
 	inline constexpr auto DISPLAY_NAME = "Astral Shaders"sv;
 
 	/// Fork build number, bumped on every shipped update. Shown as {VERSION}.{FORK_BUILD:03}.
-	inline constexpr unsigned FORK_BUILD = 58u;
+	inline constexpr unsigned FORK_BUILD = 59u;
 
 	/// Full git describe string, e.g. "v1.4.11", "v1.4.11-3-gabcdef1", "v1.4.11-3-gabcdef1-dirty".
 	/// Matches "v{VERSION}" exactly on a clean tagged release build.
 	inline constexpr auto BUILD_DESCRIBE = "@GIT_DESCRIBE@"sv;
+
+	/// Build branch, "*" for local (non-CI) builds; empty when detached.
+	inline constexpr auto BUILD_BRANCH = "@GIT_BRANCH@"sv;
 }

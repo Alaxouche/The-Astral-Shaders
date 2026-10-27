@@ -11,6 +11,7 @@
 #include "PostProcessing/Composite.h"
 #include "PostProcessing/DoF.h"
 #include "PostProcessing/HistogramAutoExposure.h"
+#include "PostProcessing/ImageSpaceModifiers.h"
 #include "PostProcessing/LUT.h"
 #include "PostProcessing/LensFlare.h"
 #include "PostProcessing/LocalExposure.h"
@@ -57,12 +58,11 @@ struct PostProcessing : Feature
 	bool WantsTonemapOwnership() const;
 
 	/**
-	 * @brief Whether Effects11 replaced the tonemap this frame.
+	 * @brief Whether the sub-feature pipeline runs this frame: Post Processing mode and owner of the tonemap.
 	 *
-	 * The pipeline's output is discarded in that case, so every entry point that would
-	 * write to a game render target must bail out rather than do work nothing consumes.
+	 * Otherwise PreProcess draws no sub-features, so every other entry point must bail out too.
 	 */
-	bool IsTonemapOwnedByEffects11() const;
+	bool IsPipelineRunning() const;
 
 	/**
 	 * @brief Whether Color Grading wants Pumbo AutoHDR this frame (SDR tonemapper + HDR Display).
@@ -175,6 +175,7 @@ struct PostProcessing : Feature
 	struct ImageSpaceManager
 	{
 		RE::ImageSpaceData gameISData;
+		ImageSpaceModifiers::Frame modifiers;
 	};
 
 	std::unique_ptr<ImageSpaceManager> imageSpaceManager = std::make_unique<ImageSpaceManager>();

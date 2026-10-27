@@ -101,7 +101,7 @@ struct HiZOcclusion : OverlayFeature
 	std::string statusMessage;           // Detailed error/info message for debugging
 	bool resourcesSetup = false;         // whether resources have been initialized
 	bool resourcesValid = false;         // whether current resources are valid and safe to use
-	bool cullingHookInstalled = false;   // set by Hooks; the registration hook only exists on AE before 1.7.99
+	bool cullingHookInstalled = false;   // set by Hooks; the registration hook is skipped on VR
 
 	// Per-frame tracking to verify build/draw order and availability
 	uint32_t lastBuiltFrame = 0;           // frame index when the pyramid was last built
@@ -160,9 +160,10 @@ struct HiZOcclusion : OverlayFeature
 
 	// Shaders for building the Hi-Z pyramid
 	ID3D11ComputeShader* hiZBuildLevel0CS = nullptr;  // depth -> mip 0
-	ID3D11ComputeShader* hiZDownsampleCS = nullptr;   // mip n -> mip n+1 (farthest-depth reduction)
-	ID3D11ComputeShader* hiZTestCS = nullptr;         // GPU-based occlusion testing (production, no debug overlay)
-	ID3D11ComputeShader* hiZTestCSDebug = nullptr;    // GPU-based occlusion testing (with debug overlay)
+	ID3D11ComputeShader* hiZBuildMip01CS = nullptr;
+	ID3D11ComputeShader* hiZDownsampleCS = nullptr;  // mip n -> mip n+1 (farthest-depth reduction)
+	ID3D11ComputeShader* hiZTestCS = nullptr;        // GPU-based occlusion testing (production, no debug overlay)
+	ID3D11ComputeShader* hiZTestCSDebug = nullptr;   // GPU-based occlusion testing (with debug overlay)
 
 	// GPU culling resources
 	ID3D11Buffer* geometryBoundsBuffer = nullptr;  // Input: geometry bounding spheres
@@ -227,6 +228,9 @@ struct HiZOcclusion : OverlayFeature
 	static const char* GetRenderModeName(uint32_t renderMode);
 	static bool IsMainViewRegistration(uint32_t renderMode, const RE::BSGraphics::BSShaderAccumulator* accum);
 	void CaptureSunShadowDirection(const RE::NiCamera* camera);
+	bool IsCollectingStats() const;
+
+	std::atomic<uint32_t> statsDrawnFrame{ 0 };
 
 	std::array<std::atomic<float>, 3> sunShadowDirection{};
 	std::atomic<bool> sunShadowDirectionCaptured = false;

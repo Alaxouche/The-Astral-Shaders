@@ -51,6 +51,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	gameCinematicBlend,
 	gameFadeBlend,
 	gameTintBlend,
+	gameModifierBlend,
 	useLog,
 	logType,
 	invertLog,
@@ -235,13 +236,26 @@ struct TonemapperInfo
 				{ f4{ 1.f, 0.f, 1000.f, 0.f } } },
 
 			{ "PsychoV"sv, "PsychoVTonemap"sv,
-				T(TKEY("tonemapper.psychov.description"), "PsychoV 17 tonemapper by Carlos Lopez, from RenoDX."),
+				T(TKEY("tonemapper.psychov.description"), "PsychoV 30 tonemapper by Carlos Lopez, from RenoDX."),
 				0, 0, true, 0, 0,
 				[](CTP& params) {
 					exposureSlider(&params[0].x);
+					ImGui::SliderFloat(T(TKEY("highlights"), "Highlights"), &params[0].y, 0.f, 2.f, "%.2f");
+					ImGui::SliderFloat(T(TKEY("shadows"), "Shadows"), &params[0].z, 0.f, 2.f, "%.2f");
+					ImGui::SliderFloat(T(TKEY("contrast"), "Contrast"), &params[0].w, 0.01f, 2.f, "%.2f");
+					ImGui::SliderFloat(T(TKEY("saturation"), "Saturation"), &params[1].x, 0.f, 2.f, "%.2f");
+					ImGui::SliderFloat(T(TKEY("cone_response"), "Cone Response"), &params[1].y, 0.f, 2.f, "%.2f");
+					if (auto _tt = Util::HoverTooltipWrapper())
+						ImGui::Text(T(TKEY("cone_response_tooltip"), "Scales the per-cone response contrast."));
+					ImGui::SliderFloat(T(TKEY("gamut_compression"), "Gamut Compression"), &params[1].z, 0.f, 1.f, "%.2f");
+					if (auto _tt = Util::HoverTooltipWrapper())
+						ImGui::Text(T(TKEY("gamut_compression_tooltip"), "0 bypasses gamut mapping; 1 applies the full display-gamut projection."));
+					ImGui::SliderFloat(T(TKEY("compression"), "Compression"), &params[1].w, 0.f, 2.f, "%.2f");
+					if (auto _tt = Util::HoverTooltipWrapper())
+						ImGui::Text(T(TKEY("compression_tooltip"), "Finite-response compression power. 0 selects automatic compression; positive values select a manual power."));
 					drawHDRStatus();
 				},
-				{ f4{ 1.f, 0.f, 0.f, 0.f } } },
+				{ f4{ 1.f, 1.f, 1.f, 1.f }, f4{ 1.f, 1.f, 1.f, 1.f } } },
 
 			{ "Neutwo"sv, "NeutwoTonemap"sv,
 				T(TKEY("tonemapper.neutwo.description"), "Neutwo tonemapper by Carlos Lopez, from RenoDX."),
@@ -330,7 +344,12 @@ void ColorGrading::DrawSettings()
 				settings.invertLog = invertLog;
 			ImGui::EndDisabled();
 		}
-		ImGui::Combo(T(TKEY("log_type"), "Log Type"), (int*)&settings.logType, "ACEScct\0ARRILogC4\0SonySLog3\0");
+		const char* logTypes[] = {
+			T(TKEY("log_type_acescct"), "ACEScct"),
+			T(TKEY("log_type_arrilogc4"), "ARRILogC4"),
+			T(TKEY("log_type_sonyslog3"), "SonySLog3"),
+		};
+		ImGui::Combo(T(TKEY("log_type"), "Log Type"), (int*)&settings.logType, logTypes, IM_ARRAYSIZE(logTypes));
 	}
 
 	ImGui::SeparatorText(T(TKEY("color_grading"), "Color Grading"));
@@ -508,7 +527,7 @@ void ColorGrading::DrawSettings()
 		// Tonemapping curve visualization (GPU-evaluated, RGB overlay)
 		if (ImGui::TreeNode(T(TKEY("curve_preview"), "Curve Preview"))) {
 			curveReadbackRequested = true;
-			curveReadbackRequestFrame = ImGui::GetFrameCount();
+			curveReadbackRequestFrame = static_cast<int>(globals::state->frameCount);
 
 			if (settings.skipLUT) {
 				ImGui::TextDisabled(T(TKEY("curve_preview_requires_lut"), "Enable LUT generation to see curve preview (uncheck 'Skip LUT')"));
@@ -607,6 +626,9 @@ void ColorGrading::DrawSettings()
 		ImGui::Text(T(TKEY("cinematic_blend_tooltip"), "Saturation, Brightness and Contrast."));
 	ImGui::SliderFloat(T(TKEY("fade_blend"), "Fade Blend"), &settings.gameFadeBlend, 0.f, 1.f, "%.3f");
 	ImGui::SliderFloat(T(TKEY("tint_blend"), "Tint Blend"), &settings.gameTintBlend, 0.f, 1.f, "%.3f");
+	ImGui::SliderFloat(T(TKEY("modifier_blend"), "Modifier Blend"), &settings.gameModifierBlend, 0.f, 1.f, "%.3f");
+	if (auto _tt = Util::HoverTooltipWrapper())
+		ImGui::Text(T(TKEY("modifier_blend_tooltip"), "Saturation, brightness, contrast and tint from temporary imagespace modifiers such as spells, Night Eye and survival effects."));
 	ImGui::SeparatorText(T(TKEY("color_space_transform"), "Color Space Transform"));
 	{
 		auto& spaces = getAvailableColorSpaces();
@@ -666,11 +688,30 @@ void ColorGrading::LoadSettings(json& o_json)
 		settings = o_json;
 		auto& spaces = getAvailableColorSpaces();
 		settings.processColorSpace = std::clamp(settings.processColorSpace, 0, static_cast<int>(spaces.size()) - 1);
+		settings.gameModifierBlend = std::isfinite(settings.gameModifierBlend) ? std::clamp(settings.gameModifierBlend, 0.f, 1.f) : 1.f;
 
 		auto& tonemappers = TonemapperInfo::GetTonemappers();
 		if (auto it = std::ranges::find_if(tonemappers, [&](TonemapperInfo& x) { return settings.currentTonemapper == x.name; });
 			it != tonemappers.end()) {
 			tonemapperType = (int)(it - tonemappers.begin());
+			if (it->name == "PsychoV"sv) {
+				auto& params = settings.tonemapParams;
+				// PsychoV 17 saves only carried exposure; PsychoV 30 divides by contrast.
+				if (params[0].w <= 0.f) {
+					const float exposure = params[0].x;
+					params = it->default_settings;
+					params[0].x = exposure;
+				}
+				// The shader trusts its inputs: hand-edited values past the slider ranges (e.g. Shadows > 2
+				// flips a pow() exponent negative) blow up near black, so clamp to the slider ranges.
+				params[0].y = std::clamp(params[0].y, 0.f, 2.f);
+				params[0].z = std::clamp(params[0].z, 0.f, 2.f);
+				params[0].w = std::clamp(params[0].w, 0.01f, 2.f);
+				params[1].x = std::clamp(params[1].x, 0.f, 2.f);
+				params[1].y = std::clamp(params[1].y, 0.f, 2.f);
+				params[1].z = std::clamp(params[1].z, 0.f, 1.f);
+				params[1].w = std::clamp(params[1].w, 0.f, 2.f);
+			}
 		} else {
 			TonemapperInfo::GetDefaultParams(tonemapperType, settings.tonemapParams);
 		}
@@ -825,6 +866,7 @@ void ColorGrading::SetupResources()
 		};
 
 		texLUT = std::make_unique<Texture3D>(lutTexDesc, "ColorGrading::LUT3D");
+		lutValid = false;
 		texLUT->CreateSRV(lutSrvDesc);
 		texLUT->CreateUAV(lutUavDesc);
 	}
@@ -980,6 +1022,8 @@ void ColorGrading::Draw(TextureInfo& inout_tex)
 	auto& pp = globals::features::postProcessing;
 
 	RE::ImageSpaceData imageSpaceData = pp.imageSpaceManager->gameISData;
+	const auto gameImageSpace = ImageSpaceModifiers::Resolve(imageSpaceData, pp.imageSpaceManager->modifiers,
+		{ .cinematic = settings.gameCinematicBlend, .tint = settings.gameTintBlend, .fade = settings.gameFadeBlend, .modifiers = settings.gameModifierBlend });
 	auto& hdr = globals::features::hdrDisplay;
 	const bool hdrEnabled = hdr.loaded && hdr.settings.enableHDR;
 	UpdateColorSpaceTransforms(hdrEnabled);
@@ -1022,9 +1066,9 @@ void ColorGrading::Draw(TextureInfo& inout_tex)
 		.shadowsOffset = settings.shadowsOffset,
 		.midtonesOffset = settings.midtonesOffset,
 		.highlightsOffset = settings.highlightsOffset,
-		.cinematic = float4{ std::lerp(1.f, imageSpaceData.baseData.cinematic.saturation, settings.gameCinematicBlend.x), std::lerp(1.f, imageSpaceData.baseData.cinematic.brightness, settings.gameCinematicBlend.y), std::lerp(1.f, imageSpaceData.baseData.cinematic.contrast, settings.gameCinematicBlend.z), imageSpaceData.baseAmount },
-		.fade = float4{ imageSpaceData.modData.data[RE::ImageSpaceModData::kFadeR], imageSpaceData.modData.data[RE::ImageSpaceModData::kFadeG], imageSpaceData.modData.data[RE::ImageSpaceModData::kFadeB], imageSpaceData.modData.data[RE::ImageSpaceModData::kFadeAmount] * settings.gameFadeBlend },
-		.tint = float4{ imageSpaceData.baseData.tint.color.red, imageSpaceData.baseData.tint.color.green, imageSpaceData.baseData.tint.color.blue, imageSpaceData.baseData.tint.amount * settings.gameTintBlend },
+		.cinematic = float4{ gameImageSpace.cinematic.x, gameImageSpace.cinematic.y, gameImageSpace.cinematic.z, imageSpaceData.baseAmount },
+		.fade = gameImageSpace.fade,
+		.tint = gameImageSpace.tint,
 		// Tonemappers and their gamut matrices require scene-linear input.
 		.logType = settings.useLog ? ((1u << settings.logType) | ((settings.invertLog || settings.enableTonemap) ? (1u << 3u) : 0u)) : 0u,
 		.skipLDR = settings.skipLDR,
@@ -1058,7 +1102,8 @@ void ColorGrading::Draw(TextureInfo& inout_tex)
 	context->CSSetSamplers(0, 1, samplers.data());
 	ID3D11UnorderedAccessView* uav = nullptr;
 
-	if (!settings.skipLUT) {
+	const uint64_t generation = shaderGeneration.load(std::memory_order_relaxed);
+	if (!settings.skipLUT && (!lutValid || lutShader != lutgenCS.get() || lutGeneration != generation || memcmp(&colorCBData, lutKey.data(), sizeof(ColorCB)) != 0)) {
 		// LUT Gen
 		uav = texLUT->uav.get();
 		context->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
@@ -1068,6 +1113,11 @@ void ColorGrading::Draw(TextureInfo& inout_tex)
 		uav = nullptr;
 		context->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
 		context->CSSetShader(nullptr, nullptr, 0);
+
+		lutValid = lutgenCS.get() != nullptr;
+		lutShader = lutgenCS.get();
+		lutGeneration = generation;
+		memcpy(lutKey.data(), &colorCBData, sizeof(ColorCB));
 	}
 
 	// Apply Color Grading (via LUT or direct)
@@ -1115,7 +1165,7 @@ void ColorGrading::Draw(TextureInfo& inout_tex)
 	const bool curveReadbackActive =
 		curveReadbackRequested &&
 		ImGui::GetCurrentContext() &&
-		curveReadbackRequestFrame >= ImGui::GetFrameCount() - 1;
+		curveReadbackRequestFrame >= static_cast<int>(globals::state->frameCount) - 1;
 	if (!curveReadbackActive)
 		curveReadbackRequested = false;
 

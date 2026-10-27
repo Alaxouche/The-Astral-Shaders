@@ -26,13 +26,14 @@ public:
 
 	struct BendSettings
 	{
-		float SurfaceThickness = 0.02f;
+		float SurfaceThickness = 0.01f;
 		float BilinearThreshold = 0.02f;
 		float ShadowContrast = 1.0f;
 		uint Enable = 1;
 		uint SampleCount = 1;
-		uint FilterShadowMask = 1;
-		uint pad0[2];
+		uint FilterShadowMask = 0;
+		uint Denoise = 1;
+		uint pad0;
 	};
 
 	BendSettings bendSettings;
@@ -64,6 +65,12 @@ public:
 	ID3D11ComputeShader* raymarchCS = nullptr;
 
 	Texture2D* screenSpaceShadowsTexture = nullptr;
+	Texture2D* denoiseTexture = nullptr;
+	ID3D11ComputeShader* denoiseCS[2] = { nullptr, nullptr };
+	bool denoiseCompileFailed = false;
+
+	ID3D11ComputeShader* GetDenoiseCS(bool a_crossRay);
+	void DenoiseShadows(ID3D11ShaderResourceView* a_depthSRV, uint a_width, uint a_height);
 
 	struct alignas(16) ShadowMaskFilterCB
 	{

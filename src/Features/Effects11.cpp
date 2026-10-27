@@ -122,8 +122,12 @@ namespace
 		uint32_t weightedSteps;
 		uint32_t useNoise;
 		float invScreenWidth;
+		float cloudGapIntensity;
+		float cloudGapExponent;
+		float lightDiscTan;
+		float pad0;
 	};
-	static_assert(sizeof(SunRaysData) == 80);
+	static_assert(sizeof(SunRaysData) == 96);
 
 	bool SelectSunRaysLight(RE::Sky* a_sky, const Effects11::PerFrame& a_perFrame, bool a_sunRays, bool a_moonRays, SunRaysLight& a_light)
 	{
@@ -293,8 +297,6 @@ Effects11::PerFrame Effects11::GetCommonBufferData()
 	data.StarsAnimationTime = settingManager.GetValue<float>("StarsAnimationTime", "SKY");
 	data.StarsAnimationDensity = settingManager.GetValue<float>("StarsAnimationDensity", "SKY");
 	data.StarsAnimationIntensity = settingManager.GetValue<float>("StarsAnimationIntensity", "SKY");
-	data.AuroraIntensity = settingManager.GetInterpolatedTimeOfDayValue("AuroraBorealisIntensity", "SKY");
-	data.AuroraCurve = settingManager.GetInterpolatedTimeOfDayValue("AuroraBorealisCurve", "SKY");
 	data.FixBlackCrush = settingManager.GetValue<bool>("FixBlackCrush", "SKY");
 
 	data.VolumetricRaysDesaturation = settingManager.GetInterpolatedTimeOfDayValue("Desaturation", "GAMEVOLUMETRICRAYS");
@@ -447,6 +449,9 @@ void Effects11::Reset()
 		// UseEffect with no compiled preset has nothing to run, so fall back to the game's own post processing.
 		PostProcessingMode::Set(PostProcessingMode::Mode::Vanilla);
 	}
+	// CheckCommonData only clears this when a hook calls it, which may not happen outside the world.
+	if (!presetActive)
+		enableEffect = false;
 }
 
 void Effects11::ClearShaderCache()
@@ -826,109 +831,11 @@ void Effects11::OverrideAmbientLighting(DirectionalAmbientColors& DirectionalAmb
 	}
 }
 
-namespace
-{
-	bool IsNightEyeEditorID(const char* a_editorID)
-	{
-		if (!a_editorID)
-			return false;
-		std::string lower(a_editorID);
-		for (auto& c : lower)
-			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-		for (const char* token : { "nighteye", "night_eye", "nightvision", "night_vision", "vampiresight", "vampire_sight", "predatorvision" }) {
-			if (lower.find(token) != std::string::npos)
-				return true;
-		}
-		return false;
-	}
-}
-
-void Effects11::DataLoaded()
-{
-	nightEyeImods.clear();
-	nightEyeKeyword = nullptr;
-	auto dataHandler = RE::TESDataHandler::GetSingleton();
-	if (!dataHandler)
-		return;
-
-	for (auto* keyword : dataHandler->GetFormArray<RE::BGSKeyword>()) {
-		if (keyword && keyword->formEditorID == std::string_view("MagicNightEye")) {
-			nightEyeKeyword = keyword;
-			break;
-		}
-	}
-
-	for (auto* imod : dataHandler->GetFormArray<RE::TESImageSpaceModifier>()) {
-		if (imod && IsNightEyeEditorID(imod->GetFormEditorID()))
-			nightEyeImods.insert(imod);
-	}
-
-	for (auto* setting : dataHandler->GetFormArray<RE::EffectSetting>()) {
-		if (!setting || !setting->data.imageSpaceMod)
-			continue;
-		if (setting->HasArchetype(RE::EffectSetting::Archetype::kNightEye) || (nightEyeKeyword && setting->HasKeyword(nightEyeKeyword)))
-			nightEyeImods.insert(setting->data.imageSpaceMod);
-	}
-
-	logger::info("[EFFECTS11] Night Eye detection: MagicNightEye keyword {}, {} night eye image space modifiers", nightEyeKeyword ? "found" : "missing", nightEyeImods.size());
-}
-
-bool Effects11::IsNightEyeSetting(const RE::EffectSetting* a_setting) const
-{
-	if (a_setting->HasArchetype(RE::EffectSetting::Archetype::kNightEye))
-		return true;
-	if (nightEyeKeyword && a_setting->HasKeyword(nightEyeKeyword))
-		return true;
-	return a_setting->data.imageSpaceMod && nightEyeImods.contains(a_setting->data.imageSpaceMod);
-}
-
-bool Effects11::HasNightEyeEffect() const
-{
-	auto player = globals::game::player;
-	if (!player || !player->GetParentCell())
-		return false;
-	auto magicTarget = player->GetMagicTarget();
-	if (!magicTarget)
-		return false;
-	auto effects = magicTarget->GetActiveEffectList();
-	if (!effects)
-		return false;
-
-	using Flag = RE::ActiveEffect::Flag;
-	for (const auto* activeEffect : *effects) {
-		if (!activeEffect || activeEffect->flags.any(Flag::kInactive, Flag::kDispelled))
-			continue;
-		const auto* setting = activeEffect->GetBaseObject();
-		if (setting && IsNightEyeSetting(setting))
-			return true;
-	}
-	return false;
-}
-
-void Effects11::UpdateNightEye()
-{
-	nightEye.active = HasNightEyeEffect();
-	const float target = nightEye.active ? 1.0f : 0.0f;
-
-	const auto& ids = EffectManager::GetSingleton().ids;
-	const float fadeTime = ids.nightEyeFadeTime != 0xFFFFFFFF ? SettingManager::GetSingleton().GetValue<float>(ids.nightEyeFadeTime) : 0.0f;
-	const float delta = globals::game::deltaTime ? *globals::game::deltaTime : 0.0f;
-	if (fadeTime <= 0.0f) {
-		nightEye.factor = target;
-		return;
-	}
-	if (delta <= 0.0f)
-		return;
-	const float step = delta / fadeTime;
-	nightEye.factor = std::clamp(nightEye.factor + std::clamp(target - nightEye.factor, -step, step), 0.0f, 1.0f);
-}
-
 void Effects11::OnSkyUpdateColors(RE::Sky* a_sky)
 {
 	sunlightGraded = false;
 	gameVolumetricRaysIntensityApplied = false;
 	CheckCommonData();
-	UpdateNightEye();
 	if (enableEffect)
 		OverrideWeather(a_sky);
 }
@@ -940,8 +847,12 @@ void Effects11::FinishSkyUpdateColors(RE::Sky* a_sky)
 
 	const auto& sunlight = a_sky->skyColor[static_cast<uint>(RE::TESWeather::ColorTypes::kSunlight)];
 	volumetricSunColor = NiToF3(sunlight);
-	if (sunlightGraded && !Util::IsInterior())
-		volumetricSunColor += (ungradedSunlight - gradedSunlight) * globals::features::skySync.GetAppliedSunlightFactor();
+	if (sunlightGraded && !Util::IsInterior()) {
+		auto ungrade = [](float a_final, float a_ungraded, float a_graded) { return a_graded > 1e-6f ? a_final * a_ungraded / a_graded : a_final; };
+		volumetricSunColor = { ungrade(volumetricSunColor.x, ungradedSunlight.x, gradedSunlight.x),
+			ungrade(volumetricSunColor.y, ungradedSunlight.y, gradedSunlight.y),
+			ungrade(volumetricSunColor.z, ungradedSunlight.z, gradedSunlight.z) };
+	}
 	volumetricSunColor = float3::Max(volumetricSunColor, float3::Zero);
 }
 
@@ -1307,6 +1218,11 @@ void Effects11::DrawSunRays()
 	data.maskBrightness = lightPeak;
 	data.maskExponent = light.maskExponent;
 	data.invScreenWidth = 1.0f / std::max(resolution.x, 1.0f);
+
+	const float gapSpread = DirectX::XMConvertToRadians(std::clamp(settingManager.GetValue<float>("CloudGapRaysSpread", "RAYS"), 5.0f, 80.0f));
+	data.cloudGapIntensity = std::max(settingManager.GetInterpolatedTimeOfDayValue("CloudGapRays", "RAYS"), 0.0f);
+	data.cloudGapExponent = std::log(0.5f) / std::log(std::cos(gapSpread));
+	data.lightDiscTan = std::sqrt(1.0f - std::pow(0.5f, 1.0f / light.maskExponent)) * light.billboardTan;
 
 	Effects11Util::D3D11ScopedPostFxBackup stateBackup;
 	stateBackup.Save(context);

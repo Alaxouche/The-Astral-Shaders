@@ -5,6 +5,8 @@
 #include "FeatureVersions.h"
 #include "Features/CSEditor.h"
 #include "Features/CloudShadows.h"
+#include "Features/DetailMaps.h"
+#include "Features/DeveloperTools.h"
 #include "Features/DynamicCubemaps.h"
 #include "Features/NightSky.h"
 #include "Features/ProceduralSun.h"
@@ -12,7 +14,6 @@
 #include "Features/ExponentialHeightFog.h"
 #include "Features/ExtendedMaterials.h"
 #include "Features/ExtendedTranslucency.h"
-#include "Features/FoliageLighting.h"
 #include "Features/FootstepParticles.h"
 #include "Features/FurShells.h"
 #include "Features/GrassCollision.h"
@@ -29,13 +30,12 @@
 #include "Features/LandscapeSeams.h"
 #include "Features/LightLimitFix.h"
 #include "Features/LinearLighting.h"
+#include "Features/NightEye.h"
 #include "Features/PerformanceOverlay.h"
 #include "Features/PostProcessing.h"
 #include "Features/LivingWindows.h"
 #include "Features/PhysicalSky.h"
 #include "Features/RainRefraction.h"
-#include "Features/RemoteControl.h"
-#include "Features/RenderDoc.h"
 #include "Features/ScreenSpaceGI.h"
 #include "Features/ScreenSpaceShadows.h"
 #include "Features/ScreenshotFeature.h"
@@ -213,7 +213,6 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 {
 	static std::vector<Feature*> features = {
 		&globals::features::truePBR,
-		&globals::features::foliageLighting,
 		&globals::features::volumetricShadows,
 		&globals::features::grassLighting,
 		&globals::features::grassCollision,
@@ -245,9 +244,8 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::extendedTranslucency,
 		&globals::features::reverseZ,
 		&globals::features::upscaling,
-		&globals::features::renderDoc,
+		&globals::features::developerTools,
 		&globals::features::hiZOcclusion,
-		&globals::features::remoteControl,
 		&globals::features::csEditor,
 		&globals::features::sceneManager,
 		&globals::features::screenshotFeature,
@@ -265,7 +263,9 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::snowCover,
 		&globals::features::footstepParticles,
 		&globals::features::hairBacklighting,
+		&globals::features::nightEye,
 		&globals::features::furShells,
+		&globals::features::detailMaps,
 		&globals::features::landscapeSeams,
 		&globals::features::snowDeformation,
 		&globals::features::causticLight

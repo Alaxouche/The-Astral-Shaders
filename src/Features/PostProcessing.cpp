@@ -98,13 +98,16 @@ void PostProcessing::DrawSettings()
 
 	ImGui::Separator();
 
-	// Effects 11 discards the pipeline output, so its controls would do nothing.
-	const Util::LockedSection effects11Lock(PostProcessingMode::Get() == PostProcessingMode::Mode::Effects11,
-		T("common.settings_managed_by_enb", "This setting is managed by Effects 11."));
+	// The pipeline only runs in its own mode, so its controls would do nothing in the others.
+	const auto mode = PostProcessingMode::Get();
+	const Util::LockedSection modeLock(mode != PostProcessingMode::Mode::PostProcessing,
+		mode == PostProcessingMode::Mode::Effects11 ?
+			T("common.settings_managed_by_enb", "This setting is managed by Effects 11.") :
+			T("feature.post_processing.off_in_vanilla", "Vanilla mode is active. Select Post Processing above to use these settings."));
 
 	{
 		auto& cam = cinematicCamera;
-		ImGui::Checkbox(T("feature.post_processing.cinematic_camera.name", "Cinematic Camera"), &cam.settings.Enabled);
+		ImGui::Checkbox(T("feature.post_processing.cinematic_camera.name", "Cinematic Camera"), &cinematicCamera.settings.Enabled);
 		if (auto _tt = Util::HoverTooltipWrapper())
 			ImGui::Text("%s", T("feature.post_processing.cinematic_camera.description",
 								  "Controls lens, focus, exposure and FOV. Exposure processing runs automatically while the camera is active; other effects must be enabled separately."));
@@ -324,6 +327,7 @@ void PostProcessing::DrawSettings()
 				imageSpaceManager->gameISData.modData.data[RE::ImageSpaceModData::kDOFRange],
 				imageSpaceManager->gameISData.modData.data[RE::ImageSpaceModData::kDOFMode]);
 			ImGui::Text(T("feature.post_processing.motion_blur_strength", "Motion Blur Strength: %.3f"), imageSpaceManager->gameISData.modData.data[RE::ImageSpaceModData::kMotionBlurStrength]);
+			ImGui::Text(T("feature.post_processing.active_modifiers", "Active Modifiers: %d"), static_cast<int>(imageSpaceManager->modifiers.contributions.size()));
 			ImGui::TreePop();
 		}
 		ImGui::TreePop();
@@ -351,11 +355,15 @@ void PostProcessing::ProcessSettings(json& o_json)
 	logger::debug("Loading post processing settings...");
 
 	for (auto& feat : pipeline) {
-		if (feat && o_json.contains(feat->GetType())) {
+		if (!feat)
+			continue;
+		const auto featIt = o_json.find(feat->GetType());
+		if (featIt != o_json.end()) {
 			try {
+				const auto& featJson = *featIt;
 				if (!feat->IsAutoEnabled())
-					feat->enabled = o_json.value(feat->GetType(), json::object()).value("enabled", true);
-				json featSettings = o_json.value(feat->GetType(), json::object()).value("settings", json::object());
+					feat->enabled = featJson.value("enabled", true);
+				json featSettings = featJson.value("settings", json::object());
 				feat->LoadSettings(featSettings);
 			} catch (const json::exception& e) {
 				logger::warn("Failed to load Post Processing settings for {}: {}", feat->GetType(), e.what());
@@ -548,11 +556,6 @@ void PostProcessing::Reset()
 	// tonemap (or the pipeline is bypassed) PreProcess never runs, and a stale flag would
 	// make the next frame we do run read from the wrong buffer.
 	isrefraction = false;
-
-	for (auto& pipe : pipeline) {
-		if (pipe)
-			pipe->Reset();
-	}
 }
 
 void PostProcessing::CopyToRenderTarget(
@@ -637,7 +640,7 @@ void PostProcessing::DrawFeature(PostProcessFeature& feature, PostProcessFeature
 
 void PostProcessing::DrawBeforeUpscaling()
 {
-	if (bypass || IsTonemapOwnedByEffects11())
+	if (!IsPipelineRunning())
 		return;
 
 	auto& upscaling = globals::features::upscaling;
@@ -756,14 +759,13 @@ void PostProcessing::PreProcess(RE::RENDER_TARGET a_input)
 
 void PostProcessing::ClearBorderMotionVectorsForFrameGen()
 {
-	// Effects11 owns the image, so no letterbox is drawn and zeroing its motion vectors
-	// would hand frame generation a band of static pixels over live scene content.
-	if (bypass || IsTonemapOwnedByEffects11() || IsFlatWorldMapGated())
+	// Without a drawn letterbox, zeroed motion vectors would hand frame generation static pixels over live scene content.
+	if (!IsPipelineRunning() || IsFlatWorldMapGated())
 		return;
 
 	auto borderIdx = static_cast<size_t>(FeaturePipelineIndex::Border);
 	auto& pipe = pipeline[borderIdx];
-	if (pipe && pipe->enabled) {
+	if (pipe && pipe->IsActive() && !(globals::state->IsMainOrLoadingMenuOpen() && pipe->DisableInMainLoadingMenu())) {
 		auto* border = static_cast<Border*>(pipe.get());
 		border->ClearMotionVectorsForFrameGen();
 	}
@@ -779,9 +781,9 @@ bool PostProcessing::WantsTonemapOwnership() const
 	return colorGrading && colorGrading->IsReadyToTonemap();
 }
 
-bool PostProcessing::IsTonemapOwnedByEffects11() const
+bool PostProcessing::IsPipelineRunning() const
 {
-	return globals::state->GetTonemapOwner() == State::TonemapOwner::kEffects11;
+	return !bypass && globals::state->GetTonemapOwner() == State::TonemapOwner::kPostProcessing;
 }
 
 bool PostProcessing::WantsAutoHDR() const
@@ -804,7 +806,7 @@ void PostProcessing::UpdateVanillaEffects(bool active)
 		       (!inMainLoadingMenu || (!linear && !feature->DisableInMainLoadingMenu()));
 	};
 
-	skipVanillaDoF = replaces(FeaturePipelineIndex::DoF);
+	skipVanillaDoF = replaces(FeaturePipelineIndex::DoF) && !ImageSpaceModifiers::WantsDepthOfField();
 	skipVanillaBloom = globals::state->enablePShaders && globals::state->ShaderEnabled(RE::BSShader::Type::ImageSpace) &&
 	                   (replaces(FeaturePipelineIndex::PhysicalGlare) || replaces(FeaturePipelineIndex::CODBloom));
 	if (skipVanillaBloom) {
@@ -848,7 +850,7 @@ void PostProcessing::Prepass()
 		const float aspect = graphicsState && graphicsState->screenHeight > 0 ?
 		                         (float)graphicsState->screenWidth / (float)graphicsState->screenHeight :
 		                         16.0f / 9.0f;
-		const bool runnable = !bypass && !IsTonemapOwnedByEffects11() && !globals::state->IsMainOrLoadingMenuOpen();
+		const bool runnable = IsPipelineRunning() && !globals::state->IsMainOrLoadingMenuOpen();
 		cinematicCamera.Update(runnable, aspect);
 	}
 
@@ -863,6 +865,7 @@ void PostProcessing::Prepass()
 	} else if (const auto& currentBaseData = iSRuntimeData.currentBaseData) {
 		imageSpaceManager->gameISData.baseData = *currentBaseData;
 	}
+	ImageSpaceModifiers::Snapshot(imageSpaceManager->modifiers);
 }
 
 void PostProcessing::PostPostLoad()
@@ -871,4 +874,5 @@ void PostProcessing::PostPostLoad()
 	stl::write_vfunc<0x6, VanillaDoF_IsActive>(RE::VTABLE_ImageSpaceEffectDepthOfField[0]);
 	stl::write_vfunc<0x1, VanillaBlur_Render>(RE::VTABLE_ImageSpaceEffectBlur[0]);
 	stl::write_vfunc<0x2, BSImagespaceShaderRefraction_SetupTechnique>(RE::VTABLE_BSImagespaceShaderRefraction[0]);
+	ImageSpaceModifiers::Install();
 }

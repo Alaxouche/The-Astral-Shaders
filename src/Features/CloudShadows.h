@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Utils/Game.h"
+
 struct CloudShadows : Feature
 {
 private:
@@ -11,7 +13,8 @@ public:
 	struct alignas(16) Settings
 	{
 		float Opacity = 0.5f;
-		float pad[3];
+		float Scattering = 0.4f;
+		float pad[2];
 	};
 
 	Settings settings;
@@ -61,6 +64,11 @@ public:
 
 	ID3D11BlendState* cloudShadowBlendState = nullptr;
 
+private:
+	Util::FrameChecker frameChecker;
+	Util::FrameChecker frame_checker[6];
+
+public:
 	/** @brief Creates cubemap textures, SRVs, RTVs, and blend state for cloud shadow rendering. */
 	virtual void SetupResources() override;
 

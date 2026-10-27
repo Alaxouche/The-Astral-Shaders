@@ -1,4 +1,5 @@
-// Remote Control: status panel for the devbench bridge.
+// Remote Control: devbench bridge status and Nsight Perf panels, shown as tabs of the
+// Developer Tools feature (src/Features/DeveloperTools.cpp).
 //
 // The plugin's Model Context Protocol tools register into the external devbench host (the
 // devbench SKSE plugin, https://github.com/alandtse/devbench) via DevBenchBridge
@@ -15,6 +16,7 @@
 #include "Globals.h"
 #include "I18n/I18n.h"
 #include "Menu.h"
+#include "Utils/FileSystem.h"
 #include "Utils/UI.h"
 
 #include <imgui.h>
@@ -99,11 +101,29 @@ RemoteControl* RemoteControl::GetSingleton()
  */
 void RemoteControl::DataLoaded()
 {
-	// Register the plugin's tools into the devbench host. This feature owns the install; it runs at
+	// Register the plugin's tools into the devbench host. This component owns the install; it runs at
 	// DataLoaded rather than Load because devbench publishes its cross-plugin interface at
 	// kPostLoad — by DataLoaded it's ready. Inert (logged) when no host is present or the
 	// bridge was built disabled; idempotent on the devbench side (re-registering replaces).
 	DevBenchBridge::Install();
+}
+
+bool RemoteControl::IsDevBenchHostPresent()
+{
+#ifdef DEVBENCH_BRIDGE_ENABLED
+	return DevBenchAPI::GetDevBenchInterface001() != nullptr;
+#else
+	return false;
+#endif
+}
+
+bool RemoteControl::IsDevBenchBridgeBuilt()
+{
+#ifdef DEVBENCH_BRIDGE_ENABLED
+	return true;
+#else
+	return false;
+#endif
 }
 
 /**
@@ -114,7 +134,7 @@ void RemoteControl::DataLoaded()
  * warning if the devbench host is not detected or if the build was compiled without the devbench
  * bridge.
  */
-void RemoteControl::DrawSettings()
+void RemoteControl::DrawDevBenchPanel()
 {
 	const auto& theme = Menu::GetSingleton()->GetTheme().StatusPalette;
 
@@ -171,9 +191,6 @@ void RemoteControl::DrawSettings()
 		"This build was compiled without the devbench bridge "
 		"(DEVBENCH_BRIDGE=OFF). No tools are registered.");
 #endif
-
-	ImGui::Spacing();
-	DrawNvPerfSection();
 }
 
 #define I18N_KEY_PREFIX "feature.remote_control.nvperf."
@@ -184,11 +201,8 @@ void RemoteControl::DrawSettings()
  * The profiler library is probed the first time the section is opened. A capture runs over the next frames on the
  * render thread; this panel only requests it and reads its status, so it works with or without the devbench host.
  */
-void RemoteControl::DrawNvPerfSection()
+void RemoteControl::DrawNvPerfPanel()
 {
-	if (!ImGui::CollapsingHeader(T(TKEY("header"), "Nsight Perf (DX11)")))
-		return;
-
 	const auto& theme = Menu::GetSingleton()->GetTheme().StatusPalette;
 	auto& panel = nvperfPanel;
 
@@ -203,7 +217,7 @@ void RemoteControl::DrawNvPerfSection()
 	}
 	if (!device.gpuSupported) {
 		ImGui::TextColored(theme.Warning, T(TKEY("unavailable"), "Nsight Perf is unavailable: %s"), device.error.c_str());
-		ImGui::TextDisabled(T(TKEY("library_path"), "Library: %s"), device.libraryPath.string().c_str());
+		ImGui::TextDisabled(T(TKEY("library_path"), "Library: %s"), Util::PathHelpers::ToUtf8(device.libraryPath).c_str());
 		return;
 	}
 	ImGui::TextColored(theme.SuccessColor, T(TKEY("device"), "%s (chip %s)"), device.deviceName.c_str(), device.chipName.c_str());
@@ -328,10 +342,10 @@ void RemoteControl::DrawNvPerfSection()
 			ImGui::EndTable();
 		}
 	}
-	ImGui::TextDisabled(T(TKEY("csv_path"), "Every range of every sample: %s"), result->csvPath.string().c_str());
+	ImGui::TextDisabled(T(TKEY("csv_path"), "Every range of every sample: %s"), Util::PathHelpers::ToUtf8(result->csvPath).c_str());
 	ImGui::SameLine();
 	if (ImGui::SmallButton(T(TKEY("copy_path"), "Copy path")))
-		ImGui::SetClipboardText(result->csvPath.string().c_str());
+		ImGui::SetClipboardText(Util::PathHelpers::ToUtf8(result->csvPath).c_str());
 }
 
 #undef I18N_KEY_PREFIX

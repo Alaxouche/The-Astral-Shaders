@@ -6,6 +6,7 @@
 
 #include <Buffer.h>
 #include <atomic>
+#include <d3d11_1.h>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -74,6 +75,7 @@ public:
 	// Frame time tracking per shader type (in milliseconds)
 	float frameTimePerType[RE::BSShader::Type::Total + 1];        ///< Per-type frame time in milliseconds.
 	float smoothFrameTimePerType[RE::BSShader::Type::Total + 1];  ///< EMA-smoothed per-type frame time in milliseconds.
+	float smoothPresentTimeMs = 0.0f;
 
 	// Timing state for per-type frame time tracking using QueryPerformanceCounter
 	LARGE_INTEGER frameTimingFrequency;
@@ -86,6 +88,9 @@ public:
 	void Debug();
 	/** @brief Per-frame reset: advances timer, caches menu state, resets descriptors and frame counters. */
 	void Reset();
+
+	/** @brief Selects sphere-normal grass lighting for the next grass draw. */
+	void SetGrassSphereNormal(bool sphereNormal);
 	/** @brief One-time post-D3D setup: creates resources, probes GPU caps, initializes features. */
 	void Setup();
 
@@ -201,6 +206,17 @@ public:
 		return found != featureBases.end() ? &found->second : nullptr;
 	}
 
+	/**
+	 * @brief A feature's code defaults, captured on the first load before any settings layer applies.
+	 * @param featureName The feature's GetName().
+	 * @return Null before the first load or when the feature has no settings.
+	 */
+	const nlohmann::json* GetFeatureDefaults(const std::string& featureName) const
+	{
+		const auto found = defaultSettings.find(featureName);
+		return found != defaultSettings.end() && found->is_object() ? &*found : nullptr;
+	}
+
 	/** @brief True when the user config has changes not yet saved. */
 	bool HasUnsavedChanges() const { return settingsChanged || coreSettingsChanged; }
 
@@ -282,6 +298,10 @@ public:
 	 */
 	[[nodiscard]] static uint32_t GetRuntimePixelBits(const RE::BSShader& a_shader);
 
+	/** @brief Whether perf events reach a consumer: an attached capture tool, Tracy, or an Nsight Perf pass. */
+	[[nodiscard]] bool PerfEventsConsumed() const;
+	/** @brief Whether Frame Annotations' per-draw events are worth building: the setting is on and consumed. */
+	[[nodiscard]] bool AnnotateDraws() const { return frameAnnotations && PerfEventsConsumed(); }
 	/** @brief Opens a named GPU performance event (D3D annotation + Tracy zone). */
 	void BeginPerfEvent(std::string_view title);
 	/** @brief Closes the most recent GPU performance event. */
@@ -333,8 +353,11 @@ public:
 		uint liteDescriptor = 0;
 		ID3D11PixelShader* full = nullptr;
 		ID3D11PixelShader* lite = nullptr;
+		ID3D11PixelShader* detail = nullptr;
+		ID3D11PixelShader* bound = nullptr;
 		bool resolved = false;
-		bool liteBound = false;
+		bool detailEligible = false;
+		bool detailResolved = false;
 	};
 	LightingVariantState lightingVariant;
 	float waterGridTop = 0.0f;
@@ -355,12 +378,17 @@ public:
 		IsEye = 1 << 7,
 		NoSnow = 1 << 8,
 		NoFoliageTint = 1 << 9,
-		IsAurora = 1 << 10,
 		IsMoon = 1 << 11,
 		NoSkyScattering = 1 << 12,
 		SnowRooftop = 1 << 13,
 		SnowLODTree = 1 << 14,
-		SourceAlphaBlend = 1 << 15
+		SourceAlphaBlend = 1 << 15,
+		NightEyeEyeshine = 1 << 16,
+		NightEyeMask = 1 << 17,
+		NightEyeActor = 1 << 18,
+		NightEyeEnemy = 1 << 19,
+		NightEyeAlly = 1 << 20,
+		ProjectedTextureIsSRGB = 1 << 21,
 	};
 
 	/** @brief Bitflags describing extra feature-specific properties related to terrain displacement and material models. */
@@ -443,11 +471,6 @@ public:
 	 */
 	void UpdateSkyShaderPermutation(RE::BSRenderPass* a_pass);
 	/**
-	 * @brief Flags effect shader passes that draw the aurora (sky objects under the sky's aurora root).
-	 * @param a_pass The render pass to inspect.
-	 */
-	void UpdateEffectShaderPermutation(RE::BSRenderPass* a_pass);
-	/**
 	 * @brief Checks whether directional shadows are available for the current scene.
 	 * @returns true if directional shadows are present, false otherwise.
 	 */
@@ -463,7 +486,8 @@ public:
 		float EffectRadius;
 		uint BaseTextureIsWorking;
 		uint RenderToUI;
-		uint pad;
+		// Model-space height of the grass mesh being drawn, for root-to-tip canopy occlusion.
+		float GrassCanopyHeight;
 
 		// Living Windows: world-space bounding sphere of the glass shape being drawn (xyz centre,
 		// w radius). Positive w frames one room over the whole shape, negative w repeats rooms
@@ -477,7 +501,8 @@ public:
 			       ExtraShaderDescriptor == other.ExtraShaderDescriptor &&
 			       ExtraFeatureDescriptor == other.ExtraFeatureDescriptor &&
 			       EffectRadius == other.EffectRadius && BaseTextureIsWorking == other.BaseTextureIsWorking && RenderToUI == other.RenderToUI &&
-			       LivingWindowBound == other.LivingWindowBound;
+			       LivingWindowBound == other.LivingWindowBound &&
+			       GrassCanopyHeight == other.GrassCanopyHeight;
 		}
 	};
 	STATIC_ASSERT_ALIGNAS_16(PermutationCB);
@@ -616,6 +641,6 @@ private:
 
 	std::optional<TonemapOwner> tonemapOwner;
 	uint historyResetFrame = UINT_MAX;
-	std::shared_ptr<REX::W32::ID3DUserDefinedAnnotation> pPerf;
+	winrt::com_ptr<ID3DUserDefinedAnnotation> pPerf;
 	std::mutex statsMutex;
 };

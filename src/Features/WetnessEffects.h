@@ -2,6 +2,9 @@
 
 #include "Buffer.h"
 
+#pragma warning(push)
+#pragma warning(disable: 4324)
+
 /** @brief Adds dynamic weather-driven wetness, puddle formation, shore wetness, and raindrop effects. */
 struct WetnessEffects : Feature
 {
@@ -36,7 +39,6 @@ public:
 		float MaxRainWetness = 1.0f;
 		float MaxPuddleWetness = 1.5f;
 		float MaxShoreWetness = 1.0f;
-		float GrassWetnessRoughness = 0.12f;
 		uint ShoreRange = 32;
 		float PuddleRadius = 1.0f;
 		float PuddleMaxAngle = 0.95f;
@@ -62,11 +64,6 @@ public:
 		float RippleRadius = 1.f;
 		float RippleBreadth = .5f;
 		float RippleLifetime = .5f;
-
-		// Grass albedo darkening in rain. Other surfaces only darken in puddles and at the shore;
-		// grass darkened over the whole rain wetness, which left it near black in a downpour.
-		float GrassWetnessDarkening = 0.3f;
-		float pad0[3]{};
 	};
 
 	struct alignas(16) PerFrame
@@ -77,6 +74,7 @@ public:
 		float Wetness;
 		float PuddleWetness;
 		Settings settings;
+		uint pad0;
 	};
 	STATIC_ASSERT_ALIGNAS_16(PerFrame);
 
@@ -198,3 +196,5 @@ private:
 
 	WeatherWetnessResult CalculateWeatherWetness(RE::TESWeather* weather, float weatherPct, bool isCurrentWeather) const;
 };
+
+#pragma warning(pop)
