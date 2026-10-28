@@ -430,15 +430,10 @@ void FidelityFX::CreateHostFSRContext()
 	contextDescription.maxUpscaleSize.height = displayHeight;
 	contextDescription.displaySize.width = displayWidth;
 	contextDescription.displaySize.height = displayHeight;
-	contextDescription.flags = FFX_FSR3_ENABLE_UPSCALING_ONLY | FFX_FSR3_ENABLE_AUTO_EXPOSURE;
+	contextDescription.flags = FFX_FSR3_ENABLE_UPSCALING_ONLY | FFX_FSR3_ENABLE_AUTO_EXPOSURE | FFX_FSR3_ENABLE_HIGH_DYNAMIC_RANGE;
 	if (globals::features::reverseZ.IsActive())
 		contextDescription.flags |= FFX_FSR3_ENABLE_DEPTH_INVERTED;
-	if (globals::features::hdrDisplay.loaded) {
-		contextDescription.flags |= FFX_FSR3_ENABLE_HIGH_DYNAMIC_RANGE;
-		contextDescription.backBufferFormat = FFX_SURFACE_FORMAT_R10G10B10A2_UNORM;
-	} else {
-		contextDescription.backBufferFormat = FFX_SURFACE_FORMAT_R8G8B8A8_UNORM;
-	}
+	contextDescription.backBufferFormat = globals::features::hdrDisplay.loaded ? FFX_SURFACE_FORMAT_R10G10B10A2_UNORM : FFX_SURFACE_FORMAT_R8G8B8A8_UNORM;
 	contextDescription.backendInterfaceUpscaling = fsrInterface;
 
 	if (const auto contextResult = ffxFsr3ContextCreate(&fsrContext[0], &contextDescription); contextResult != FFX_OK) {
