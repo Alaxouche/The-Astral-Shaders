@@ -23,6 +23,7 @@
 #include "Features/ReverseZ.h"
 #include "Features/SnowCover.h"
 #include "Features/WetnessEffects.h"
+#include "Features/TreeLODWind.h"
 
 #include "ShaderDDC.h"
 
@@ -806,6 +807,12 @@ namespace SIE
 				((descriptor & 0x20004000) == 0x4000 || (descriptor & 0x1E02000) == 0x2000) &&
 				!(descriptor & 0x80) && (descriptor & 0x14000) != 0x10000) {
 				defines[lastIndex++] = { "NO_PIXEL_SHADER", nullptr };
+			}
+
+			// Utility does not take the general feature defines (features that define for every shader type would
+			// change Utility permutations); Tree LOD Wind needs its define here so depth and shadows sway with Lighting.
+			if (globals::features::treeLODWind.loaded && globals::features::treeLODWind.HasShaderDefine(RE::BSShader::Type::Utility)) {
+				defines[lastIndex++] = { globals::features::treeLODWind.GetShaderDefineName().data(), nullptr };
 			}
 
 			defines[lastIndex++] = { nullptr, nullptr };
