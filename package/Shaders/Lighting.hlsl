@@ -169,7 +169,8 @@ float2 GetTreeShiftVector(float4 position, float4 color)
 }
 #	endif  // TREE_ANIM
 
-#	if defined(TREE_LOD_WIND) && defined(VC) && !defined(TREE_ANIM) && !defined(LOD) && !defined(LODLANDSCAPE) && !defined(LANDSCAPE) && !defined(SKINNED) && !defined(EYE)
+// Fur Shells' per-pass data shares cbuffer bank b13 with Tree LOD Wind; billboard tree LOD never carries fur.
+#	if defined(TREE_LOD_WIND) && defined(VC) && !defined(TREE_ANIM) && !defined(LOD) && !defined(LODLANDSCAPE) && !defined(LANDSCAPE) && !defined(SKINNED) && !defined(EYE) && !defined(FUR_SHELLS)
 #		define TREE_LOD_WIND_VS
 #		include "TreeLODWind/TreeLODWind.hlsli"
 #	endif

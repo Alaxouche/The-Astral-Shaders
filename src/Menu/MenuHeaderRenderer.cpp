@@ -1,4 +1,5 @@
 #include "MenuHeaderRenderer.h"
+#include "BrandLogo.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -27,21 +28,27 @@ namespace
 		float height = 0.0f;
 	};
 
-	/** @brief Draws the product title, with the git describe of this exact binary dimmed beside it. Text only. */
+	/** @brief Draws the menu icon, the product title, and the git describe of this exact binary dimmed beside it. */
 	TitleRowMetrics RenderTitleRow()
 	{
 		auto title = std::format("{} {}", Plugin::DISPLAY_NAME, Fork::GetVersionString());
 
 		MenuFonts::FontRoleGuard titleFont(Menu::FontRole::Title);
 		const ImVec2 origin = ImGui::GetCursorScreenPos();
-		const float rowHeight = ImGui::GetTextLineHeight();
+		const float textHeight = ImGui::GetTextLineHeight();
+		// The icon's glow fades into its transparent border, so it is drawn larger than the text it sits beside.
+		const float iconHeight = BrandLogo::IsAvailable() ? textHeight * 1.6f : 0.0f;
+		const float rowHeight = std::max(textHeight, iconHeight);
+		const float iconWidth = BrandLogo::Draw(ImGui::GetWindowDrawList(), ImVec2(origin.x, origin.y + (rowHeight - iconHeight) * 0.5f), iconHeight);
+		const float textX = iconWidth > 0.0f ? origin.x + iconWidth + ImGui::GetStyle().ItemSpacing.x : origin.x;
+
+		ImGui::SetCursorScreenPos(ImVec2(textX, origin.y + (rowHeight - textHeight) * 0.5f));
 		ImGui::TextUnformatted(title.c_str());
-		float width = ImGui::CalcTextSize(title.c_str()).x;
 
 		ImGui::SameLine();
 		const float describeX = ImGui::GetCursorScreenPos().x;
 		ImGui::TextDisabled("%s", Plugin::BUILD_DESCRIBE.data());
-		width = describeX - origin.x + ImGui::CalcTextSize(Plugin::BUILD_DESCRIBE.data()).x;
+		const float width = describeX - origin.x + ImGui::CalcTextSize(Plugin::BUILD_DESCRIBE.data()).x;
 
 		ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + rowHeight));
 		ImGui::Dummy(ImVec2(0.0f, 0.0f));

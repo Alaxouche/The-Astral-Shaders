@@ -492,12 +492,8 @@ PS_OUTPUT main(PS_INPUT input)
 	const float auroraPixelAngle = length(fwidth(auroraDirection));
 	[branch] if (SharedData::proceduralAuroraSettings.Enabled && SharedData::proceduralAuroraSettings.Atmosphere.x > 0.0 && auroraDirection.z > -0.03)
 	{
-		float3 aurora = ColorManagement::SRGBToWorking(ProceduralAurora::Render(auroraDirection, auroraPixelAngle));
-#					if defined(EFFECTS11)
-		[branch] if (SharedData::enbSettings.Enable)
-			aurora = pow(max(aurora, 0.0), SharedData::enbSettings.AuroraCurve) * SharedData::enbSettings.AuroraIntensity;
-#					endif
-		psout.Color.xyz += aurora;
+		// Bottle removed the Effects 11 [AURORA] curve, so a preset does not grade it.
+		psout.Color.xyz += ColorManagement::SRGBToWorking(ProceduralAurora::Render(auroraDirection, auroraPixelAngle));
 	}
 #				endif
 

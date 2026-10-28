@@ -2096,8 +2096,10 @@ void PerformanceOverlay::UpdateGraphValues()
 		state.smoothFrameTimeMs = state.frameTimeMs;
 	}
 	if (state.isFrameGenerationActive) {
-		state.postFGSmoothFrameTimeMs = state.smoothFrameTimeMs / Settings::kFrameGenerationMultiplier;
-		state.postFGSmoothFps = state.smoothFps * Settings::kFrameGenerationMultiplier;
+		// The fork reads the live multiplier (DLSS-G can generate more than one frame) instead of a fixed 2x.
+		const float multiplier = std::max(1.0f, static_cast<float>(globals::features::upscaling.GetFrameGenerationMultiplier()));
+		state.postFGSmoothFrameTimeMs = state.smoothFrameTimeMs / multiplier;
+		state.postFGSmoothFps = state.smoothFps * multiplier;
 	}
 
 	// Avg and 1% low sort the whole window, so they refresh on the interval instead
