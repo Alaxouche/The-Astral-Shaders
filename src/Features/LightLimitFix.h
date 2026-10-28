@@ -410,6 +410,7 @@ public:
 	bool IsLocalShadowCacheActive() const { return IsLocalShadowsEnabled() && localShadowCache; }
 	/** @brief Draws the experimental local shadow settings. */
 	void DrawLocalShadowSettings();
+	void DrawLightAttachSettings();
 	/** @brief Compiles LocalShadowCopyCS and its constant buffer on first use; false when compilation failed. */
 	bool EnsureLocalShadowCopyShader();
 	/** @brief True when the engine found the caster in range within the camera hold window. */
@@ -495,6 +496,10 @@ public:
 		uint LocalShadowSamples = 8;
 		float LocalShadowFilterScale = 1.0f;
 		uint LocalShadowUpdatesPerFrame = 1;
+
+		// Light attach gate: skips the engine's per-frame attach walk for unchanged dynamic lights.
+		bool SkipRedundantLightAttach = true;
+		int LightAttachRefreshFrames = 60;
 	};
 
 	uint clusterSize[3] = { 16 };
