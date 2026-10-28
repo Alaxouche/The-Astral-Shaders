@@ -129,7 +129,12 @@ public:
 	/** @brief Ends the current profiling frame and advances the ring buffer write cursor. */
 	void EndFrame();
 
+	/**
+	 * @brief Keeps GPU/CPU pass timing running for the next few frames; call it each frame a consumer reads the results.
+	 * @param frames Frames to stay active for. Timing stops once no consumer has asked within that window.
+	 */
 	void KeepActive(uint32_t frames = 2) { activeUntilFrame.store(frameCounter.load(std::memory_order_relaxed) + frames, std::memory_order_relaxed); }
+	/** @brief True while a consumer asked for timings within its KeepActive window. */
 	bool IsActive() const { return frameCounter.load(std::memory_order_relaxed) <= activeUntilFrame.load(std::memory_order_relaxed); }
 
 	/** @brief Gets the live timings and history from the last collected frame. Rolling statistics are left at zero; see GetStatistics. */

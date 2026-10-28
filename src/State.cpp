@@ -1396,6 +1396,7 @@ bool State::PerfEventsConsumed() const
 
 void State::BeginPerfEvent(std::string_view title)
 {
+	// Record whether this event was emitted, so EndPerfEvent stays balanced if a consumer attaches or leaves in between.
 	const bool emit = PerfEventsConsumed();
 	s_perfEventEmitted.push_back(emit);
 	if (!emit)
