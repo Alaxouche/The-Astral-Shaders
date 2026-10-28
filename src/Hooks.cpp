@@ -27,6 +27,7 @@
 #include "Features/LightLimitFix.h"
 #include "Features/NightEye.h"
 #include "Features/PostProcessing.h"
+#include "Features/ProceduralAurora.h"
 #include "Features/RainRefraction.h"
 #include "Features/ReverseZ.h"
 #include "Features/RemoteControl/NvPerf.h"
@@ -422,6 +423,7 @@ namespace WeatherExtensions
 			if (globals::features::volumetricLighting.loaded)
 				globals::features::volumetricLighting.ApplyGodRaySettings();
 			globals::features::volumetricLighting.FinishSkyUpdate(sky);
+			globals::features::proceduralAurora.OnSkyUpdate(sky);
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};

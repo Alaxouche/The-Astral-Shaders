@@ -59,6 +59,7 @@ struct LandscapeSeams;
 struct SnowDeformation;
 struct CausticLight;
 struct SceneManager;
+struct ProceduralAurora;
 
 class State;
 class Deferred;
@@ -172,6 +173,7 @@ namespace globals
 		extern SnowDeformation snowDeformation;
 		extern CausticLight causticLight;
 		extern SceneManager sceneManager;
+		extern ProceduralAurora proceduralAurora;
 
 	}
 

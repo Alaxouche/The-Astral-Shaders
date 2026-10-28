@@ -35,6 +35,7 @@
 #include "Features/PostProcessing.h"
 #include "Features/LivingWindows.h"
 #include "Features/PhysicalSky.h"
+#include "Features/ProceduralAurora.h"
 #include "Features/RainRefraction.h"
 #include "Features/ScreenSpaceGI.h"
 #include "Features/ScreenSpaceShadows.h"
@@ -270,7 +271,8 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::detailMaps,
 		&globals::features::landscapeSeams,
 		&globals::features::snowDeformation,
-		&globals::features::causticLight
+		&globals::features::causticLight,
+		&globals::features::proceduralAurora
 	};
 
 	return features;

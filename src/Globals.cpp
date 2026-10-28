@@ -36,6 +36,7 @@
 #include "Features/PhysicalSky.h"
 #include "Features/NightSky.h"
 #include "Features/ProceduralSun.h"
+#include "Features/ProceduralAurora.h"
 #include "Features/RainRefraction.h"
 #include "Features/RemoteControl.h"
 #include "Features/RenderDoc.h"
@@ -138,6 +139,7 @@ namespace globals
 		SnowDeformation snowDeformation{};
 		CausticLight causticLight{};
 		SceneManager sceneManager{};
+		ProceduralAurora proceduralAurora{};
 
 		namespace llf
 		{
