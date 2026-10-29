@@ -15,6 +15,7 @@
 #include "State.h"
 #include "Utils/D3D.h"
 #include "Utils/Game.h"
+#include "Utils/PerfUtils.h"
 
 #include <numbers>
 
@@ -65,6 +66,13 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	volumetricFogNoiseScale,
 	volumetricFogNoiseThreshold,
 	volumetricFogNoiseVelocity,
+	mistsEnabled,
+	mistStrength,
+	mistRange,
+	mistSize,
+	mistDriftSpeed,
+	mistFollowWind,
+	mistWindMultiplier,
 	volumetricLocalLightScatteringIntensity,
 	useVanillaFogSettings,
 	vanillaFogStrength,
@@ -101,11 +109,40 @@ namespace
 		a_settings.distanceHazeFadeDistance = ClampFinite(a_settings.distanceHazeFadeDistance, kMinDistanceHazeFadeDistance, kMaxDistanceHazeDistance, defaults.distanceHazeFadeDistance);
 	}
 
+	constexpr float kMistStrengthMax = 4.0f;
+	constexpr float kMistRangeMin = 512.0f;
+	constexpr float kMistRangeMax = 16384.0f;
+	constexpr float kMistSizeMin = 128.0f;
+	constexpr float kMistSizeMax = 4096.0f;
+	constexpr float kMistWindMultiplierMax = 10.0f;
+	constexpr double kMistManualDriftDirectionX = 0.8;
+	constexpr double kMistManualDriftDirectionY = 0.6;
+	constexpr double kMaximumAnimationFrameSeconds = 0.25;
+	constexpr double kWindResponseSeconds = 1.0;
+	constexpr double kMistShapeResponseSeconds = 10.0;
+	constexpr double kMistShapeEvolutionRate = 0.015;
+	constexpr double kMistMinimumTurnSpeed = 0.1;
+
+	void ClampMistSettings(ExponentialHeightFog::Settings& a_settings)
+	{
+		const ExponentialHeightFog::Settings defaults{};
+		a_settings.mistStrength = ClampFinite(a_settings.mistStrength, 0.0f, kMistStrengthMax, defaults.mistStrength);
+		a_settings.mistRange = ClampFinite(a_settings.mistRange, kMistRangeMin, kMistRangeMax, defaults.mistRange);
+		a_settings.mistSize = ClampFinite(a_settings.mistSize, kMistSizeMin, kMistSizeMax, defaults.mistSize);
+		a_settings.mistDriftSpeed = ClampFinite(a_settings.mistDriftSpeed, 0.0f, ExponentialHeightFog::kMaxMistDriftSpeed, defaults.mistDriftSpeed);
+		a_settings.mistWindMultiplier = ClampFinite(a_settings.mistWindMultiplier, 0.0f, kMistWindMultiplierMax, defaults.mistWindMultiplier);
+	}
+
 	bool CanReuseFogHistory(const ExponentialHeightFog::Settings& current, const ExponentialHeightFog::Settings& previous)
 	{
 		using Settings = ExponentialHeightFog::Settings;
-		if (current.useVanillaFogSettings != previous.useVanillaFogSettings)
+		if (current.useVanillaFogSettings != previous.useVanillaFogSettings || current.mistsEnabled != previous.mistsEnabled ||
+			current.mistFollowWind != previous.mistFollowWind)
 			return false;
+		for (const auto field : { &Settings::mistStrength, &Settings::mistRange, &Settings::mistSize }) {
+			if (current.*field != previous.*field)
+				return false;
+		}
 		for (const auto field : {
 				 &Settings::vanillaFogStrength, &Settings::fogLightingInfluence,
 				 &Settings::fogDensity, &Settings::fogHeight, &Settings::fogHeightFalloff,
@@ -164,6 +201,7 @@ void ExponentialHeightFog::LoadSettings(json& o_json)
 {
 	settings = o_json;
 	ClampFollowAndHazeSettings(settings);
+	ClampMistSettings(settings);
 }
 
 void ExponentialHeightFog::SaveSettings(json& o_json)
@@ -175,6 +213,7 @@ ExponentialHeightFog::Settings ExponentialHeightFog::GetCommonBufferData() const
 {
 	Settings data = settings;
 	ClampFollowAndHazeSettings(data);
+	ClampMistSettings(data);
 	auto& linearLighting = globals::features::linearLighting;
 	linearLighting.SRGBToWorking(&data.inscatteringTint.x);
 	linearLighting.SRGBToWorking(&data.fogInscatteringColor.x);
@@ -245,6 +284,12 @@ void ExponentialHeightFog::DrawSettings()
 	if (ImGui::BeginTabItem(T(TKEY("volumetric_fog"), "Volumetric Fog"))) {
 		ImGui::BeginDisabled(settings.enabled == 0);
 		DrawVolumetricSettings();
+		ImGui::EndDisabled();
+		ImGui::EndTabItem();
+	}
+	if (ImGui::BeginTabItem(T(TKEY("tab_mists"), "Mists"))) {
+		ImGui::BeginDisabled(settings.enabled == 0);
+		DrawMistSettings();
 		ImGui::EndDisabled();
 		ImGui::EndTabItem();
 	}
@@ -356,6 +401,106 @@ void ExponentialHeightFog::DrawHeightFogSettings()
 	if (auto _tt = Util::HoverTooltipWrapper()) {
 		ImGui::Text("%s", T(TKEY("distance_haze_fade_distance_tooltip"), "Horizontal distance beyond Haze Start Distance over which haze smoothly reaches its maximum opacity, in game units."));
 	}
+}
+
+void ExponentialHeightFog::DrawMistSettings()
+{
+	const bool volumeAvailable = settings.enabled && settings.volumetricFogEnabled;
+	auto checkboxFlag = [](const char* a_label, uint& a_flag) {
+		bool value = a_flag != 0;
+		if (ImGui::Checkbox(a_label, &value))
+			a_flag = value ? 1u : 0u;
+	};
+	{
+		auto _disabled = Util::DisableGuard(!volumeAvailable);
+		checkboxFlag(T(TKEY("enable_mists"), "Enable Nearby Mists"), settings.mistsEnabled);
+	}
+	ImGui::TextWrapped("%s", T(TKEY("mists_description"), "Adds drifting 3D mist pockets nearby, using the existing volumetric grid and lighting. Strength follows the active fog: clear weather stays restrained. This is an artistic addition to the vanilla match, not an exact match."));
+	if (!volumeAvailable)
+		ImGui::TextWrapped("%s", T(TKEY("mists_requires_volume"), "Enable Exponential Height Fog and Volumetric Fog to render mists."));
+
+	auto _disabled = Util::DisableGuard(!volumeAvailable || !settings.mistsEnabled);
+	ImGui::SliderFloat(T(TKEY("mist_strength"), "Mist Strength"), &settings.mistStrength, 0.0f, kMistStrengthMax, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	if (auto _tt = Util::HoverTooltipWrapper())
+		ImGui::TextWrapped("%s", T(TKEY("mist_strength_tooltip"), "Scales weather-driven opacity across one mist pocket, independently of Mist Range. Higher values make pockets thicker when you enter them. Zero removes the added mists."));
+	ImGui::SliderFloat(T(TKEY("mist_range"), "Mist Range"), &settings.mistRange, kMistRangeMin, kMistRangeMax, "%.0f units", ImGuiSliderFlags_AlwaysClamp);
+	if (auto _tt = Util::HoverTooltipWrapper())
+		Util::DrawMultiLineTooltip({ T(TKEY("mist_range_tooltip"), "Coverage and outer fade distance. It does not change pocket density."), Util::Units::FormatDistance(settings.mistRange) });
+	ImGui::SliderFloat(T(TKEY("mist_size"), "Mist Pocket Size"), &settings.mistSize, kMistSizeMin, kMistSizeMax, "%.0f units", ImGuiSliderFlags_AlwaysClamp);
+	if (auto _tt = Util::HoverTooltipWrapper())
+		Util::DrawMultiLineTooltip({ T(TKEY("mist_size_tooltip"), "Scale of the mist pattern. Density is adjusted to keep the optical thickness of each pocket."), Util::Units::FormatDistance(settings.mistSize) });
+	ImGui::SliderFloat(T(TKEY("mist_drift_speed"), "Mist Movement Speed"), &settings.mistDriftSpeed, 0.0f, kMaxMistDriftSpeed, "%.1f units/s", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+	if (auto _tt = Util::HoverTooltipWrapper())
+		ImGui::TextWrapped("%s", T(TKEY("mist_drift_speed_tooltip"), "Manual drift speed, or the speed at full outdoor wind strength. Changing speed only affects future movement. Zero freezes the pattern; pausing also pauses animation."));
+	checkboxFlag(T(TKEY("mist_follow_wind"), "Follow Outdoor Wind"), settings.mistFollowWind);
+	if (auto _tt = Util::HoverTooltipWrapper())
+		ImGui::TextWrapped("%s", T(TKEY("mist_follow_wind_tooltip"), "Uses the current outdoor wind direction and strength, smoothing changes over one second. Calm wind stops drift. Interiors retain manual drift. Wind changes movement, not density."));
+	{
+		auto _windDisabled = Util::DisableGuard(!settings.mistFollowWind);
+		ImGui::SliderFloat(T(TKEY("mist_wind_multiplier"), "Mist Wind Multiplier"), &settings.mistWindMultiplier, 0.0f, kMistWindMultiplierMax, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	}
+	const auto driftUnits = static_cast<float>(mistDriftDistance);
+	ImGui::Text(T(TKEY("mist_movement_offset"), "Movement offset: %.1f units (%.1f m)"), driftUnits, Util::Units::GameUnitsToMeters(driftUnits));
+	ImGui::TextWrapped("%s", T(TKEY("mists_range_help"), "Range cannot extend the volumetric grid. Small pockets fade where the grid is too coarse to resolve them. Speed 0 freezes the pattern in the world."));
+}
+
+std::array<double, 2> ExponentialHeightFog::GetMistTargetVelocity(const Settings& frameSettings) const
+{
+	const auto* player = RE::PlayerCharacter::GetSingleton();
+	const auto* cell = player ? player->GetParentCell() : nullptr;
+	const auto* sky = globals::game::sky;
+	if (frameSettings.mistFollowWind && cell && !cell->IsInteriorCell() && sky && std::isfinite(sky->windAngle) && std::isfinite(sky->windSpeed)) {
+		const double speed = std::min<double>(kMaxMistDriftSpeed, frameSettings.mistDriftSpeed * std::clamp(sky->windSpeed, 0.0f, 1.0f) * frameSettings.mistWindMultiplier);
+		return { std::sin(sky->windAngle) * speed, std::cos(sky->windAngle) * speed };
+	}
+	return { kMistManualDriftDirectionX * frameSettings.mistDriftSpeed, kMistManualDriftDirectionY * frameSettings.mistDriftSpeed };
+}
+
+void ExponentialHeightFog::AdvanceMistShape(double elapsed)
+{
+	if (std::hypot(mistDriftVelocity[0], mistDriftVelocity[1]) > kMistMinimumTurnSpeed) {
+		const double targetAngle = std::atan2(mistDriftVelocity[1], mistDriftVelocity[0]);
+		const double delta = targetAngle - mistShapeAnimation[0];
+		const double rotation = std::atan2(std::sin(delta), std::cos(delta)) * (1.0 - std::exp(-elapsed / kMistShapeResponseSeconds));
+		if (const auto* player = RE::PlayerCharacter::GetSingleton()) {
+			const auto anchor = player->GetPosition();
+			const double relativeX = anchor.x - mistDriftOffset[0];
+			const double relativeY = anchor.y - mistDriftOffset[1];
+			// Keep the nearby pattern anchored when the wind turns, rather than orbiting the world origin.
+			mistDriftOffset[0] = anchor.x - (std::cos(rotation) * relativeX - std::sin(rotation) * relativeY);
+			mistDriftOffset[1] = anchor.y - (std::sin(rotation) * relativeX + std::cos(rotation) * relativeY);
+		}
+		mistShapeAnimation[0] += rotation;
+	}
+	mistShapeAnimation[1] += elapsed * kMistShapeEvolutionRate;
+}
+
+void ExponentialHeightFog::UpdateMistAnimation(const Settings& frameSettings)
+{
+	const uint32_t frame = globals::state->frameCount;
+	if (lastMistAnimationFrame == frame)
+		return;
+
+	const double now = Util::GetNowSecs();
+	const bool consecutiveFrame = lastMistAnimationFrame != UINT32_MAX && frame == lastMistAnimationFrame + 1u;
+	const bool paused = globals::state->IsPausedOrMenuOpen(RE::UI::GetSingleton());
+	const double elapsed = now - previousMistTime;
+	if (consecutiveFrame && !paused && frameSettings.enabled && frameSettings.volumetricFogEnabled && frameSettings.mistsEnabled &&
+		elapsed >= 0.0 && elapsed <= kMaximumAnimationFrameSeconds) {
+		const auto targetVelocity = GetMistTargetVelocity(frameSettings);
+		const double response = 1.0 - std::exp(-elapsed / kWindResponseSeconds);
+		for (size_t axis = 0; axis < mistDriftOffset.size(); ++axis) {
+			mistDriftVelocity[axis] += (targetVelocity[axis] - mistDriftVelocity[axis]) * response;
+			if (frameSettings.mistDriftSpeed == 0.0f)
+				mistDriftVelocity[axis] = 0.0;
+			mistDriftOffset[axis] += elapsed * mistDriftVelocity[axis];
+		}
+		mistDriftDistance += elapsed * std::hypot(mistDriftVelocity[0], mistDriftVelocity[1]);
+		if (frameSettings.mistDriftSpeed > 0.0f)
+			AdvanceMistShape(elapsed);
+	}
+	previousMistTime = now;
+	lastMistAnimationFrame = frame;
 }
 
 void ExponentialHeightFog::DrawVolumetricSettings()
@@ -961,6 +1106,7 @@ void ExponentialHeightFog::Prepass()
 		return;
 	}
 	const Settings frameSettings = GetCommonBufferData();
+	UpdateMistAnimation(frameSettings);
 	const float fogDensity = frameSettings.useVanillaFogSettings ? frameSettings.vanillaFogDensity * frameSettings.vanillaFogStrength : frameSettings.fogDensity;
 	if (fogDensity <= 0.0f && frameSettings.fogDensity2 <= 0.0f) {
 		hasLightScatteringHistory = false;
@@ -1112,7 +1258,13 @@ void ExponentialHeightFog::Prepass()
 	cb.jitterParameters = {
 		temporalReprojection ? std::max(settings.volumetricSampleJitterMultiplier, 0.0f) : 0.0f,
 		static_cast<float>(globals::state->frameCount % 8u),
-		0.0f,
+		static_cast<float>(mistDriftOffset[0]),
+		static_cast<float>(mistDriftOffset[1])
+	};
+	cb.mistShapeParameters = float4{
+		static_cast<float>(std::cos(mistShapeAnimation[0])),
+		static_cast<float>(std::sin(mistShapeAnimation[0])),
+		static_cast<float>(mistShapeAnimation[1]),
 		0.0f
 	};
 	volumetricFogCB->Update(cb);

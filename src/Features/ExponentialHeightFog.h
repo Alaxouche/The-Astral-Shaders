@@ -106,6 +106,17 @@ public:
 		float distanceHazeMaxOpacity = 0.0f;
 		float distanceHazeStartDistance = 15000.0f;
 		float distanceHazeFadeDistance = 60000.0f;
+
+		// Nearby volumetric mists (Open Shaders #959): wind-driven 3D pockets on the volumetric grid.
+		uint mistsEnabled = 0;
+		float mistStrength = 0.1f;
+		float mistRange = 8192.0f;
+		float mistSize = 4096.0f;
+
+		float mistDriftSpeed = 1000.0f;
+		uint mistFollowWind = 1;
+		float mistWindMultiplier = 1.0f;
+		float mistPad0 = 0.0f;
 	} settings;
 	STATIC_ASSERT_ALIGNAS_16(Settings);
 	static_assert(offsetof(Settings, volumetricFogNoiseVelocity) == 224);
@@ -113,15 +124,35 @@ public:
 	static_assert(offsetof(Settings, vanillaFogNearColor) == 272);
 	static_assert(offsetof(Settings, fogLightingInfluence) == 304);
 	static_assert(offsetof(Settings, distanceHazeMaxOpacity) == 308);
-	static_assert(sizeof(Settings) == 320);
+	static_assert(offsetof(Settings, mistsEnabled) == 320);
+	static_assert(offsetof(Settings, mistDriftSpeed) == 336);
+	static_assert(sizeof(Settings) == 352);
+
+	static constexpr float kMaxMistDriftSpeed = 2000.0f;
+	/** @brief Initial pattern angle (radians), the heading of the manual drift direction (0.8, 0.6). */
+	static constexpr double kMistInitialShapeAngle = 0.6435011088;
 
 	Settings GetCommonBufferData() const;
 
 private:
 	void DrawHeightFogSettings();
 	void DrawVolumetricSettings();
+	void DrawMistSettings();
 
 	Settings previousFogSettings = {};
+	double previousMistTime = 0.0;
+	double mistDriftDistance = 0.0;
+	std::array<double, 2> mistDriftOffset = {};
+	std::array<double, 2> mistDriftVelocity = {};
+	std::array<double, 2> mistShapeAnimation = { kMistInitialShapeAngle, 0.0 };
+	uint32_t lastMistAnimationFrame = UINT32_MAX;
+
+	/** @brief Mist drift velocity the animation eases toward: outdoor wind when followed, else the manual direction. */
+	std::array<double, 2> GetMistTargetVelocity(const Settings& frameSettings) const;
+	/** @brief Turns the pattern toward the drift direction around the player and advances its slow evolution. */
+	void AdvanceMistShape(double elapsed);
+	/** @brief Advances the mist drift once per frame while the world runs. */
+	void UpdateMistAnimation(const Settings& frameSettings);
 
 	struct VolumetricFogCB
 	{
@@ -131,12 +162,13 @@ private:
 		float4x4 clipToWorld = {};
 		float4 frameJitterOffsets[16] = {};
 		float4 historyParameters = {};  // x = near weight, y = miss sample count, z = far weight, w = unused
-		float4 jitterParameters = {};   // x = LightScatteringSampleJitterMultiplier, y = StateFrameIndexMod8, zw = unused
+		float4 jitterParameters = {};   // x = LightScatteringSampleJitterMultiplier, y = StateFrameIndexMod8, zw = mist world-space drift
 		// Far volume grid (starts where the near volume ends, runs to volumetricFogDistance).
 		DirectX::XMUINT4 farGridSizeAndFlags = {};
 		float4 farInvGridSizeAndNearFade = {};
 		float4 farGridZParams = {};
 		float4 farRange = {};  // x = far start depth, y = far end depth, zw = unused
+		float4 mistShapeParameters = {};  // xy = pattern axis (cos, sin), z = slow evolution
 	};
 	STATIC_ASSERT_ALIGNAS_16(VolumetricFogCB);
 

@@ -488,6 +488,16 @@ namespace SharedData
 		float distanceHazeMaxOpacity;
 		float distanceHazeStartDistance;
 		float distanceHazeFadeDistance;
+
+		uint mistsEnabled;
+		float mistStrength;
+		float mistRange;
+		float mistSize;
+
+		float mistDriftSpeed;
+		uint mistFollowWind;
+		float mistWindMultiplier;
+		float mistPad0;
 	};
 
 	struct TruePBRSettings
