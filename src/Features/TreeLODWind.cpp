@@ -29,10 +29,15 @@ void TreeLODWind::PostPostLoad()
 	}
 
 	// The b13 cbuffer layout and the t120 buffer are a contract with the plugin, so only a build that reports
-	// this interface version enables the shader changes.
+	// this interface version, or the legacy one, enables the shader changes.
 	using InterfaceVersionFn = std::uint32_t (*)();
 	const auto interfaceVersionFn = reinterpret_cast<InterfaceVersionFn>(GetProcAddress(companionModule, "WindsweptTreeLOD_GetInterfaceVersion"));
-	const std::uint32_t pluginVersion = interfaceVersionFn ? interfaceVersionFn() : 0;
+	const std::uint32_t pluginVersion = interfaceVersionFn ? interfaceVersionFn() : kLegacyInterfaceVersion;
+	legacyInterface = pluginVersion == kLegacyInterfaceVersion;
+	if (legacyInterface) {
+		logger::info("[Tree LOD Wind] Windswept Tree LOD 1.0-1.2 plugin detected (legacy interface), compatibility enabled; its own Lighting.hlsl and Utility.hlsl must not override Astral Shaders'");
+		return;
+	}
 	if (pluginVersion != kInterfaceVersion) {
 		loaded = false;
 		const auto requiredVersion = kInterfaceVersion;

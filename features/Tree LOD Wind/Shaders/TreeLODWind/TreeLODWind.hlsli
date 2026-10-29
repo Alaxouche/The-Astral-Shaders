@@ -18,12 +18,23 @@ namespace TreeLODWind
 	};
 
 	// Per vertex: bend weight, tree random, tree scale, distance from the trunk
+#	if defined(TREE_LOD_WIND_LEGACY)
+	// Windswept 1.0-1.2: weights at t110, no binding tag (Params.w is its debug tint). The plugin binds its
+	// "off" buffer on every other Lighting and Utility draw, which is all its own shaders relied on.
+	Buffer<float4> VertexData : register(t110);
+
+	bool IsEnabled()
+	{
+		return Params.z > 0.5;
+	}
+#	else
 	Buffer<float4> VertexData : register(t120);
 
 	bool IsEnabled()
 	{
 		return Params.z > 0.5 && asuint(Params.w) == kBindingTag;
 	}
+#	endif
 
 	float2 Sway(float3 positionMS, float phase)
 	{

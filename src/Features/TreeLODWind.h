@@ -10,7 +10,11 @@
  * vertex shader for those draws only. The TREE_LOD_WIND define adds the matching vertex offset to
  * Lighting.hlsl and Utility.hlsl, so the colour, depth and shadow passes all move together.
  *
- * It self-disables in PostPostLoad when the plugin is absent or reports a different interface version, so
+ * Windswept 1.0 to 1.2 (interface 0, no version export) shipped its own copies of Lighting.hlsl and
+ * Utility.hlsl instead; it binds the same b13 layout without the binding tag and its per-vertex weights at
+ * t110. Astral Shaders drives that plugin too, through TREE_LOD_WIND_LEGACY, so its shader files can stay hidden.
+ *
+ * It self-disables in PostPostLoad when the plugin is absent or reports an unknown interface version, so
  * the define is off and the shaders are unchanged without it; regular feature validation recompiles them
  * when the plugin is added or removed.
  */
@@ -18,7 +22,12 @@ struct TreeLODWind : Feature
 {
 	/** @brief b13 cbuffer layout and t120 buffer version the shaders expect; the plugin must report the same. */
 	static constexpr std::uint32_t kInterfaceVersion = 1;
+	/** @brief Interface reported (by its absence) by Windswept 1.0 to 1.2: untagged b13, weights at t110. */
+	static constexpr std::uint32_t kLegacyInterfaceVersion = 0;
 	static constexpr std::string_view MOD_ID = "195280";
+
+	/** @brief True when the installed plugin speaks the legacy interface. */
+	bool legacyInterface = false;
 
 	virtual inline std::string GetName() override { return "Tree LOD Wind"; }
 	virtual inline std::string GetDisplayName() override { return T("feature.tree_lod_wind.name", "Tree LOD Wind"); }
@@ -27,6 +36,14 @@ struct TreeLODWind : Feature
 	virtual inline bool HasShaderDefine(RE::BSShader::Type t) override
 	{
 		return t == RE::BSShader::Type::Lighting || t == RE::BSShader::Type::Utility;
+	}
+
+	/** @brief Selects the legacy plugin's resource contract in the shaders. */
+	virtual std::vector<std::pair<std::string_view, std::string_view>> GetShaderDefineOptions() override
+	{
+		if (legacyInterface)
+			return { { "TREE_LOD_WIND_LEGACY", "" } };
+		return {};
 	}
 	virtual std::string_view GetCategory() const override { return FeatureCategories::kLandscapeAndTextures; }
 	virtual inline std::string GetFeatureModLink() override { return MakeNexusModURL(MOD_ID); }
