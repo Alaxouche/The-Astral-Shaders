@@ -372,6 +372,8 @@ void Deferred::DeferredPasses()
 	{
 		TracyD3D11Zone(globals::state->tracyCtx, "Deferred Composite");
 
+		// The probe array can be missing while Skylighting is loaded (not yet created, or released on reset).
+		ID3D11ShaderResourceView* skylightingProbes = skylighting.loaded && skylighting.texProbeArray ? skylighting.texProbeArray->srv.get() : nullptr;
 		ID3D11ShaderResourceView* srvs[]{
 			specular.SRV,                                                                                    // t0  SpecularTexture
 			albedo.SRV,                                                                                      // t1  AlbedoTexture
@@ -381,7 +383,7 @@ void Deferred::DeferredPasses()
 			dynamicCubemaps.loaded ? reflectance.SRV : nullptr,                                              // t5  ReflectanceTexture
 			dynamicCubemaps.loaded ? dynamicCubemaps.envTexture->srv.get() : nullptr,                        // t6  EnvTexture
 			dynamicCubemaps.loaded ? dynamicCubemaps.envReflectionsTexture->srv.get() : nullptr,             // t7  EnvReflectionsTexture
-			dynamicCubemaps.loaded && skylighting.loaded ? skylighting.texProbeArray->srv.get() : nullptr,   // t8  SkylightingProbeArray
+			dynamicCubemaps.loaded ? skylightingProbes : nullptr,                                            // t8  SkylightingProbeArray
 			masks2.SRV,                                                                                      // t9  Masks2Texture (vertexAO in .x)
 			ssgi_ao,                                                                                         // t10 SsgiAoTexture
 			ssgi_y,                                                                                          // t11 SsgiYTexture
