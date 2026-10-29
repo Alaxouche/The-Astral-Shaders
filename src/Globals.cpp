@@ -34,7 +34,6 @@
 #include "Features/PostProcessing.h"
 #include "Features/LivingWindows.h"
 #include "Features/PhysicalSky.h"
-#include "Features/NightSky.h"
 #include "Features/ProceduralSun.h"
 #include "Features/ProceduralAurora.h"
 #include "Features/RainRefraction.h"
@@ -81,7 +80,6 @@ namespace globals
 	{
 		CloudShadows cloudShadows{};
 		ProceduralSun proceduralSun{};
-		NightSky nightSky{};
 		DynamicCubemaps dynamicCubemaps{};
 		VolumetricShadows volumetricShadows{};
 		ExtendedMaterials extendedMaterials{};

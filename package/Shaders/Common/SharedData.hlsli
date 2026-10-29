@@ -712,30 +712,6 @@ namespace SharedData
 		float2 pad0;
 	};
 
-	// Mirrors NightSky::PerFrame (src/Features/NightSky.h).
-	struct NightSkySettings
-	{
-		uint Enabled;
-		uint ReplaceStars;
-		float StarVisibility;
-		float StarBrightness;
-
-		float StarDensity;
-		float Twinkle;
-		float MilkyWay;
-		float Airglow;
-
-		float AuroraStrength;
-		float AuroraIntensity;
-		float SiderealAngle;
-		float Latitude;
-
-		float3 AuroraColorLow;
-		float Night;
-
-		float3 AuroraColorHigh;
-		float padNightSky;
-	};
 
 	struct HorizonFixSettings
 	{
@@ -827,7 +803,6 @@ namespace SharedData
 		PhysSkyData physSkyData;
 		LivingWindowsSettings livingWindowsSettings;
 		VolumetricLightingSettings volumetricLightingSettings;
-		NightSkySettings nightSkySettings;
 		HorizonFixSettings horizonFixSettings;
 		HairBacklightingSettings hairBacklightingSettings;
 		RainRefractionSettings rainRefractionSettings;

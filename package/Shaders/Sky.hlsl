@@ -237,10 +237,6 @@ cbuffer AlphaTestRefCB : register(b11)
 #		include "ProceduralSun/ProceduralSun.hlsli"
 #	endif
 
-#	if defined(NIGHT_SKY)
-#		include "NightSky/NightSky.hlsli"
-#	endif
-
 #	ifdef HDR_OUTPUT
 #		include "HDRDisplay/HDRSun.hlsli"
 #		include "Common/Random.hlsli"
@@ -317,16 +313,6 @@ PS_OUTPUT main(PS_INPUT input)
 	float3 skyScale = ColorManagement::SRGBToWorking(PParams.yyy);
 #	endif
 	float alphaTransmittance = 1.0;
-
-#	if defined(NIGHT_SKY) && defined(DITHER) && !defined(TEX)
-	// Stars, Milky Way and aurora on the dome. The pixel's angular size, taken here in uniform
-	// control flow, sizes each star to exactly the pixels it covers.
-	const float3 nightSkyDir = normalize(input.WorldPosition.xyz);
-	const float nightSkyPixelAngle = max(length(ddx(nightSkyDir)), length(ddy(nightSkyDir)));
-	float3 nightSkyRadiance = 0.0;
-	[branch] if (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InWorld)
-		nightSkyRadiance = NightSky::Radiance(nightSkyDir, nightSkyPixelAngle);
-#	endif
 
 #	if defined(PS_CLOUDS)
 	float psCloudDist = 1e3f / 1.428e-2;
@@ -508,9 +494,6 @@ PS_OUTPUT main(PS_INPUT input)
 	psout.Color.xyz *= 1.0 + noiseGrad;
 #				endif
 	psout.Color.w = input.Color.w;
-#				if defined(NIGHT_SKY)
-	psout.Color.xyz += nightSkyRadiance;
-#				endif
 #			endif  // TEX
 
 #		elif defined(MOONMASK)
@@ -527,11 +510,6 @@ PS_OUTPUT main(PS_INPUT input)
 #			endif
 	psout.Color.xyz = float3(1.5, 1.5, 1.5) * (input.Color.xyz * baseColor.xyz + skyScale);
 	psout.Color.w = input.TexCoord2.x * (baseColor.w * input.Color.w);
-#			if defined(NIGHT_SKY)
-	// The procedural star field replaces the game's star texture.
-	if (SharedData::nightSkySettings.Enabled != 0 && SharedData::nightSkySettings.ReplaceStars != 0)
-		psout.Color.w = 0.0;
-#			endif
 #		else
 
 	psout.Color.w = input.Color.w * baseColor.w;
@@ -597,10 +575,6 @@ PS_OUTPUT main(PS_INPUT input)
 		float skyShadow = GetPhysSkyCloudShadow(skyViewDir, input.Position.xy);
 		float2 physSkyScreenUV = input.Position.xy * SharedData::BufferDim.zw * FrameBuffer::DynamicResolutionParams2.xy;  // adjust for dynamic res
 		float3 physSkyColor = PhysSky::SampleSky(skyViewDir, skyShadow, PhysSky::SampSv);
-#			if defined(NIGHT_SKY)
-		// Behind the volumetric clouds composited next, like the moons and clouds that cover it.
-		physSkyColor += nightSkyRadiance;
-#			endif
 		float3 skyColor = physSkyColor;
 		if (SharedData::physSkyData.enableVolumetricClouds && (inReflection || !SharedData::PostWaterComposite))
 			skyColor = inReflection ? PhysSky::CompositeVolumetricCloudsCube(physSkyColor, skyViewDir, PhysSky::SampSv) : PhysSky::CompositeVolumetricCloudsUv(physSkyColor, physSkyScreenUV, PhysSky::SampSv);

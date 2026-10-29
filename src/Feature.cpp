@@ -8,7 +8,6 @@
 #include "Features/DetailMaps.h"
 #include "Features/DeveloperTools.h"
 #include "Features/DynamicCubemaps.h"
-#include "Features/NightSky.h"
 #include "Features/ProceduralSun.h"
 #include "Features/Effects11.h"
 #include "Features/ExponentialHeightFog.h"
@@ -226,7 +225,6 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::dynamicCubemaps,
 		&globals::features::cloudShadows,
 		&globals::features::proceduralSun,
-		&globals::features::nightSky,
 		&globals::features::waterEffects,
 		&globals::features::performanceOverlay,
 		&globals::features::subsurfaceScattering,
