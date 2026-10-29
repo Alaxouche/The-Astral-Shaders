@@ -238,4 +238,27 @@ namespace Util
 		}
 		return false;
 	}
+
+	void ForEachGeometry(RE::NiAVObject* a_root, const std::function<void(RE::BSGeometry*)>& a_callback)
+	{
+		if (!a_root || !a_callback)
+			return;
+
+		RE::BSVisit::TraverseScenegraphGeometries(a_root, [&a_callback](RE::BSGeometry* a_geometry) {
+			a_callback(a_geometry);
+			return RE::BSVisit::BSVisitControl::kContinue;
+		});
+	}
+
+	void ForEachActorGeometry(RE::Actor* a_actor, const std::function<void(RE::BSGeometry*)>& a_callback)
+	{
+		if (!a_actor || !a_actor->Is3DLoaded() || !a_callback)
+			return;
+
+		auto* thirdPersonRoot = a_actor->Get3D(false);
+		auto* firstPersonRoot = a_actor->Get3D(true);
+		ForEachGeometry(thirdPersonRoot, a_callback);
+		if (firstPersonRoot != thirdPersonRoot)
+			ForEachGeometry(firstPersonRoot, a_callback);
+	}
 }

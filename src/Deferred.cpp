@@ -887,7 +887,7 @@ void Deferred::Hooks::Main_RenderWorld_BlendedDecals::thunk(RE::BSShaderAccumula
 
 	auto& furShells = globals::features::furShells;
 	if (furShells.loaded)
-		furShells.RenderDeferredShells();
+		furShells.OnBeforeBlendedDecals();
 
 	// Deferred blended decals
 

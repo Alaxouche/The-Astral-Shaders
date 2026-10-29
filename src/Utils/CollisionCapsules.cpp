@@ -1,0 +1,145 @@
+#include "Utils/CollisionCapsules.h"
+
+#include <cmath>
+
+namespace
+{
+	RE::NiPoint3 TransformHavokPoint(const RE::hkTransform& transform, const RE::hkVector4& point)
+	{
+		alignas(16) float localPoint[4];
+		_mm_store_ps(localPoint, point.quad);
+
+		__m128 worldPoint = transform.translation.quad;
+		worldPoint = _mm_add_ps(worldPoint, _mm_mul_ps(transform.rotation.col0.quad, _mm_set1_ps(localPoint[0])));
+		worldPoint = _mm_add_ps(worldPoint, _mm_mul_ps(transform.rotation.col1.quad, _mm_set1_ps(localPoint[1])));
+		worldPoint = _mm_add_ps(worldPoint, _mm_mul_ps(transform.rotation.col2.quad, _mm_set1_ps(localPoint[2])));
+
+		alignas(16) float transformedPoint[4];
+		_mm_store_ps(transformedPoint, worldPoint);
+		return RE::NiPoint3(transformedPoint[0], transformedPoint[1], transformedPoint[2]) *
+		       RE::bhkWorld::GetWorldScaleInverse();
+	}
+
+	bool IsCapsuleFinite(const Util::ShapeCollisionCapsule& capsule)
+	{
+		return std::isfinite(capsule.pointA.x) && std::isfinite(capsule.pointA.y) && std::isfinite(capsule.pointA.z) &&
+		       std::isfinite(capsule.pointB.x) && std::isfinite(capsule.pointB.y) && std::isfinite(capsule.pointB.z) &&
+		       std::isfinite(capsule.radius) && capsule.radius > 0.0f;
+	}
+}
+
+namespace Util
+{
+	bool GetShapeCollisionCapsule(RE::bhkNiCollisionObject* collisionObj, ShapeCollisionCapsule& capsule)
+	{
+		if (!collisionObj)
+			return false;
+
+		RE::bhkRigidBody* bhkRigid = collisionObj->body.get() ? collisionObj->body.get()->AsBhkRigidBody() : nullptr;
+		RE::hkpRigidBody* hkpRigid = bhkRigid ? skyrim_cast<RE::hkpRigidBody*>(bhkRigid->referencedObject.get()) : nullptr;
+		const auto* shape = hkpRigid ? hkpRigid->collidable.GetShape() : nullptr;
+		if (bhkRigid && hkpRigid && shape && !skyrim_cast<const RE::hkpListShape*>(shape)) {  // Ignore hkpListShape, unsupported
+			if (shape->type == RE::hkpShapeType::kCapsule) {
+				const auto* capsuleShape = static_cast<const RE::hkpCapsuleShape*>(shape);
+				RE::hkTransform transform;
+				bhkRigid->GetTransform(transform);
+
+				capsule.pointA = TransformHavokPoint(transform, capsuleShape->vertexA);
+				capsule.pointB = TransformHavokPoint(transform, capsuleShape->vertexB);
+				capsule.radius = capsuleShape->radius * RE::bhkWorld::GetWorldScaleInverse();
+				return IsCapsuleFinite(capsule);
+			}
+
+			RE::hkVector4 massCenter;
+			bhkRigid->GetCenterOfMassWorld(massCenter);
+			float massTrans[4];
+			// Use unaligned store to avoid UB from potential stack misalignment
+			_mm_storeu_ps(massTrans, massCenter.quad);
+			capsule.pointA = RE::NiPoint3(massTrans[0], massTrans[1], massTrans[2]) * RE::bhkWorld::GetWorldScaleInverse();
+			capsule.pointB = capsule.pointA;
+			return Util::ExtractShapeBound(shape, capsule.radius) && IsCapsuleFinite(capsule);
+		}
+		return false;
+	}
+
+	namespace
+	{
+		/** @brief A world-space capsule along the longest side of an axis-aligned box in the body's own frame, with the mean of the other two half sides as its radius. */
+		bool BoxCapsule(const float a_centre[3], const float a_half[3], const RE::hkTransform& a_transform, ShapeCollisionCapsule& a_capsule)
+		{
+			const int longest = a_half[0] >= a_half[1] && a_half[0] >= a_half[2] ? 0 : (a_half[1] >= a_half[2] ? 1 : 2);
+			const float radius = 0.5f * (a_half[(longest + 1) % 3] + a_half[(longest + 2) % 3]);
+			const float reach = std::max(a_half[longest] - radius, 0.0f);
+
+			const auto endpoint = [&](float a_sign) {
+				float local[4] = { a_centre[0], a_centre[1], a_centre[2], 0.0f };
+				local[longest] += a_sign * reach;
+				return TransformHavokPoint(a_transform, RE::hkVector4{ local[0], local[1], local[2], 0.0f });
+			};
+			a_capsule.pointA = endpoint(-1.0f);
+			a_capsule.pointB = endpoint(1.0f);
+			a_capsule.radius = radius * RE::bhkWorld::GetWorldScaleInverse();
+			return IsCapsuleFinite(a_capsule);
+		}
+
+		/** @brief A world-space capsule along the longest side of a shape's bounds in the body's own frame, or false for a shape this cannot bound. */
+		bool BoundShapeCapsule(const RE::hkpShape* a_shape, const RE::hkTransform& a_transform, ShapeCollisionCapsule& a_capsule)
+		{
+			const float scale = RE::bhkWorld::GetWorldScaleInverse();
+			if (a_shape->type == RE::hkpShapeType::kCapsule) {
+				const auto* capsuleShape = static_cast<const RE::hkpCapsuleShape*>(a_shape);
+				a_capsule.pointA = TransformHavokPoint(a_transform, capsuleShape->vertexA);
+				a_capsule.pointB = TransformHavokPoint(a_transform, capsuleShape->vertexB);
+				a_capsule.radius = capsuleShape->radius * scale;
+				return IsCapsuleFinite(a_capsule);
+			}
+			if (a_shape->type == RE::hkpShapeType::kList || a_shape->type == RE::hkpShapeType::kCompound || a_shape->type == RE::hkpShapeType::kMOPP)
+				return false;
+
+			const auto extent = [a_shape](float x, float y, float z) {
+				return a_shape->GetMaximumProjection(RE::hkVector4{ x, y, z, 0.0f });
+			};
+			const float high[3] = { extent(1.0f, 0.0f, 0.0f), extent(0.0f, 1.0f, 0.0f), extent(0.0f, 0.0f, 1.0f) };
+			const float low[3] = { -extent(-1.0f, 0.0f, 0.0f), -extent(0.0f, -1.0f, 0.0f), -extent(0.0f, 0.0f, -1.0f) };
+			float centre[3];
+			float half[3];
+			for (int axis = 0; axis < 3; ++axis) {
+				centre[axis] = 0.5f * (high[axis] + low[axis]);
+				half[axis] = 0.5f * (high[axis] - low[axis]);
+			}
+			return BoxCapsule(centre, half, a_transform, a_capsule);
+		}
+	}
+
+	size_t GetRigidBodyCapsules(RE::bhkRigidBody* a_body, std::span<ShapeCollisionCapsule> a_capsules)
+	{
+		auto* rigid = a_body ? skyrim_cast<RE::hkpRigidBody*>(a_body->referencedObject.get()) : nullptr;
+		const auto* shape = rigid && rigid->world ? rigid->collidable.GetShape() : nullptr;
+		if (!shape || a_capsules.empty())
+			return 0;
+
+		RE::hkTransform transform;
+		a_body->GetTransform(transform);
+
+		if (const auto* list = skyrim_cast<const RE::hkpListShape*>(shape)) {
+			size_t count = 0;
+			const auto children = static_cast<size_t>(list->childInfo.size());
+			if (children > 0 && children <= a_capsules.size()) {
+				for (size_t index = 0; index < children; ++index) {
+					const auto* child = list->childInfo[static_cast<int>(index)].shape;
+					if (child && BoundShapeCapsule(child, transform, a_capsules[count]))
+						++count;
+				}
+				if (count > 0)
+					return count;
+			}
+
+			alignas(16) float centre[4];
+			alignas(16) float half[4];
+			_mm_store_ps(centre, list->aabbCenter.quad);
+			_mm_store_ps(half, list->aabbHalfExtents.quad);
+			return BoxCapsule(centre, half, transform, a_capsules[0]) ? 1 : 0;
+		}
+		return BoundShapeCapsule(shape, transform, a_capsules[0]) ? 1 : 0;
+	}
+}

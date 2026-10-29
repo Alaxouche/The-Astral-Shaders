@@ -129,7 +129,7 @@ namespace stl
 	void detour_thunk(std::uintptr_t a_address)
 	{
 		if (detour_is_installed(a_address, reinterpret_cast<PVOID>(T::thunk)))
-			return NO_ERROR;
+			return;
 		T::func = a_address;
 		const auto result = detour_attach(reinterpret_cast<PVOID*>(&T::func), reinterpret_cast<PVOID>(T::thunk));
 		if (result != NO_ERROR) {

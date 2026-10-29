@@ -69,6 +69,18 @@ namespace Util
 	/** @brief Visits the player and every high-process actor once. */
 	void ForEachLoadedActor(const std::function<void(RE::Actor*)>& a_callback);
 
+	/** @brief A Havok or Gamebryo point as the float3 the shaders and constant buffers use. */
+	inline float3 ToFloat3(const RE::NiPoint3& a_point)
+	{
+		return { a_point.x, a_point.y, a_point.z };
+	}
+
+	/** @brief Calls a_callback for every geometry under a_root. */
+	void ForEachGeometry(RE::NiAVObject* a_root, const std::function<void(RE::BSGeometry*)>& a_callback);
+
+	/** @brief Calls a_callback for every geometry of an actor's third-person and (when different) first-person 3D. */
+	void ForEachActorGeometry(RE::Actor* a_actor, const std::function<void(RE::BSGeometry*)>& a_callback);
+
 	/**
      * @brief Gets the ragdoll center for a dead actor.
      * @param actor Pointer to the actor.

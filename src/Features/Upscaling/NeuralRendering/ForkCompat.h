@@ -6,23 +6,9 @@
 #include "Globals.h"
 #include "State.h"
 
+#include "Utils/OpenShadersCompat.h"
+
 #include <d3d11.h>
-
-namespace globals::game
-{
-	/** @brief This fork has no VR runtime. */
-	inline constexpr bool isVR = false;
-}
-
-namespace Util
-{
-	/** @brief Open Shaders unwraps CommonLib's proxied D3D pointers here; this fork's are the real ones. */
-	template <class T>
-	constexpr T* AsReal(T* a_pointer) noexcept
-	{
-		return a_pointer;
-	}
-}
 
 namespace NR::Compat
 {

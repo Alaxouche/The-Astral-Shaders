@@ -45,6 +45,16 @@
 
 #if defined(FUR_SHELLS)
 #	include "FurShells/FurShells.hlsli"
+
+float GetFurWet()
+{
+#	if defined(WETNESS_EFFECTS) && !defined(HAIR) && !defined(EYE) && !defined(LANDSCAPE)
+	// Bottle removed the per-character retained wetness Open Shaders reads here; the outdoor rain wetness stands in.
+	return SharedData::InInterior ? 0.0 : FurShells::GetWetFactor(SharedData::wetnessEffectsSettings.Wetness, true);
+#	else
+	return 0.0;
+#	endif
+}
 #endif
 
 #if defined(DETAIL_MAPS)
@@ -115,6 +125,7 @@ struct VS_OUTPUT
 #if defined(FUR_SHELLS)
 	nointerpolation float FurShell: TEXCOORD13;
 	float4 FurRoot: TEXCOORD14;
+	float3 FurTouch: TEXCOORD15;
 #endif
 };
 #ifdef VSHADER
@@ -196,14 +207,14 @@ VS_OUTPUT main(VS_INPUT input)
 	precise float4 previousInputPosition = inputPosition;
 
 #	if defined(FUR_SHELLS)
-	float furShell = FurShells::GetShell(instanceID);
-	float4 furRootPosition = inputPosition;
+	const float furShell = FurShells::GetShell(FurShells::GetShellIndex(instanceID));
+	const float4 furRootPosition = inputPosition;
 #		if defined(MODELSPACENORMALS)
-	float3 furNormal = FurShells::GetModelNormal(input.TexCoord0.xy * TexcoordOffset.zw + TexcoordOffset.xy);
+	const float3 furNormal = FurShells::GetModelNormal(input.TexCoord0.xy * TexcoordOffset.zw + TexcoordOffset.xy);
 #		else
-	float3 furNormal = input.Normal.xyz * 2.0 - 1.0;
+	const float3 furNormal = input.Normal.xyz * 2.0 - 1.0;
 #		endif
-	float3 furOffset = furNormal * (FurShells::Length * furShell);
+	const float3 furOffset = furNormal * (FurShells::Length * FurShells::GetWetLength(GetFurWet()) * furShell);
 	inputPosition.xyz += furOffset;
 	previousInputPosition.xyz += furOffset;
 #	endif
@@ -236,9 +247,17 @@ VS_OUTPUT main(VS_INPUT input)
 	precise float4 worldPosition = float4(mul(inputPosition, transpose(worldMatrix)), 1);
 
 #		if defined(FUR_SHELLS)
-	float furDroop = FurShells::Droop * furShell * furShell;
-	worldPosition.z -= furDroop;
-	previousWorldPosition.z -= furDroop;
+	const float furWetLength = FurShells::GetWetLength(GetFurWet());
+	const float furDroop = min(FurShells::Droop * FurShells::GetWetDroop(GetFurWet()) * furShell * furShell, FurShells::Length * furWetLength * furShell);
+	const float3 furWorldVector = mul((float3x3)worldMatrix, furNormal);
+	const float furWorldScale = length(furWorldVector);
+	const float3 furWorldNormal = furWorldVector / max(furWorldScale, 1e-6);
+	float3 furTouchDebug;
+	const float3 furTouch = FurShells::GetTouchDisplacement(worldPosition.xyz + FurShells::TouchEye[0].xyz, furWorldNormal, furShell, FurShells::Length * furWetLength, furTouchDebug);
+	const float3 furBend = FurShells::LimitBend(FurShells::GetWindDisplacement(furWorldNormal, furShell) + FurShells::GetInertiaDisplacement(furShell, GetFurWet()), furShell, furWetLength, furWorldScale);
+	const float3 furDisplacement = float3(0.0, 0.0, -furDroop) + furBend + furTouch;
+	worldPosition.xyz += furDisplacement;
+	previousWorldPosition.xyz += furDisplacement;
 	float4 furRootViewPos = mul(ViewProj, float4(mul(furRootPosition, transpose(worldMatrix)), 1));
 #		endif
 
@@ -255,9 +274,17 @@ VS_OUTPUT main(VS_INPUT input)
 	float4 viewPos = mul(modelView, inputPosition);
 
 #		if defined(FUR_SHELLS)
-	float furDroop = FurShells::Droop * furShell * furShell;
-	worldPosition.z -= furDroop;
-	previousWorldPosition.z -= furDroop;
+	const float furWetLength = FurShells::GetWetLength(GetFurWet());
+	const float furDroop = min(FurShells::Droop * FurShells::GetWetDroop(GetFurWet()) * furShell * furShell, FurShells::Length * furWetLength * furShell);
+	const float3 furWorldVector = mul((float3x3)World, furNormal);
+	const float furWorldScale = length(furWorldVector);
+	const float3 furWorldNormal = furWorldVector / max(furWorldScale, 1e-6);
+	float3 furTouchDebug;
+	const float3 furTouch = FurShells::GetTouchDisplacement(worldPosition.xyz + FurShells::TouchEye[0].xyz, furWorldNormal, furShell, FurShells::Length * furWetLength, furTouchDebug);
+	const float3 furBend = FurShells::LimitBend(FurShells::GetWindDisplacement(furWorldNormal, furShell) + FurShells::GetInertiaDisplacement(furShell, GetFurWet()), furShell, furWetLength, furWorldScale);
+	const float3 furDisplacement = float3(0.0, 0.0, -furDroop) + furBend + furTouch;
+	worldPosition.xyz += furDisplacement;
+	previousWorldPosition.xyz += furDisplacement;
 	float4 furRootViewPos = mul(modelView, furRootPosition);
 	viewPos -= furDroop * float4(ViewProj[0].z, ViewProj[1].z, ViewProj[2].z, ViewProj[3].z);
 #		endif
@@ -364,6 +391,7 @@ VS_OUTPUT main(VS_INPUT input)
 #	if defined(FUR_SHELLS)
 	vsout.FurShell = furShell;
 	vsout.FurRoot = furRootViewPos;
+	vsout.FurTouch = furTouchDebug;
 #	endif
 
 	return vsout;
@@ -1235,7 +1263,8 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float2 uvOriginal = uv;
 
 #	if defined(FUR_SHELLS)
-	float4 furSample = FurShells::TexShell.SampleBias(SampColorSampler, uv, SharedData::MipBias);
+	const float furMipScale = exp2(SharedData::MipBias);
+	float4 furSample = FurShells::TexShell.SampleGrad(SampColorSampler, FurShells::GetClumpedUv(uv, input.FurShell, GetFurWet()), ddx(uv) * furMipScale, ddy(uv) * furMipScale);
 	bool furRootCovered = FurShells::IsRootCovered(input.FurRoot, fwidth(input.FurRoot.w));
 #		if defined(MODELSPACENORMALS)
 	float3 furFacingNormal = cross(ddx(input.WorldPosition.xyz), ddy(input.WorldPosition.xyz));
@@ -1243,7 +1272,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float3 furFacingNormal = tbnTr[2];
 #		endif
 	float furFacing = abs(dot(furFacingNormal, viewDirection)) * rsqrt(max(dot(furFacingNormal, furFacingNormal), 1e-12));
-	float furCoverage = FurShells::GetCoverage(furSample.w, lerp(FurShells::RootThreshold, FurShells::TipThreshold, input.FurShell), uv);
+	float furCoverage = FurShells::GetCoverage(furSample.w, lerp(FurShells::RootThreshold, FurShells::TipThreshold, input.FurShell), uv) * FurShells::GetLayerWeight(input.FurShell);
 	if (input.FurShell > 0.0 && (furRootCovered || furCoverage < screenNoise))
 		discard;
 #	endif
@@ -1887,7 +1916,11 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 #	if defined(FUR_SHELLS)
 	if (input.FurShell > 0.0)
-		baseColor.xyz *= FurShells::GetDarkening(input.FurShell, furFacing);
+		baseColor.xyz *= FurShells::GetDarkening(input.FurShell, furFacing) * FurShells::GetWetDarkening(GetFurWet());
+	if (input.FurShell > 0.0 && FurShells::TouchDebug > 0.0) {
+		const float4 touchDebug = FurShells::GetTouchDebugColor(input.FurTouch);
+		baseColor.xyz = lerp(baseColor.xyz, touchDebug.rgb, touchDebug.a);
+	}
 #	endif
 
 #	if defined(CS_SKIN_SHADING)
@@ -2837,7 +2870,12 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		(Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::IsHeldWeapon) != 0;
 	float3 characterDrop = 0.0f;
 	float characterRainSkyVisibility = SharedData::InInterior ? 0.0f : wetnessOcclusion;
-	const bool evaluateCharacterDrops = characterRainSurface && inWorld && !SharedData::HideSky &&
+#			if defined(FUR_SHELLS)
+	const bool furDropLayer = input.FurShell <= 0.0 || input.FurShell >= FurShells::TipShell;
+#			else
+	const bool furDropLayer = true;
+#			endif
+	const bool evaluateCharacterDrops = characterRainSurface && furDropLayer && inWorld && !SharedData::HideSky &&
 	                                    max(SharedData::wetnessEffectsSettings.CharacterImpactIntensity,
 											SharedData::wetnessEffectsSettings.CharacterRetainedWetness) > 0.0f &&
 	                                    (!heldWeapon || SharedData::wetnessEffectsSettings.EnableWeaponRainDrops);
