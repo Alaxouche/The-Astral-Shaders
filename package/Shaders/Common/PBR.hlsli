@@ -125,7 +125,18 @@ namespace PBR
 		float3 fuzzColor;
 		float fuzzAlbedo;
 		float fuzzRoughness;
+		float3 shineThroughAlbedo;
 	};
+
+	// Grass also calls this for materials without the subsurface flag, because SSS Amount applies to all PBR grass.
+	void AddThinSurfaceSubsurface(inout ThinSurface surface, MaterialProperties material)
+	{
+		float reflectionWeight;
+		GetThinSurfaceSubsurfaceAlbedos(saturate(material.BaseColor), saturate(material.SubsurfaceColor), material.Thickness, material.SubsurfaceBalance,
+			reflectionWeight, surface.frontTransmissionAlbedo, surface.backTransmissionAlbedo);
+		surface.reflectionAlbedo *= reflectionWeight;
+		surface.shineThroughAlbedo = material.BaseColor;
+	}
 
 	ThinSurface CreateThinSurface(MaterialProperties material, float NdotV, bool doSpecular, bool reflectionIncludesBaseColor = true)
 	{
@@ -133,10 +144,7 @@ namespace PBR
 		surface.reflectionAlbedo = reflectionIncludesBaseColor ? saturate(material.BaseColor) : 1.0f;
 		[branch] if ((PBRFlags & Flags::Subsurface) != 0)
 		{
-			float reflectionWeight;
-			GetThinSurfaceSubsurfaceAlbedos(saturate(material.BaseColor), saturate(material.SubsurfaceColor), material.Thickness, material.SubsurfaceBalance,
-				reflectionWeight, surface.frontTransmissionAlbedo, surface.backTransmissionAlbedo);
-			surface.reflectionAlbedo *= reflectionWeight;
+			AddThinSurfaceSubsurface(surface, material);
 		}
 
 		[branch] if (doSpecular)
@@ -166,8 +174,7 @@ namespace PBR
 		float fuzzThroughput = 1.0f - surface.fuzzAlbedo;
 		float3 scatteringThroughput = (1.0f - surface.specularAlbedo) * fuzzThroughput;
 		float3 irradiance = context.lightColor * BRDF::Diffuse_Lambert() * scatteringThroughput;
-		float3 shineThroughAlbedo = (PBRFlags & Flags::Subsurface) != 0 ? material.BaseColor : 0.0f;
-		GetThinSurfaceDirectScattering(surface.reflectionAlbedo, surface.frontTransmissionAlbedo, surface.backTransmissionAlbedo, shineThroughAlbedo,
+		GetThinSurfaceDirectScattering(surface.reflectionAlbedo, surface.frontTransmissionAlbedo, surface.backTransmissionAlbedo, surface.shineThroughAlbedo,
 			material.Thickness, irradiance, NdotL, wrap, context.detailedShadow, float2(context.softShadow, context.softShadow * context.backTransmissionVisibility),
 			lightingOutput.diffuse, lightingOutput.transmission);
 

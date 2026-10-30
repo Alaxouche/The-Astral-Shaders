@@ -50,11 +50,11 @@ void GrassLighting::DrawSettings()
 	if (ImGui::TreeNodeEx(T(TKEY("effects"), "Effects"), ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::SliderFloat(T(TKEY("sss_amount"), "SSS Amount"), &settings.SubsurfaceScatteringAmount, 0.0f, 1.0f);
 		if (auto _tt = Util::HoverTooltipWrapper()) {
-			ImGui::TextWrapped("%s", T(TKEY("sss_tooltip"), "Subsurface scattering strength for non-PBR grass. Zero disables it. SSS Balance distributes the subsurface light between the two sides without changing its total. PBR subsurface scattering is controlled by the material and its texture."));
+			ImGui::TextWrapped("%s", T(TKEY("sss_tooltip"), "Subsurface scattering strength. Zero disables it on non-PBR grass and adds nothing to PBR grass. SSS Balance distributes the subsurface light between the two sides without changing its total. On PBR grass this is a minimum: a material authored more translucent keeps its own value."));
 		}
 		ImGui::SliderFloat(T(TKEY("sss_balance"), "SSS Balance"), &settings.SubsurfaceBalance, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 		if (auto _tt = Util::HoverTooltipWrapper()) {
-			ImGui::TextWrapped("%s", T(TKEY("sss_balance_tooltip"), "Share of non-PBR subsurface light sent to the side of a blade facing away from the light, shining through; the lit side receives the rest. 0 keeps it on the lit side, 0.5 splits it equally and 1 (default) sends all of it through. Does not change reflected light or the total subsurface strength. PBR balance is controlled by the material."));
+			ImGui::TextWrapped("%s", T(TKEY("sss_balance_tooltip"), "Share of subsurface light sent to the side of a blade facing away from the light, shining through; the lit side receives the rest. 0 keeps it on the lit side, 0.5 splits it equally and 1 (default) sends all of it through. Does not change reflected light or the total subsurface strength. PBR grass with authored subsurface keeps its material balance."));
 		}
 
 		ImGui::SliderFloat(T(TKEY("canopy_occlusion"), "Canopy Occlusion"), &settings.CanopyOcclusion, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
