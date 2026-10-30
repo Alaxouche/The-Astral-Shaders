@@ -1193,6 +1193,23 @@ bool FurShells::DrawShells(UINT a_indexCount, UINT a_engineInstances, UINT a_sta
 		return replaying;
 	}
 
+	// Other plugins can rebind b13 between SetupGeometry and the draw: Windswept Tree LOD binds its wind buffer
+	// there on every Lighting draw from its SetDirtyStates hook. The per-pass buffer is bound again right before
+	// the shells and the previous buffers are put back after them.
+	winrt::com_ptr<ID3D11Buffer> savedVertexBuffer;
+	winrt::com_ptr<ID3D11Buffer> savedPixelBuffer;
+	context->VSGetConstantBuffers(VertexPerPassSlot, 1, savedVertexBuffer.put());
+	context->PSGetConstantBuffers(PixelPerPassSlot, 1, savedPixelBuffer.put());
+	ID3D11Buffer* perPassBuffer = perPassCB->CB();
+	context->VSSetConstantBuffers(VertexPerPassSlot, 1, &perPassBuffer);
+	context->PSSetConstantBuffers(PixelPerPassSlot, 1, &perPassBuffer);
+	const auto restoreBuffers = [&] {
+		ID3D11Buffer* vertexBuffer = savedVertexBuffer.get();
+		ID3D11Buffer* pixelBuffer = savedPixelBuffer.get();
+		context->VSSetConstantBuffers(VertexPerPassSlot, 1, &vertexBuffer);
+		context->PSSetConstantBuffers(PixelPerPassSlot, 1, &pixelBuffer);
+	};
+
 	if (overlayPass) {
 		context->OMSetDepthStencilState(states->overlay.get(), stencilRef);
 		context->VSSetShader(furVertexShader, nullptr, 0);
@@ -1201,6 +1218,7 @@ bool FurShells::DrawShells(UINT a_indexCount, UINT a_engineInstances, UINT a_sta
 		context->VSSetShader(savedVertexShader.get(), nullptr, 0);
 		context->PSSetShader(savedPixelShader.get(), nullptr, 0);
 		context->OMSetDepthStencilState(depthState.get(), stencilRef);
+		restoreBuffers();
 		return replaying;
 	}
 
@@ -1220,6 +1238,7 @@ bool FurShells::DrawShells(UINT a_indexCount, UINT a_engineInstances, UINT a_sta
 	DrawInstanced(a_indexCount, totalInstances, a_startIndexLocation, a_baseVertexLocation);
 
 	context->OMSetDepthStencilState(depthState.get(), stencilRef);
+	restoreBuffers();
 	return true;
 }
 

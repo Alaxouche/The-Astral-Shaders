@@ -441,7 +441,7 @@ namespace Caustic
 				float attenuation = LightLimitFix::GetAttenuation(length(s.rel - mirror), light);
 				[branch] if (attenuation < 1e-4)
 					continue;
-				float3 color = Color::PointLight(light.color.xyz, light.lightFlags & LightLimitFix::LightFlags::Linear) * (attenuation * light.fade);
+				float3 color = Color::PointLight(light.color.xyz) * (attenuation * light.fade);
 				float3 occFrom = occlusionFrom;
 				float occWeight = occlusionWeight;
 				float3 reflected = Caustic::Reflect(s, level, waterRel, heightFade, source, false, color, occFrom, occWeight);
@@ -477,7 +477,7 @@ namespace Caustic
 				float attenuation = LightLimitFix::GetAttenuation(length(source - s.rel), light);
 				[branch] if (attenuation < 1e-4)
 					continue;
-				float3 color = Color::PointLight(light.color.xyz, light.lightFlags & LightLimitFix::LightFlags::Linear) * (attenuation * light.fade);
+				float3 color = Color::PointLight(light.color.xyz) * (attenuation * light.fade);
 				float3 refracted = Caustic::Refract(s, level, waterRel, source, false, color);
 				[branch] if (any(refracted > 0) && (light.lightFlags & LightLimitFix::LightFlags::LocalShadow))
 					refracted *= LightLimitFix::GetLocalShadow(LinearSampler, light.localShadowIndex, s.rel, FrameBuffer::CameraPosAdjust.xyz, normalize(source - s.rel), false, shadowNoise);
