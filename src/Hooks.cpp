@@ -450,6 +450,8 @@ namespace WeatherExtensions
 					// compound on every call Sky has not recomputed colors for.
 					Effects11::DirectionalAmbientColors overridden = DirectionalAmbientColors;
 					globals::features::effects11.OverrideAmbientLighting(overridden);
+					if (auto* sky = globals::game::sky; sky && &DirectionalAmbientColors.directionalAmbientColors[0][0] == &sky->directionalAmbientColors[0][0])
+						globals::features::effects11.BlendGradedAmbient(sky, overridden);
 					func(overridden, AmbientSpecularTint, AmbientSpecularFresnel);
 					return;
 				}
@@ -699,6 +701,26 @@ struct BSShaderRenderTargets_Create
 	}
 	static inline REL::Relocation<decltype(thunk)> func;
 };
+
+struct BSInputDeviceManager_BeforeInputPoll
+{
+	/** @brief Invokes loaded features before polling engine input devices, then forwards to the engine. */
+	static void thunk(RE::BSInputDeviceManager* a_this, float a_secsSinceLastFrame)
+	{
+		Feature::ForEachLoadedFeature("OnBeforeInputPoll", [](Feature* feature) { feature->OnBeforeInputPoll(); });
+		func(a_this, a_secsSinceLastFrame);
+	}
+	static inline REL::Relocation<decltype(thunk)> func;
+};
+
+bool Hooks::InstallBeforeInputPoll()
+{
+	if (BSInputDeviceManager_BeforeInputPoll::func.address())
+		return true;
+	logger::info("Hooking BSInputDeviceManager::PollInputDevices entry");
+	stl::detour_thunk<BSInputDeviceManager_BeforeInputPoll>(REL::RelocationID(67315, 68617));
+	return BSInputDeviceManager_BeforeInputPoll::func.address() != 0;
+}
 
 struct BSInputDeviceManager_PollInputDevices
 {
@@ -1118,7 +1140,8 @@ namespace Hooks
 						hiz.CaptureSunShadowDirection(accum->camera);
 
 					if (pass == HiZOcclusion::kCameraPass ? hiz.IsGeometryOccluded(geo) : hiz.IsShadowCasterOccluded(geo)) {
-						hiz.stats.earlyCulledCount.fetch_add(1, std::memory_order_relaxed);
+						if (collectStats)
+							hiz.stats.earlyCulledCount.fetch_add(1, std::memory_order_relaxed);
 						return 0;
 					}
 				}

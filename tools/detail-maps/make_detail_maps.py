@@ -12,7 +12,7 @@ normalised to shared strength targets, packed and encoded as BC7 with a full mip
 
 Usage:
     python tools/detail-maps/make_detail_maps.py --texconv <path to texconv.exe>
-    python tools/detail-maps/make_detail_maps.py --texconv <exe> --out "features/Detail Maps/Shaders/DetailMaps/Sets"
+    python tools/detail-maps/make_detail_maps.py --texconv <exe> --out "packs/Detail Maps Pack/Shaders/DetailMaps/Sets"
     python tools/detail-maps/make_detail_maps.py --texconv <exe> --fast --only metal stone
     python tools/detail-maps/make_detail_maps.py --png-only --preview build/detail-maps/preview.png
 """

@@ -164,6 +164,8 @@ public:
 	bool IsUpscalingActive() const;
 
 	// Feature interface overrides
+	/** @copydoc Feature::OnBeforeInputPoll */
+	void OnBeforeInputPoll() override;
 	virtual void DrawSettings() override;
 	virtual void SaveSettings(json& o_json) override;
 	void WriteGameIniSettings();

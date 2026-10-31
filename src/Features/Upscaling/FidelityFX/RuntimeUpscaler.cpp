@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <cstdlib>
 #include <directx/d3dx12.h>
 #include <format>
@@ -32,7 +33,7 @@ namespace
 	// hand-written BeginPass/BeginPerfEvent pairing used elsewhere in the codebase.
 	struct ScopedRuntimeUpscalerPass
 	{
-		explicit ScopedRuntimeUpscalerPass(const std::string& a_name)
+		explicit ScopedRuntimeUpscalerPass(std::string_view a_name)
 		{
 			if (globals::profiler) {
 				globals::profiler->BeginPass(a_name);
@@ -72,6 +73,8 @@ namespace
 {
 	constexpr uint32_t kAmdVendorId = 0x1002u;
 	constexpr uint32_t kNvidiaVendorId = 0x10DEu;
+	constexpr uint32_t kMaxUpscalerMajorMinor = 0x3FFu;
+	constexpr uint32_t kMaxUpscalerPatch = 0xFFFu;
 
 	enum class D3D11IdleFenceResult : uint8_t
 	{
@@ -199,6 +202,17 @@ namespace
 			description.find("FIREPRO") != std::string::npos)
 			return FidelityFX::Fsr4AdapterSupport::Unsupported;
 
+		if (description.find("NAVI21") != std::string::npos ||
+			description.find("NAVI 21") != std::string::npos ||
+			description.find("NAVI22") != std::string::npos ||
+			description.find("NAVI 22") != std::string::npos ||
+			description.find("NAVI23") != std::string::npos ||
+			description.find("NAVI 23") != std::string::npos ||
+			description.find("NAVI24") != std::string::npos ||
+			description.find("NAVI 24") != std::string::npos) {
+			return FidelityFX::Fsr4AdapterSupport::RadeonRx6000;
+		}
+
 		// Only accept explicit discrete RDNA3 dies here, never a bare "RDNA 3"/"RDNA3" marker --
 		// that also matches RDNA3 integrated GPUs, which FSR 4.1.1 does not support.
 		if (description.find("NAVI31") != std::string::npos ||
@@ -231,6 +245,8 @@ namespace
 				char* parseEnd = nullptr;
 				const unsigned long modelNumber = std::strtoul(modelText.c_str(), &parseEnd, 10);
 				if (parseEnd != modelText.c_str()) {
+					if (modelNumber >= 6000ul && modelNumber < 7000ul)
+						return FidelityFX::Fsr4AdapterSupport::RadeonRx6000;
 					if (modelNumber >= 7000ul && modelNumber < 8000ul)
 						return FidelityFX::Fsr4AdapterSupport::RadeonRx7000;
 					if (modelNumber >= 9000ul && modelNumber < 10000ul)
@@ -240,6 +256,11 @@ namespace
 		}
 
 		// Keep fallbacks for abbreviated naming variants that don't include full numeric model text.
+		if (description.find("RX 60") != std::string::npos ||
+			description.find("RX60") != std::string::npos ||
+			description.find("RADEON 60") != std::string::npos) {
+			return FidelityFX::Fsr4AdapterSupport::RadeonRx6000;
+		}
 		if (description.find("RX 70") != std::string::npos ||
 			description.find("RX70") != std::string::npos ||
 			description.find("RADEON 70") != std::string::npos) {
@@ -274,6 +295,27 @@ namespace
 		return label;
 	}
 
+	uint32_t RuntimeProviderVersion(const std::string& a_name)
+	{
+		for (size_t start = 0; start < a_name.size(); ++start) {
+			const char* cursor = a_name.data() + start;
+			const char* end = a_name.data() + a_name.size();
+			std::array<uint32_t, 3> parts{};
+			bool valid = true;
+			for (size_t i = 0; i < parts.size(); ++i) {
+				const auto result = std::from_chars(cursor, end, parts[i]);
+				if (result.ec != std::errc{} || (i < parts.size() - 1 && (result.ptr == end || *result.ptr != '.'))) {
+					valid = false;
+					break;
+				}
+				cursor = result.ptr + (i < parts.size() - 1 ? 1 : 0);
+			}
+			if (valid && parts[0] <= kMaxUpscalerMajorMinor && parts[1] <= kMaxUpscalerMajorMinor && parts[2] <= kMaxUpscalerPatch)
+				return FFX_UPSCALER_MAKE_VERSION(parts[0], parts[1], parts[2]);
+		}
+		return 0;
+	}
+
 	bool RuntimeProviderNameMatchesVersion(const std::string& a_providerName, uint32_t a_version)
 	{
 		return !a_providerName.empty() &&
@@ -288,8 +330,9 @@ namespace
 
 	bool RuntimeProviderMatchesVersion(uint64_t a_providerId, const std::string& a_providerName, uint32_t a_version)
 	{
+		const uint32_t providerVersion = RuntimeProviderVersion(a_providerName);
 		return RuntimeProviderIdMatchesVersion(a_providerId, a_version) ||
-		       RuntimeProviderNameMatchesVersion(a_providerName, a_version);
+		       ((providerVersion >> 22) == (a_version >> 22) && providerVersion >= a_version);
 	}
 
 	std::string RuntimeProviderDisplayName(uint64_t a_providerId, const std::string& a_providerName)
@@ -1515,8 +1558,7 @@ bool FidelityFX::DispatchRuntimeUpscalerSingle(uint32_t a_contextIndex, ID3D11Re
 	if (!commandAllocator || !commandList)
 		return false;
 
-	const std::string dispatchPassName = "Upscaling::RuntimeUpscalerDispatch";
-	CS_GPU_PASS(dispatchPassName);
+	CS_GPU_PASS("Upscaling::RuntimeUpscalerDispatch");
 
 	bool dispatchOk = false;
 	bool commandListSubmitted = false;
@@ -1821,8 +1863,7 @@ bool FidelityFX::UpscaleRegion(uint32_t a_contextIndex, ID3D11Resource* a_color,
 		runtimeRequested ? RuntimeUpscalerFramePath::kHostFsr31Fallback : RuntimeUpscalerFramePath::kHostFsr31;
 	RecordRuntimeUpscalerFramePath(fallbackFramePath);
 
-	const std::string dispatchPassName = "Upscaling::HostFsr3Dispatch";
-	CS_GPU_PASS(dispatchPassName);
+	CS_GPU_PASS("Upscaling::HostFsr3Dispatch");
 
 	FfxFsr3DispatchUpscaleDescription dispatchParameters{};
 	dispatchParameters.commandList = ffxGetCommandListDX11(context);
