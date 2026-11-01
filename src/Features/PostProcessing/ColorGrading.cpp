@@ -527,7 +527,7 @@ void ColorGrading::DrawSettings()
 		// Tonemapping curve visualization (GPU-evaluated, RGB overlay)
 		if (ImGui::TreeNode(T(TKEY("curve_preview"), "Curve Preview"))) {
 			curveReadbackRequested = true;
-			curveReadbackRequestFrame = static_cast<int>(globals::state->frameCount);
+			curveReadbackRequestFrame = static_cast<int64_t>(globals::state->frameCount);
 
 			if (settings.skipLUT) {
 				ImGui::TextDisabled(T(TKEY("curve_preview_requires_lut"), "Enable LUT generation to see curve preview (uncheck 'Skip LUT')"));
@@ -1105,6 +1105,7 @@ void ColorGrading::Draw(TextureInfo& inout_tex)
 	context->CSSetSamplers(0, 1, samplers.data());
 	ID3D11UnorderedAccessView* uav = nullptr;
 
+	// The LUT depends only on ColorCB and the generator shader, so regenerate it only when either changed.
 	const uint64_t generation = shaderGeneration.load(std::memory_order_relaxed);
 	if (!settings.skipLUT && (!lutValid || lutShader != lutgenCS.get() || lutGeneration != generation || memcmp(&colorCBData, lutKey.data(), sizeof(ColorCB)) != 0)) {
 		// LUT Gen
@@ -1168,7 +1169,7 @@ void ColorGrading::Draw(TextureInfo& inout_tex)
 	const bool curveReadbackActive =
 		curveReadbackRequested &&
 		ImGui::GetCurrentContext() &&
-		curveReadbackRequestFrame >= static_cast<int>(globals::state->frameCount) - 1;
+		curveReadbackRequestFrame >= static_cast<int64_t>(globals::state->frameCount) - 1;
 	if (!curveReadbackActive)
 		curveReadbackRequested = false;
 
