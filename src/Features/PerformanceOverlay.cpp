@@ -87,16 +87,23 @@ auto MakeMetricColumn(const auto& theme, auto valueGetter, auto colorGetter, aut
 }
 
 // --- Helper Functions ---
+/** @brief Smoothed CPU wait in Present, capped at the unattributed frame time it is carved from. */
+static float CalculatePresentTime(float unattributedTime)
+{
+	return std::min(globals::state->smoothPresentTimeMs, std::max(0.0f, unattributedTime));
+}
+
 /**
   * @brief Calculates summary data (Other frame time, percentages, cost per call) from measured sum
   * @param smoothedFrameTime The total smoothed frame time
   * @param measuredSum The sum of measured frame times
-  * @return Tuple of (otherFrameTime, otherPercent, totalCostPerCall)
+  * @return Tuple of (otherFrameTime excluding Present and clamped at zero, otherPercent, totalCostPerCall)
   */
 static std::tuple<float, float, float> CalculateSummaryData(float smoothedFrameTime, float measuredSum)
 {
 	float totalSmoothedDrawCalls = globals::state->GetTotalSmoothedDrawCalls();
-	float otherFrameTime = Util::CalculateOtherFrameTime(smoothedFrameTime, measuredSum);
+	float unattributedTime = Util::CalculateOtherFrameTime(smoothedFrameTime, measuredSum);
+	float otherFrameTime = std::max(0.0f, unattributedTime - CalculatePresentTime(unattributedTime));
 	float otherPercent = Util::CalculatePercentage(otherFrameTime, smoothedFrameTime);
 	float totalCostPerCall = Util::CalculateCostPerCall(smoothedFrameTime, totalSmoothedDrawCalls);
 	return { otherFrameTime, otherPercent, totalCostPerCall };
@@ -1593,10 +1600,16 @@ std::pair<std::vector<DrawCallRow>, std::vector<DrawCallRow>> PerformanceOverlay
 		std::string("CPU time blocked in Present waiting for the GPU and frame pacing.\nHigh means GPU-bound; near zero means CPU-bound."),
 		true, std::nullopt, std::nullopt
 	};
-	DrawCallRow otherRow = {
-		"Other:", magic_enum::enum_integer(SpecialShaderType::Other), kDrawCallsNotApplicable, remainingOtherTime, remainingOtherPercent,
+	DrawCallRow presentRow = {
+		"Present:", magic_enum::enum_integer(SpecialShaderType::Present), kDrawCallsNotApplicable, presentTime, presentPercent,
 		0.0f,
-		std::string("Frame time not attributed to any measured shader type or CS compute pass. This includes UI, post-processing, engine work, and any GPU activity not directly measured."),
+		std::string("CPU time spent waiting inside the swap chain Present call. Capped at the frame time not attributed to shader types, so it can read lower than the measured wait."),
+		true, std::nullopt, std::nullopt
+	};
+	DrawCallRow otherRow = {
+		"Other:", magic_enum::enum_integer(SpecialShaderType::Other), kDrawCallsNotApplicable, otherFrameTime, otherPercent,
+		0.0f,
+		std::string("Frame time not attributed to any measured shader type or to Present. This includes UI, post-processing, engine work, and CS compute passes (whose GPU time is shown separately)."),
 		true, otherTestFrameTime, otherTestCostPerCall
 	};
 	float totalFrameTime = smoothedFrameTime;
