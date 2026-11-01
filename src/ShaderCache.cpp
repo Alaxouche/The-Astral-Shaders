@@ -2340,6 +2340,7 @@ namespace SIE
 	{
 		auto key = SIE::SShaderCache::GetShaderString(shaderClass, shader, descriptor, true);
 		auto status = a_blob ? ShaderCompilationTask::Status::Completed : ShaderCompilationTask::Status::Failed;
+		// Building the descriptor string costs more than the log call, so only do it when debug logging is on.
 		if (spdlog::should_log(spdlog::level::debug))
 			logger::debug("Adding {} shader to map: {}", magic_enum::enum_name(status), SIE::SShaderCache::GetShaderString(shaderClass, shader, descriptor, false));
 		// The map's blob is shared across threads; the caller's d3dcompiler blob stays with the caller.
