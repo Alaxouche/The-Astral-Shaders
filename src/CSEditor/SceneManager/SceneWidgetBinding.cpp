@@ -454,19 +454,20 @@ namespace
 		return nullptr;
 	}
 
-	/** @brief The setting's value in one of the settings layers State holds for its feature. */
-	const json* FindStateLayerValue(const SettingMetadata& a_setting,
-		const json* (State::*a_layer)(const std::string&) const)
+	/**
+	 * @brief The setting's value in the layers beneath the user's edits (defaults with Baseline packs applied),
+	 *        with defaults that depend on the feature's current settings adjusted.
+	 * @param a_storage Holds the adjusted document the result points into.
+	 */
+	const json* FindContextualBaseValue(const SettingMetadata& a_setting, json& a_storage)
 	{
 		auto* feature = Feature::FindFeatureByShortName(std::string{ a_setting.featureShortName });
-		const auto* layer = feature ? (globals::state->*a_layer)(feature->GetName()) : nullptr;
-		return layer ? SceneSettingsInternal::GetCatalogSerializedValue(*layer, a_setting) : nullptr;
-	}
-
-	/** @brief The setting's value in the layers beneath the user's edits: defaults with Baseline packs applied. */
-	const json* FindLayeredBaseValue(const SettingMetadata& a_setting)
-	{
-		return FindStateLayerValue(a_setting, &State::GetFeatureBase);
+		const auto* base = feature ? globals::state->GetFeatureBase(feature->GetName()) : nullptr;
+		if (!base)
+			return nullptr;
+		a_storage = *base;
+		feature->ApplyContextualDefaults(a_storage);
+		return SceneSettingsInternal::GetCatalogSerializedValue(a_storage, a_setting);
 	}
 }
 
@@ -1259,6 +1260,7 @@ bool SceneWidgetBinding::Guard::TryResetFromGesture()
 		return false;
 
 	bool reset = false;
+	json contextualBase;
 	for (const auto& component : components) {
 		const auto* defaultValue = FindStateLayerValue(*component.setting, &::State::GetFeatureDefaults);
 		if (!defaultValue || SceneSettingsManager::AppliedValuesEqual(*defaultValue, ReadEditedValue(component)))
