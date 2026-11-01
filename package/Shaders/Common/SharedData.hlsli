@@ -498,6 +498,8 @@ namespace SharedData
 		uint mistFollowWind;
 		float mistWindMultiplier;
 		float mistPad0;
+
+		float4 originalFogColorOverride;
 	};
 
 	struct TruePBRSettings
