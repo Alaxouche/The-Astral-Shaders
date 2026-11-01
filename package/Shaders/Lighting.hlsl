@@ -2891,6 +2891,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		endif
 	// Calculate raindrop effects
 	float4 raindropInfo = float4(0, 0, 1, 0);
+	float rippleLens = 0.0;
 	bool shouldCalculateRaindrops = (worldNormal.z > 0.0) &&
 	                                (SharedData::wetnessEffectsSettings.Raining > 0.0) &&
 	                                (SharedData::wetnessEffectsSettings.EnableRaindropFx) &&
@@ -2908,7 +2909,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		else
 		float3 ripplePosition = !FrameBuffer::FrameParams.y ? input.ModelPosition.xyz : input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz;
 #		endif
-		raindropInfo = WetnessEffects::GetRainDrops(ripplePosition, SharedData::wetnessEffectsSettings.Time, wetnessNormal, flatnessAmount);
+		raindropInfo = WetnessEffects::GetRainDrops(ripplePosition, SharedData::wetnessEffectsSettings.Time, wetnessNormal, rippleLens, flatnessAmount);
 	}
 
 	// Calculate different wetness types
@@ -2987,12 +2988,24 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	// sharply without this floor.
 	static const float wetnessMinPuddleRoughness = 0.05;
 	waterRoughnessSpecular = max(saturate(1.0 - wetnessGlossinessSpecular), wetnessMinPuddleRoughness);
+	float wetnessFilmRoughness = waterRoughnessSpecular;
 
 	float3 wetnessNormalDdx = ddx_coarse(wetnessNormal);
 	float3 wetnessNormalDdy = ddy_coarse(wetnessNormal);
 	float wetnessKernelRoughness2 = min(Math::INV_PI * (dot(wetnessNormalDdx, wetnessNormalDdx) + dot(wetnessNormalDdy, wetnessNormalDdy)), 0.18);
 	float wetnessAlpha = waterRoughnessSpecular * waterRoughnessSpecular;
 	waterRoughnessSpecular = min(sqrt(sqrt(saturate(wetnessAlpha * wetnessAlpha + wetnessKernelRoughness2))), max(waterRoughnessSpecular, 0.99));
+
+	float wetnessDarkeningMix = 0.5;
+	float rippleShade = 1.0;
+#		if !defined(SKINNED) && !defined(SKIN)
+	float wetnessPuddleMask = smoothstep(SharedData::wetnessEffectsSettings.PuddleMinWetness - 0.25, SharedData::wetnessEffectsSettings.PuddleMinWetness, wetnessGlossinessSpecular);
+	wetnessDarkeningMix = saturate(wetnessDarkeningMix + 0.25 * SharedData::wetnessEffectsSettings.TopDownVisibility * wetnessPuddleMask);
+	float3 ripplePositionDdx = ddx_coarse(input.WorldPosition.xyz);
+	float3 ripplePositionDdy = ddy_coarse(input.WorldPosition.xyz);
+	float rippleBandPixels = SharedData::wetnessEffectsSettings.RippleBreadth / (SharedData::wetnessEffectsSettings.RaindropGridSizeRcp * sqrt(max(dot(ripplePositionDdx, ripplePositionDdx), dot(ripplePositionDdy, ripplePositionDdy))));
+	rippleShade += 0.3 * SharedData::wetnessEffectsSettings.TopDownVisibility * clamp(rippleLens, -1.0, 1.0) * saturate(wetnessGlossinessSpecular) * saturate(rippleBandPixels / 3.0 - 1.0);
+#		endif
 #		if defined(CHARACTER_RAIN_SURFACE)
 	float3 characterSpotSurfaceNormal = worldNormal.xyz;
 	float characterSpotRoughness = 1.0f;
@@ -3260,7 +3273,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	dirLightOutput.transmission *= dirTransmissionContactShadow;
 #	if defined(WETNESS_EFFECTS)
 	if (waterRoughnessSpecular < 1)
-		EvaluateWetnessLighting(wetnessNormal, dirLightContext, waterRoughnessSpecular, dirLightOutput);
+		EvaluateWetnessLighting(wetnessNormal, dirLightContext, waterRoughnessSpecular, wetnessFilmRoughness, dirLightOutput);
 #		if defined(CHARACTER_RAIN_SURFACE)
 	[branch] if (characterCoatMask > 0.0f)
 		characterRainSpecular += CharacterRainSpots::EvaluateLighting(characterSpotSurfaceNormal, dirLightContext,
@@ -3330,7 +3343,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		EvaluateLighting(pointLightContext, material, tbnTr, uvOriginal, uvOriginal_ddx, uvOriginal_ddy, pointLightOutput);
 #			if defined(WETNESS_EFFECTS)
 		if (waterRoughnessSpecular < 1)
-			EvaluateWetnessLighting(wetnessNormal, pointLightContext, waterRoughnessSpecular, pointLightOutput);
+			EvaluateWetnessLighting(wetnessNormal, pointLightContext, waterRoughnessSpecular, wetnessFilmRoughness, pointLightOutput);
 #				if defined(CHARACTER_RAIN_SURFACE)
 		[branch] if (characterCoatMask > 0.0f)
 			characterRainSpecular += CharacterRainSpots::EvaluateLighting(characterSpotSurfaceNormal, pointLightContext,
@@ -3496,7 +3509,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		EvaluateLighting(pointLightContext, material, tbnTr, uvOriginal, uvOriginal_ddx, uvOriginal_ddy, pointLightOutput);
 #			if defined(WETNESS_EFFECTS)
 		if (waterRoughnessSpecular < 1)
-			EvaluateWetnessLighting(wetnessNormal, pointLightContext, waterRoughnessSpecular, pointLightOutput);
+			EvaluateWetnessLighting(wetnessNormal, pointLightContext, waterRoughnessSpecular, wetnessFilmRoughness, pointLightOutput);
 #				if defined(CHARACTER_RAIN_SURFACE)
 		[branch] if (characterCoatMask > 0.0f)
 			characterRainSpecular += CharacterRainSpots::EvaluateLighting(characterSpotSurfaceNormal, pointLightContext,
@@ -3710,7 +3723,8 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	porosity = lerp(porosity, 0.0, saturate(sqrt(envMask)));
 #			endif
 	float wetnessDarkeningAmount = porosity * wetnessGlossinessAlbedo;
-	material.BaseColor = lerp(material.BaseColor, pow(abs(material.BaseColor), 1.0 + wetnessDarkeningAmount), 0.5);
+	material.BaseColor = lerp(material.BaseColor, pow(abs(material.BaseColor), 1.0 + wetnessDarkeningAmount), wetnessDarkeningMix);
+	material.BaseColor = ColorManagement::SceneColor::ScaleByLinear(material.BaseColor, rippleShade);
 #		endif
 #	endif
 
@@ -3725,7 +3739,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float3 wetnessReflectance = 0.0;
 	[branch] if (waterRoughnessSpecular < 1)
 	{
-		wetnessReflectance = GetWetnessIndirectLobeWeights(indirectLobeWeights, wetnessNormal, waterRoughnessSpecular, indirectContext);
+		wetnessReflectance = GetWetnessIndirectLobeWeights(indirectLobeWeights, wetnessNormal, wetnessFilmRoughness, indirectContext);
 #			if defined(TRUE_PBR)
 		wetnessReflectance *= SpecularOcclusion(saturate(dot(wetnessNormal, viewDirection)), waterRoughnessSpecular * waterRoughnessSpecular, material.AO);
 #			endif
