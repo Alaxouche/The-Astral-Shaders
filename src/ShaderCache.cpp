@@ -3360,13 +3360,6 @@ namespace SIE
 		}
 		const std::string& key = keyIt->second;
 
-		// Building the key formats and sorts the full defines list, so do it once per shader instead of every draw.
-		const auto taskId = ShaderCompilationTask::MakeId(shaderClass, shader.shaderType.get(), descriptor);
-		auto keyIt = activeShaderKeys.find(taskId);
-		if (keyIt == activeShaderKeys.end())
-			keyIt = activeShaderKeys.emplace(taskId, SIE::SShaderCache::GetShaderString(shaderClass, shader, descriptor, true)).first;
-		const auto& key = keyIt->second;
-
 		auto& info = activeShaders[key];
 		if (info.key.empty()) {
 			// First time seeing this shader
