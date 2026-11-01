@@ -968,21 +968,7 @@ namespace
 			if (!globals::features::upscaling.d3d12SwapChainActive)
 				globals::features::screenshotFeature.ProcessCaptureRequest();
 
-			return TimedPresent(This, SyncInterval, Flags);
-		}
-
-		/** @brief Calls the real Present and folds its CPU wait into State::smoothPresentTimeMs. */
-		static HRESULT TimedPresent(IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)
-		{
-			LARGE_INTEGER frequency, presentStart, presentEnd;
-			QueryPerformanceFrequency(&frequency);
-			QueryPerformanceCounter(&presentStart);
-			const HRESULT presentResult = func(swapChain, syncInterval, flags);
-			QueryPerformanceCounter(&presentEnd);
-			const float presentMs = static_cast<float>(static_cast<double>(presentEnd.QuadPart - presentStart.QuadPart) * 1000.0 / static_cast<double>(frequency.QuadPart));
-			auto& smoothPresentTimeMs = globals::state->smoothPresentTimeMs;
-			smoothPresentTimeMs = smoothPresentTimeMs * 0.95f + presentMs * 0.05f;
-			return presentResult;
+			return func(This, SyncInterval, Flags);
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
@@ -1068,7 +1054,7 @@ ID3D11BlendState* HDRDisplay::GetPatchedAlphaBlendState(ID3D11BlendState* origin
 HRESULT HDRDisplay::PresentToSwapChain(IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)
 {
 	globals::features::screenshotFeature.ProcessCaptureRequest();
-	return SwapChainPresentBottom::TimedPresent(swapChain, syncInterval, flags);
+	return SwapChainPresentBottom::func(swapChain, syncInterval, flags);
 }
 
 void HDRDisplay::DrawImGuiForPresent(bool frameGenActive, bool hdrReady)
