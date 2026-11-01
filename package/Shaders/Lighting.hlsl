@@ -4227,7 +4227,9 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		endif
 	psout.Masks2 = float4(1.0 - vertexAO, NeuralRenderingCategory::Encode(neuralRenderingCategory), 0, masks2Blend);
 
-	float stochasticBlend = (screenNoise * screenNoise) < psout.Diffuse.w ? 1.0 : 0.0;
+	// Additive layers (e.g. weapon blood sheen) only add light, so keep the normals and glossiness beneath them
+	const bool additiveLighting = Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::AdditiveLighting;
+	float stochasticBlend = !additiveLighting && (screenNoise * screenNoise) < psout.Diffuse.w ? 1.0 : 0.0;
 	psout.NormalGlossiness.w = stochasticBlend;
 #	endif
 
