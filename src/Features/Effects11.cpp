@@ -1008,53 +1008,6 @@ void Effects11::BlendGradedAmbient(RE::Sky* a_sky, DirectionalAmbientColors& a_g
 	}
 }
 
-void Effects11::BlendGradedAmbient(RE::Sky* a_sky, DirectionalAmbientColors& a_graded)
-{
-	const auto transition = GetGradedTransition(a_sky);
-	if (!transition)
-		return;
-
-	auto weatherAmbient = [&](const RE::TESWeather* a_weather) {
-		auto axes = [](const RE::BGSDirectionalAmbientLightingColors::Directional& a_directional) { return std::array{ a_directional.x, a_directional.y, a_directional.z }; };
-		const auto firstAxes = axes(a_weather->directionalAmbientLightingColors[transition->first].directional);
-		const auto secondAxes = axes(a_weather->directionalAmbientLightingColors[transition->second].directional);
-
-		DirectionalAmbientColors result;
-		for (size_t axis = 0; axis < firstAxes.size(); ++axis) {
-			result.directionalAmbientColors[axis][0] = BlendColorTimes(a_sky, firstAxes[axis].max, secondAxes[axis].max, transition->firstWeight);
-			result.directionalAmbientColors[axis][1] = BlendColorTimes(a_sky, firstAxes[axis].min, secondAxes[axis].min, transition->firstWeight);
-		}
-		return result;
-	};
-
-	const float pct = transition->pct;
-	DirectionalAmbientColors lastAmbient = weatherAmbient(a_sky->lastWeather);
-	DirectionalAmbientColors currentAmbient = weatherAmbient(a_sky->currentWeather);
-	DirectionalAmbientColors blendedAmbient;
-	for (size_t axis = 0; axis < 3; ++axis) {
-		for (size_t side = 0; side < 2; ++side)
-			blendedAmbient.directionalAmbientColors[axis][side] = lastAmbient.directionalAmbientColors[axis][side] * (1.0f - pct) + currentAmbient.directionalAmbientColors[axis][side] * pct;
-	}
-
-	OverrideAmbientLighting(blendedAmbient);
-	{
-		SettingManager::ScopedWeatherBlend lastBlend(0.0f);
-		OverrideAmbientLighting(lastAmbient);
-	}
-	{
-		SettingManager::ScopedWeatherBlend currentBlend(1.0f);
-		OverrideAmbientLighting(currentAmbient);
-	}
-
-	for (size_t axis = 0; axis < 3; ++axis) {
-		for (size_t side = 0; side < 2; ++side) {
-			auto& graded = a_graded.directionalAmbientColors[axis][side];
-			graded = CorrectTransition(graded, lastAmbient.directionalAmbientColors[axis][side] * (1.0f - pct) + currentAmbient.directionalAmbientColors[axis][side] * pct,
-				blendedAmbient.directionalAmbientColors[axis][side]);
-		}
-	}
-}
-
 void Effects11::OnSkyUpdateColors(RE::Sky* a_sky)
 {
 	sunlightGraded = false;
