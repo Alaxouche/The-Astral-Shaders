@@ -536,6 +536,8 @@ void ScreenSpaceGI::SetupResources()
 			texIlCoCg[1]->CreateUAV(uavDesc);
 		}
 
+		// 8-bit history stalls the temporal AO blend.
+		srvDesc.Format = uavDesc.Format = texDesc.Format = DXGI_FORMAT_R16_UNORM;
 		{
 			UINT aoFormatSupport = 0;
 			const bool aoHighPrecision = SUCCEEDED(device->CheckFormatSupport(DXGI_FORMAT_R16_UNORM, &aoFormatSupport)) &&
@@ -710,7 +712,6 @@ void ScreenSpaceGI::UpdateSB()
 		data.RcpTexDim = float2(1.0f) / res;
 		data.FrameDim = dynres;
 		data.RcpFrameDim = float2(1.0f) / dynres;
-		data.FrameIndex = globals::state->frameCount;
 
 		data.NumSlices = settings.NumSlices;
 		data.NumSteps = settings.NumSteps;

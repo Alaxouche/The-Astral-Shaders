@@ -42,7 +42,7 @@ Texture2D<float4> srcPrevY : register(t5);             // maybe half-res
 Texture2D<float2> srcPrevCoCg : register(t6);          // maybe half-res
 Texture2D<float4> srcPrevGISpecular : register(t7);    // maybe half-res
 Texture2D<float2> srcNormal : register(t8);
-Texture2D<float> srcPrevAo : register(t9);  // maybe half-res
+Texture2D<unorm float> srcPrevAo : register(t9);  // maybe half-res
 
 RWTexture2D<unorm float> outAo : register(u0);
 RWTexture2D<float4> outY : register(u1);
@@ -114,7 +114,7 @@ void CalculateGI(
 
 	// Use screen-space position for noise indexing.
 	uint2 noiseCoord = uint2(normalizedScreenPos * OUT_FRAME_DIM);
-	const float2 localNoise = SpatioTemporalNoise(noiseCoord, FrameIndex);
+	const float2 localNoise = SpatioTemporalNoise(noiseCoord, SharedData::FrameCount);
 	const float noiseSlice = localNoise.x;
 	const float noiseStep = localNoise.y;
 
@@ -375,6 +375,7 @@ groupshared float gsCurrAo[8][8];
 	if (needGI) {
 		float lerpFactor = rcp(srcAccumFrames[pxCoord] * 255);
 
+		float prevAo = srcPrevAo[pxCoord];
 		float4 prevY = srcPrevY[pxCoord];
 		float2 prevCoCg = srcPrevCoCg[pxCoord];
 
@@ -409,12 +410,19 @@ groupshared float gsCurrAo[8][8];
 			float2 cR = srcPrevCoCg[pxCoord + int2(1, 0)];
 			float2 cU = srcPrevCoCg[pxCoord + int2(0, -1)];
 			float2 cD = srcPrevCoCg[pxCoord + int2(0, 1)];
+			float aL = srcPrevAo[pxCoord + int2(-1, 0)];
+			float aR = srcPrevAo[pxCoord + int2(1, 0)];
+			float aU = srcPrevAo[pxCoord + int2(0, -1)];
+			float aD = srcPrevAo[pxCoord + int2(0, 1)];
 
+			float nMinAo = min(min(min(aL, aR), min(aU, aD)), currAo);
+			float nMaxAo = max(max(max(aL, aR), max(aU, aD)), currAo);
 			float4 nMinY = min(min(min(yL, yR), min(yU, yD)), currY);
 			float4 nMaxY = max(max(max(yL, yR), max(yU, yD)), currY);
 			float2 nMinCoCg = min(min(min(cL, cR), min(cU, cD)), currCoCg);
 			float2 nMaxCoCg = max(max(max(cL, cR), max(cU, cD)), currCoCg);
 
+			prevAo = clamp(prevAo, nMinAo, nMaxAo);
 			prevY = clamp(prevY, nMinY, nMaxY);
 			prevCoCg = clamp(prevCoCg, nMinCoCg, nMaxCoCg);
 		}
