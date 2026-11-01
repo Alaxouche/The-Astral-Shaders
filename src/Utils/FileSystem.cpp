@@ -359,6 +359,33 @@ namespace Util
 			return 0;
 		}
 
+		bool WriteFileAtomic(const std::filesystem::path& a_path, std::initializer_list<std::span<const char>> a_parts)
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(a_path.parent_path(), ec);
+
+			const auto temp = std::format(L"{}.{}.tmp", a_path.wstring(), GetCurrentThreadId());
+			bool written = false;
+			{
+				winrt::file_handle file{ CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr) };
+				written = static_cast<bool>(file);
+				for (const auto part : a_parts) {
+					size_t offset = 0;
+					while (written && offset < part.size()) {
+						DWORD count = 0;
+						const auto chunk = static_cast<DWORD>(std::min<size_t>(part.size() - offset, 1u << 30));
+						written = WriteFile(file.get(), part.data() + offset, chunk, &count, nullptr) && count == chunk;
+						offset += chunk;
+					}
+				}
+			}
+			if (written && MoveFileExW(temp.c_str(), a_path.c_str(), MOVEFILE_REPLACE_EXISTING))
+				return true;
+
+			DeleteFileW(temp.c_str());
+			return false;
+		}
+
 		DeletionResult SafeDelete(const std::string& path, const std::string& description)
 		{
 			DeletionResult result;

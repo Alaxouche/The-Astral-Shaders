@@ -25,13 +25,61 @@ void Flowmap::Reset()
 	offsetY = 0;
 }
 
+uint64_t Flowmap::ComputeSignature()
+{
+	const auto mix = [](uint64_t& hash, const void* data, const size_t size) {
+		const auto* bytes = static_cast<const unsigned char*>(data);
+		for (size_t i = 0; i < size; ++i) {
+			hash ^= bytes[i];
+			hash *= 1099511628211ull;
+		}
+	};
+
+	constexpr uint64_t kHashOffset = 14695981039346656037ull;
+	uint64_t signature = kHashOffset;
+
+	if (const auto tamriel = RE::TESForm::LookupByEditorID<RE::TESWorldSpace>("Tamriel")) {
+		mix(signature, &tamriel->minimumCoords, sizeof(tamriel->minimumCoords));
+		mix(signature, &tamriel->maximumCoords, sizeof(tamriel->maximumCoords));
+	}
+
+	// Summed per file because the virtual file system does not promise a listing order
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	for (const auto& entry : fs::directory_iterator(Util::PathHelpers::GetDataPath() / "textures" / "water" / "skyrim.esm", ec)) {
+		std::error_code entryError;
+		const auto name = entry.path().filename().wstring();
+		const auto size = entry.file_size(entryError);
+		const auto writeTime = entry.last_write_time(entryError).time_since_epoch().count();
+
+		uint64_t fileHash = kHashOffset;
+		mix(fileHash, name.data(), name.size() * sizeof(wchar_t));
+		mix(fileHash, &size, sizeof(size));
+		mix(fileHash, &writeTime, sizeof(writeTime));
+		signature += fileHash;
+	}
+
+	return signature;
+}
+
 bool Flowmap::LoadOrGenerateFlowmap(bool useMips)
 {
 	Reset();
 
-	if (!LoadFlowmap()) {
-		logger::info("[Unified Water] [Flowmap] Could not load flowmap - regenerating...");
-		return RegenerateAndLoadFlowmap(useMips);
+	const auto signaturePath = Util::PathHelpers::GetUnifiedWaterCachePath() / "Flowmap.sig";
+	const auto signature = ComputeSignature();
+
+	uint64_t stored = 0;
+	std::vector<char> bytes;
+	if (Util::FileHelpers::ReadWholeFile(signaturePath, bytes) == 0 && bytes.size() == sizeof(stored))
+		std::memcpy(&stored, bytes.data(), sizeof(stored));
+
+	if (stored != signature || !LoadFlowmap()) {
+		logger::info("[Unified Water] [Flowmap] Flowmap missing or its sources changed - regenerating...");
+		if (!RegenerateAndLoadFlowmap(useMips))
+			return false;
+		if (!Util::FileHelpers::WriteFileAtomic(signaturePath, { std::span(reinterpret_cast<const char*>(&signature), sizeof(signature)) }))
+			logger::warn("[Unified Water] [Flowmap] Failed to write the flowmap signature; it will be regenerated next launch");
 	}
 
 	return true;

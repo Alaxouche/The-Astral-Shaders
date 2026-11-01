@@ -142,6 +142,7 @@ find_package(efsw CONFIG REQUIRED)
 find_package(Tracy CONFIG REQUIRED)
 find_package(directx-headers CONFIG REQUIRED)
 find_package(effects11 CONFIG REQUIRED)
+find_package(ZLIB REQUIRED)
 
 if(DEVBENCH_BRIDGE)
     find_package(devbench-api CONFIG REQUIRED)
@@ -219,6 +220,7 @@ target_link_libraries(
         Microsoft::DirectX-Headers
         ${DETOURS_LIBRARY}
         Microsoft::Effects11
+        ZLIB::ZLIB
         windowsapp
         windowscodecs
 )

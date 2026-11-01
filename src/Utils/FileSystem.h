@@ -8,6 +8,7 @@
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <span>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -269,6 +270,16 @@ namespace Util
 		 * @return 0 on success, otherwise the Win32 error code.
 		 */
 		unsigned long ReadWholeFile(const std::filesystem::path& a_path, std::vector<char>& a_out);
+
+		/**
+		 * @brief Writes a file through a temporary and a rename, so a reader or a crash never sees it half written.
+		 *
+		 * Uses Win32 handles for the same reason as ReadWholeFile. Parent directories are created.
+		 * @param a_path File to replace.
+		 * @param a_parts Byte ranges written one after the other.
+		 * @return Whether the file now holds exactly those bytes.
+		 */
+		bool WriteFileAtomic(const std::filesystem::path& a_path, std::initializer_list<std::span<const char>> a_parts);
 
 		/**
 		 * Result of a file deletion operation

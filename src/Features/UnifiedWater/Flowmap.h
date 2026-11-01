@@ -26,7 +26,7 @@ public:
 	void Reset();
 
 	/**
-	 * @brief Loads an existing flowmap from disk, or generates and loads one if none exists.
+	 * @brief Loads the flowmap from disk, generating it if it is missing or its sources changed.
 	 * @param useMips Whether to generate mipmaps for the flowmap texture.
 	 * @return True if the flowmap was successfully loaded or generated.
 	 */
@@ -49,4 +49,6 @@ private:
 
 	bool LoadFlowmap();
 	static bool GenerateFlowmap(bool useMips);
+	/** @brief Hashes Tamriel's bounds and the loose flow textures, the inputs that vary between mod lists. */
+	static uint64_t ComputeSignature();
 };

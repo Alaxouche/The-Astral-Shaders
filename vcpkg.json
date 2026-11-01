@@ -42,7 +42,8 @@
             "features": ["on-demand"]
         },
         "unordered-dense",
-        "xbyak"
+        "xbyak",
+        "zlib"
     ],
     "overrides": [
         {
