@@ -1364,6 +1364,10 @@ void ExponentialHeightFog::Prepass()
 		}
 	};
 
+	// From 8-pixel cells up, one thread group per cell reduces the cell's depth footprint in parallel.
+	const bool nearGroupReduce = std::clamp(settings.volumetricGridPixelSize, 4u, 64u) >= 8;
+	const bool farGroupReduce = std::clamp(settings.volumetricFarGridPixelSize, 4u, 64u) >= 8;
+
 	runVolumetricPass({ currentGridSize,
 		vBufferA.get(),
 		conservativeDepth.get(),
