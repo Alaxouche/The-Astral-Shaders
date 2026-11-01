@@ -128,7 +128,8 @@ public:
 	static_assert(offsetof(Settings, distanceHazeMaxOpacity) == 308);
 	static_assert(offsetof(Settings, mistsEnabled) == 320);
 	static_assert(offsetof(Settings, mistDriftSpeed) == 336);
-	static_assert(sizeof(Settings) == 352);
+	static_assert(offsetof(Settings, originalFogColorOverride) == 352);
+	static_assert(sizeof(Settings) == 368);
 
 	static constexpr float kMaxMistDriftSpeed = 2000.0f;
 	/** @brief Initial pattern angle (radians), the heading of the manual drift direction (0.8, 0.6). */
