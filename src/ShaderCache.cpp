@@ -1991,12 +1991,16 @@ namespace SIE
 			// Track this shader as active
 			TrackActiveShader(ShaderClass::Vertex, shader, descriptor);
 
-			if (blockedKeyIndex != -1 && !blockedKey.empty() && SIE::SShaderCache::GetShaderString(ShaderClass::Vertex, shader, descriptor, true) == blockedKey) {
-				if (std::find(blockedIDs.begin(), blockedIDs.end(), descriptor) == blockedIDs.end()) {
-					blockedIDs.push_back(descriptor);
-					logger::debug("Skipping blocked shader {:X}:{} total: {}", descriptor, blockedKey, blockedIDs.size());
+			// Only build the key when a shader is blocked; it is a full defines string, too costly for every draw.
+			if (blockedKeyIndex != -1 && !blockedKey.empty()) {
+				auto key = SIE::SShaderCache::GetShaderString(ShaderClass::Vertex, shader, descriptor, true);
+				if (key == blockedKey) {
+					if (std::find(blockedIDs.begin(), blockedIDs.end(), descriptor) == blockedIDs.end()) {
+						blockedIDs.push_back(descriptor);
+						logger::debug("Skipping blocked shader {:X}:{} total: {}", descriptor, blockedKey, blockedIDs.size());
+					}
+					return nullptr;
 				}
-				return nullptr;
 			}
 		}
 
@@ -2035,12 +2039,16 @@ namespace SIE
 			// Track this shader as active
 			TrackActiveShader(ShaderClass::Pixel, shader, descriptor);
 
-			if (blockedKeyIndex != -1 && !blockedKey.empty() && SIE::SShaderCache::GetShaderString(ShaderClass::Pixel, shader, descriptor, true) == blockedKey) {
-				if (std::find(blockedIDs.begin(), blockedIDs.end(), descriptor) == blockedIDs.end()) {
-					blockedIDs.push_back(descriptor);
-					logger::debug("Skipping blocked shader {:X}:{} total: {}", descriptor, blockedKey, blockedIDs.size());
+			// Only build the key when a shader is blocked; it is a full defines string, too costly for every draw.
+			if (blockedKeyIndex != -1 && !blockedKey.empty()) {
+				auto key = SIE::SShaderCache::GetShaderString(ShaderClass::Pixel, shader, descriptor, true);
+				if (key == blockedKey) {
+					if (std::find(blockedIDs.begin(), blockedIDs.end(), descriptor) == blockedIDs.end()) {
+						blockedIDs.push_back(descriptor);
+						logger::debug("Skipping blocked shader {:X}:{} total: {}", descriptor, blockedKey, blockedIDs.size());
+					}
+					return nullptr;
 				}
-				return nullptr;
 			}
 		}
 
@@ -2101,12 +2109,16 @@ namespace SIE
 			// Track this shader as active
 			TrackActiveShader(ShaderClass::Compute, shader, descriptor);
 
-			if (blockedKeyIndex != -1 && !blockedKey.empty() && SIE::SShaderCache::GetShaderString(ShaderClass::Compute, shader, descriptor, true) == blockedKey) {
-				if (std::find(blockedIDs.begin(), blockedIDs.end(), descriptor) == blockedIDs.end()) {
-					blockedIDs.push_back(descriptor);
-					logger::debug("Skipping blocked shader {:X}:{} total: {}", descriptor, blockedKey, blockedIDs.size());
+			// Only build the key when a shader is blocked; it is a full defines string, too costly for every draw.
+			if (blockedKeyIndex != -1 && !blockedKey.empty()) {
+				auto key = SIE::SShaderCache::GetShaderString(ShaderClass::Compute, shader, descriptor, true);
+				if (key == blockedKey) {
+					if (std::find(blockedIDs.begin(), blockedIDs.end(), descriptor) == blockedIDs.end()) {
+						blockedIDs.push_back(descriptor);
+						logger::debug("Skipping blocked shader {:X}:{} total: {}", descriptor, blockedKey, blockedIDs.size());
+					}
+					return nullptr;
 				}
-				return nullptr;
 			}
 		}
 
@@ -2212,6 +2224,7 @@ namespace SIE
 			std::unique_lock lockH{ hlslMapMutex };
 			hlslToShaderMap.clear();
 		}
+		ResetActiveShaderTracking();
 		compilationSet.Clear();
 		Util::ClearShaderCompileFailures();
 		globals::deferred->ClearShaderCache();
@@ -2242,6 +2255,7 @@ namespace SIE
 	}
 	bool ShaderCache::Clear(const std::string& a_path)
 	{
+		ResetActiveShaderTracking();
 		std::string lowerFilePath = Util::FixFilePath(a_path);
 
 		// Step 1: Lock hlslMapMutex to find and copy the relevant entries
@@ -2296,6 +2310,7 @@ namespace SIE
 	void ShaderCache::Clear(RE::BSShader::Type a_type)
 	{
 		logger::debug("Clearing cache for {}", magic_enum::enum_name(a_type));
+		ResetActiveShaderTracking();
 		std::lock_guard lockGuardV(vertexShadersMutex);
 		{
 			for (auto& [id, shader] : vertexShaders[static_cast<size_t>(a_type)]) {
@@ -3344,6 +3359,13 @@ namespace SIE
 		}
 		const std::string& key = keyIt->second;
 
+		// Building the key formats and sorts the full defines list, so do it once per shader instead of every draw.
+		const auto taskId = ShaderCompilationTask::MakeId(shaderClass, shader.shaderType.get(), descriptor);
+		auto keyIt = activeShaderKeys.find(taskId);
+		if (keyIt == activeShaderKeys.end())
+			keyIt = activeShaderKeys.emplace(taskId, SIE::SShaderCache::GetShaderString(shaderClass, shader, descriptor, true)).first;
+		const auto& key = keyIt->second;
+
 		auto& info = activeShaders[key];
 		if (info.key.empty()) {
 			// First time seeing this shader
@@ -3357,6 +3379,13 @@ namespace SIE
 		info.isActive = true;
 		info.drawCalls++;
 		info.lastUsed = std::chrono::steady_clock::now();
+	}
+
+	void ShaderCache::ResetActiveShaderTracking()
+	{
+		std::lock_guard lock(activeShadersMutex);
+		activeShaderKeys.clear();
+		activeShaders.clear();
 	}
 
 	void ShaderCache::ResetFrameShaderTracking()
@@ -3543,10 +3572,15 @@ namespace SIE
 		}
 	}
 
+	size_t ShaderCompilationTask::MakeId(ShaderClass a_shaderClass, RE::BSShader::Type a_type, uint32_t a_descriptor)
+	{
+		return a_descriptor + (static_cast<size_t>(a_type) << 32) +
+		       (static_cast<size_t>(a_shaderClass) << 60);
+	}
+
 	size_t ShaderCompilationTask::GetId() const
 	{
-		return descriptor + (static_cast<size_t>(shader.shaderType.underlying()) << 32) +
-		       (static_cast<size_t>(shaderClass) << 60);
+		return MakeId(shaderClass, shader.shaderType.get(), descriptor);
 	}
 
 	std::string ShaderCompilationTask::GetString() const
