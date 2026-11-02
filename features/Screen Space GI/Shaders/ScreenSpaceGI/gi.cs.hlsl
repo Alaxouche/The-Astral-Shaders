@@ -375,7 +375,6 @@ groupshared float gsCurrAo[8][8];
 	if (needGI) {
 		float lerpFactor = rcp(srcAccumFrames[pxCoord] * 255);
 
-		float prevAo = srcPrevAo[pxCoord];
 		float4 prevY = srcPrevY[pxCoord];
 		float2 prevCoCg = srcPrevCoCg[pxCoord];
 
