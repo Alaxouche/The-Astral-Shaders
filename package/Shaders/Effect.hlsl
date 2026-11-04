@@ -792,12 +792,40 @@ PS_OUTPUT main(PS_INPUT input)
 	float3 viewPosition = mul(FrameBuffer::CameraView, float4(input.WorldPosition.xyz, 1)).xyz;
 	float2 screenUV = FrameBuffer::ViewToUV(viewPosition);
 	bool isFire = false;
+	bool isLightSprite = false;
 #	if defined(ADDBLEND)
-#		if defined(SOFT)
+#		if defined(EFFECTS11)
+	// ENB's classes: a palette-mapped additive effect (a spell bolt, a flame) is fire; a light sprite is a sky glow or a soft
+	// plain-textured glow. Everything else, lit, membrane, blood and projected-UV effects included, keeps its own brightness.
+#			if !defined(LIGHTING) && !defined(MEMBRANE) && !defined(BLOOD) && !defined(PROJECTED_UV)
+	const bool grayscaleToColor = Permutation::PixelShaderDescriptor & Permutation::EffectFlags::GrayscaleToColor;
+	const bool grayscaleToAlpha = Permutation::PixelShaderDescriptor & Permutation::EffectFlags::GrayscaleToAlpha;
+	const bool skyObject = Permutation::VertexShaderDescriptor & Permutation::EffectFlags::SkyObject;
+#				if defined(TEXTURE)
+	const bool plainTexture = !grayscaleToColor && !grayscaleToAlpha && !(Permutation::PixelShaderDescriptor & Permutation::EffectFlags::IgnoreTexAlpha);
+#				else
+	const bool plainTexture = false;
+#				endif
+#				if defined(PARTICLES) && defined(TEXCOORD_INDEX) && defined(INDEXED_TEXTURE) && !defined(SOFT)
+	isFire = true;
+#				else
+	isFire = grayscaleToColor && grayscaleToAlpha;
+#					if defined(SOFT)
+	isLightSprite = !isFire && (skyObject || plainTexture);
+#					else
+	isLightSprite = !isFire && skyObject;
+#					endif
+#				endif
+#			endif
+#		else
+#			if defined(SOFT)
 	if (Permutation::PixelShaderDescriptor & Permutation::EffectFlags::GrayscaleToColor && Permutation::PixelShaderDescriptor & Permutation::EffectFlags::GrayscaleToAlpha)
 		isFire = true;
-#		elif defined(PARTICLES) && defined(TEXCOORD_INDEX) && defined(INDEXED_TEXTURE)
+#			elif defined(PARTICLES) && defined(TEXCOORD_INDEX) && defined(INDEXED_TEXTURE)
 	isFire = true;
+#			endif
+	// Linear Lighting treats every non-fire additive effect as a light sprite
+	isLightSprite = !isFire;
 #		endif
 #	endif
 
@@ -1048,7 +1076,7 @@ PS_OUTPUT main(PS_INPUT input)
 #		if defined(ADDBLEND)
 		blendedColor = ColorManagement::LinearToScene(ColorManagement::SceneToLinear(blendedColor) * medium.a);
 #			if !defined(EFFECTS11)
-		blendedColor = Color::AdditiveEffect(blendedColor, isFire);
+		blendedColor = Color::AdditiveEffect(blendedColor, isFire, isLightSprite);
 #			endif
 #		elif defined(MULTBLEND) || defined(MULTBLEND_DECAL)
 		blendedColor = lerp(1.0.xxx, lightColor, medium.a);
@@ -1093,7 +1121,7 @@ PS_OUTPUT main(PS_INPUT input)
 		blendedColor = lightColor * (1 - fogFactor);
 #			endif
 #			if !defined(EFFECTS11)
-		blendedColor = Color::AdditiveEffect(blendedColor, isFire);
+		blendedColor = Color::AdditiveEffect(blendedColor, isFire, isLightSprite);
 #			endif
 #		elif defined(MULTBLEND) || defined(MULTBLEND_DECAL)
 #			if defined(EXP_HEIGHT_FOG)
