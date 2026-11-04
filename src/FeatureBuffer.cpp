@@ -20,6 +20,7 @@
 #include "Features/PostProcessing.h"
 #include "Features/LivingWindows.h"
 #include "Features/PhysicalSky.h"
+#include "Features/ProceduralNightSky.h"
 #include "Features/ProceduralSun.h"
 #include "Features/ProceduralAurora.h"
 #include "Features/RainRefraction.h"
@@ -97,5 +98,6 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 		globals::features::hairBacklighting.settings,
 		globals::features::rainRefraction.GetCommonBufferData(),
 		globals::features::nightEye.GetCommonBufferData(),
-		globals::features::proceduralAurora.GetCommonBufferData());
+		globals::features::proceduralAurora.GetCommonBufferData(),
+		globals::features::proceduralNightSky.GetCommonBufferData());
 }

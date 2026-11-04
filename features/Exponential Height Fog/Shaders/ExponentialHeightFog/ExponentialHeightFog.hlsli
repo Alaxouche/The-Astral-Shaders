@@ -219,8 +219,8 @@ namespace ExponentialHeightFog
 				}
 #endif
 			}
-			const float4 fogColorOverride = SharedData::exponentialHeightFogSettings.originalFogColorOverride;
-			fogInscatteringColor = lerp(fogColor, fogColorOverride.rgb, fogColorOverride.a) * SharedData::exponentialHeightFogSettings.originalFogColorAmount;
+			float3 originalFogColor = lerp(fogColor, SharedData::exponentialHeightFogSettings.originalFogColorOverride.rgb, SharedData::exponentialHeightFogSettings.originalFogColorOverride.a);
+			fogInscatteringColor = originalFogColor * SharedData::exponentialHeightFogSettings.originalFogColorAmount;
 		}
 		fogInscatteringColor += SharedData::exponentialHeightFogSettings.fogInscatteringColor.rgb * SharedData::exponentialHeightFogSettings.fogInscatteringColor.a;
 

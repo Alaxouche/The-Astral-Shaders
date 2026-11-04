@@ -17,8 +17,8 @@ const std::vector<EngineFix*>& EngineFix::GetOnPostPostLoadFixesList()
 	static AlphaGeometryGroupCeilingFix alphaGeometryGroupCeilingFix;
 	static CullPoolExhaustionFix cullPoolExhaustionFix;
 	static EffectShaderNoDecalsFix effectShaderNoDecalsFix;
-	static LightListSearchFix lightListSearchFix;
 	static EmptyOverlayCullFix emptyOverlayCullFix;
+	static LightListSearchFix lightListSearchFix;
 	static ShadowmapCascadeCullingFix shadowmapCascadeCullingFix;
 	static ShadowmapRasterizerFix shadowmapRasterizerFix;
 	static SunShadowMaskFix sunShadowMaskFix;

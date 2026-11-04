@@ -12,6 +12,7 @@
 #include "Deferred.h"
 #include "Globals.h"
 #include "IBL.h"
+#include "LinearLighting.h"
 #include "PostProcessing.h"
 #include "PostProcessingMode.h"
 #include "Presets/UnifiedPresetCatalog.h"
@@ -45,6 +46,7 @@ namespace
 		return bound.radius * 0.70710678f / distance;
 	}
 
+	/** @brief A screen-sized 2D texture with an SRV, plus an RTV and/or UAV on request. */
 	std::unique_ptr<Texture2D> CreateScreenTexture(uint32_t a_width, uint32_t a_height, DXGI_FORMAT a_format, bool a_renderTarget, bool a_unorderedAccess, const char* a_name)
 	{
 		D3D11_TEXTURE2D_DESC desc{};
@@ -209,6 +211,7 @@ void Effects11::UpdateSkyScattering(PerFrame& a_data)
 		std::max(0.0f, 1.0f - color.y / colorPeak) * dustTint,
 		std::max(0.0f, 1.0f - color.z / colorPeak) * dustTint
 	};
+	globals::features::linearLighting.SRGBToWorking(&a_data.SkyScatteringColor.x);
 
 	const float dustVolume = timeOfDay("DustVolume");
 	const float horizonRange = timeOfDay("HorizonRange");
@@ -282,7 +285,8 @@ Effects11::PerFrame Effects11::GetCommonBufferData()
 	PerFrame data{};
 
 	data.Enable = enableEffect;
-	data.ColorPow = settingManager.GetInterpolatedTimeOfDayValue("ColorPow", "ENVIRONMENT");
+	auto& linearLighting = globals::features::linearLighting;
+	data.ColorPow = linearLighting.IsLinearLightingActive() ? 1.0f : settingManager.GetInterpolatedTimeOfDayValue("ColorPow", "ENVIRONMENT");
 	if (enableEffect)
 		data.SkyScaleMultiplier = settingManager.GetValue<bool>("DisableWrongSkyMath", "SKY") ? 0.0f : settingManager.GetInterpolatedTimeOfDayValue("GradientIntensity", "SKY");
 
@@ -314,9 +318,14 @@ Effects11::PerFrame Effects11::GetCommonBufferData()
 
 	data.GameVolumetricRaysDisableDithering = settingManager.GetValue<bool>("DisableGameDithering", "GAMEVOLUMETRICRAYS");
 	const auto& gameVolumetricLighting = VolumetricLighting::GetRenderData();
-	data.GameVolumetricRaysSunColor = volumetricSunColor;
+	const float gameVolumetricLightFade = globals::features::volumetricLighting.GetLightFade();
+	float3 gameVolumetricSunColor = volumetricSunColor;
+	float3 gameVolumetricCustomColor = { gameVolumetricLighting.color.red, gameVolumetricLighting.color.green, gameVolumetricLighting.color.blue };
+	linearLighting.SRGBToWorking(&gameVolumetricSunColor.x);
+	linearLighting.SRGBToWorking(&gameVolumetricCustomColor.x);
+	data.GameVolumetricRaysSunColor = gameVolumetricSunColor * gameVolumetricLightFade;
 	data.GameVolumetricRaysCustomContribution = gameVolumetricLighting.customColor.contribution;
-	data.GameVolumetricRaysCustomColor = { gameVolumetricLighting.color.red, gameVolumetricLighting.color.green, gameVolumetricLighting.color.blue };
+	data.GameVolumetricRaysCustomColor = gameVolumetricCustomColor * gameVolumetricLightFade;
 
 	data.ParticleIntensity = settingManager.GetInterpolatedTimeOfDayValue("Intensity", "PARTICLE");
 	data.ParticleLightingInfluence = settingManager.GetInterpolatedTimeOfDayValue("LightingInfluence", "PARTICLE");
@@ -481,10 +490,11 @@ void Effects11::ClearShaderCache()
 	}
 
 	auto& effectManager = EffectManager::GetSingleton();
-	if (effectManager.IsInitialized()) {
-		effectManager.enbAdaptation.ClearShaderCache();
+	effectManager.enbAdaptation.ClearShaderCache();
+	effectManager.enbEffectPrePass.ClearShaderCache();
+	effectManager.enbSunSprite.ClearShaderCache();
+	if (effectManager.IsInitialized())
 		effectManager.ReloadShaders();
-	}
 }
 
 float3 Curve(float3 color, float power)
@@ -551,6 +561,7 @@ namespace
 	constexpr float minEffectLightingScale = 0.25f;
 	constexpr float maxEffectLightingScale = 8.0f;
 	constexpr float maxTransitionCorrection = 8.0f;
+	constexpr float moonFadeGamma = 2.2f;
 
 	float ColorMean(float3 color)
 	{
@@ -792,7 +803,7 @@ float3 Effects11::GradeSkyColors(std::span<RE::NiColor, RE::TESWeather::ColorTyp
 	return sunTint;
 }
 
-void Effects11::BlendGradedWeathers(RE::Sky* a_sky, std::span<RE::NiColor, RE::TESWeather::ColorTypes::kTotal> a_graded) const
+void Effects11::BlendGradedWeathers(RE::Sky* a_sky, std::span<RE::NiColor, RE::TESWeather::ColorTypes::kTotal> a_graded)
 {
 	const auto transition = GetGradedTransition(a_sky);
 	if (!transition)
@@ -837,8 +848,23 @@ void Effects11::BlendGradedWeathers(RE::Sky* a_sky, std::span<RE::NiColor, RE::T
 		GradeSkyColors(currentColors);
 	}
 
+	const bool lastHidesMoons = lastColors[ColorTypes::kMoonGlare] == RE::NiColor{};
+	const bool currentHidesMoons = currentColors[ColorTypes::kMoonGlare] == RE::NiColor{};
+	if (nightSunlight) {
+		nightLightLast = lastHidesMoons ? 0.0f : 1.0f;
+		nightLightCurrent = currentHidesMoons ? 0.0f : 1.0f;
+		lastColors[ColorTypes::kSunlight] *= nightLightLast;
+		currentColors[ColorTypes::kSunlight] *= nightLightCurrent;
+	}
+
+	SkyColors targets;
 	for (uint32_t type = 0; type < ColorTypes::kTotal; ++type)
-		a_graded[type] = CorrectTransition(a_graded[type], lastColors[type] * (1.0f - pct) + currentColors[type] * pct, blendedColors[type]);
+		targets[type] = lastColors[type] * (1.0f - pct) + currentColors[type] * pct;
+	if (lastHidesMoons != currentHidesMoons)
+		targets[ColorTypes::kMoonGlare] = lastHidesMoons ? currentColors[ColorTypes::kMoonGlare] * std::pow(pct, moonFadeGamma) : lastColors[ColorTypes::kMoonGlare] * std::pow(1.0f - pct, moonFadeGamma);
+
+	for (uint32_t type = 0; type < ColorTypes::kTotal; ++type)
+		a_graded[type] = CorrectTransition(a_graded[type], targets[type], blendedColors[type]);
 }
 
 void Effects11::OverrideWeather(RE::Sky* a_sky)
@@ -1012,6 +1038,8 @@ void Effects11::OnSkyUpdateColors(RE::Sky* a_sky)
 {
 	sunlightGraded = false;
 	gameVolumetricRaysIntensityApplied = false;
+	nightLightLast = 1.0f;
+	nightLightCurrent = 1.0f;
 	CheckCommonData();
 	if (enableEffect)
 		OverrideWeather(a_sky);

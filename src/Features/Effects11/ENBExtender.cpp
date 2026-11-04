@@ -1221,12 +1221,15 @@ namespace ENBExtender
 	static std::optional<KiCompileFileIndex> GetKiCompileFileIndex(std::string_view effectName)
 	{
 		static constexpr std::pair<std::string_view, KiCompileFileIndex> slots[] = {
+			{ "enbeffectprepass.fx", KiCompileFileIndex::PreProcessing },
 			{ "enbdepthoffield.fx", KiCompileFileIndex::DepthOfField },
 			{ "enbbloom.fx", KiCompileFileIndex::Bloom },
 			{ "enblens.fx", KiCompileFileIndex::Lens },
 			{ "enbadaptation.fx", KiCompileFileIndex::Adaptation },
 			{ "enbeffect.fx", KiCompileFileIndex::MainProcessing },
 			{ "enbeffectpostpass.fx", KiCompileFileIndex::PostProcessing },
+			{ "enbsunsprite.fx", KiCompileFileIndex::SunSprite },
+			{ "enbunderwater.fx", KiCompileFileIndex::Underwater },
 		};
 		for (const auto& [name, index] : slots)
 			if (name == effectName)

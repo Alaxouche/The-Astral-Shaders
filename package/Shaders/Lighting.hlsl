@@ -1405,7 +1405,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 	if (SharedData::extendedMaterialSettings.EnableParallaxWarpingFix
 #			if defined(LANDSCAPE)
-		&& LANDSCAPE_PARALLAX_ENABLED
+	    && LANDSCAPE_PARALLAX_ENABLED
 #			endif
 	) {
 		float3 ndx = ddx(vertexNormal);
@@ -1968,6 +1968,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	sampledLodLandColor = TexLandLodBlend1Sampler.Sample(SampLandLodBlend1Sampler, input.TexCoord0.zw);
 	lodLandColor = ColorManagement::DiffuseToWorking(sampledLodLandColor);
 #		endif
+	// Matches the LOD terrain shader, which applies Color::Albedo to its non-PBR base color.
 	lodLandColor.xyz = Color::EnbColorPow(lodLandColor.xyz);
 
 #		if defined(LOD_BLENDING)
@@ -2050,7 +2051,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	if (alpha - AlphaTestRefRS < 0) {
 		discard;
 	}
-#		endif      // DO_ALPHA_TEST
+#		endif  // DO_ALPHA_TEST
 #	endif
 
 #	if defined(SNOW) && !defined(TRUE_PBR)
@@ -2664,6 +2665,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	float skylightingShadowVisibility = 1.0;
 #		if defined(DEFERRED)
 #			if defined(SKYLIGHTING_SHADOW_VIS)
+	// One probe pass serves both lookups when the height clamp leaves the position unchanged.
 	const bool skylightingWantsShadowVis = inWorld && UseSkylightingShadowVisibility();
 	const float3 positionMSShadowVis = Skylighting::ClampToArrayHeight(positionMSSkylight);
 	const bool skylightingShadowVisShared = skylightingWantsShadowVis && positionMSShadowVis.z == positionMSSkylight.z;
@@ -3493,7 +3495,10 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		DirectContext pointLightContext;
 		DirectLightingOutput pointLightOutput;
 		float pointLightShadow = lightShadow * parallaxShadow;
+		MaterialProperties pointLightMaterial = material;
+		pointLightMaterial.Roughness = LightLimitFix::GetSphereLightRoughness(material.Roughness, light.sourceRadius, lightDist);
 #			if defined(TRUE_PBR)
+		pointLightMaterial.CoatRoughness = LightLimitFix::GetSphereLightRoughness(material.CoatRoughness, light.sourceRadius, lightDist);
 		pointLightContext = CreateDirectLightingContext(worldNormal.xyz, coatWorldNormal, vertexNormal.xyz, refractedViewDirection, viewDirection, refractedLightDirection, normalizedLightDirection, lightColor, pointLightShadow, pointLightShadow);
 		if (thinSurfaceNormals)
 			pointLightContext.backTransmissionVisibility = PBR::GetThinSurfaceBackTransmissionVisibility(thinSurfaceFaceNormal, normalizedLightDirection);
@@ -3506,10 +3511,10 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		}
 #				endif
 #			endif
-		EvaluateLighting(pointLightContext, material, tbnTr, uvOriginal, uvOriginal_ddx, uvOriginal_ddy, pointLightOutput);
+		EvaluateLighting(pointLightContext, pointLightMaterial, tbnTr, uvOriginal, uvOriginal_ddx, uvOriginal_ddy, pointLightOutput);
 #			if defined(WETNESS_EFFECTS)
 		if (waterRoughnessSpecular < 1)
-			EvaluateWetnessLighting(wetnessNormal, pointLightContext, waterRoughnessSpecular, wetnessFilmRoughness, pointLightOutput);
+			EvaluateWetnessLighting(wetnessNormal, pointLightContext, LightLimitFix::GetSphereLightRoughness(waterRoughnessSpecular, light.sourceRadius, lightDist), wetnessFilmRoughness, pointLightOutput);
 #				if defined(CHARACTER_RAIN_SURFACE)
 		[branch] if (characterCoatMask > 0.0f)
 			characterRainSpecular += CharacterRainSpots::EvaluateLighting(characterSpotSurfaceNormal, pointLightContext,
@@ -3899,7 +3904,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 	if (any(indirectLobeWeights.specular > 0)
 #		if defined(WETNESS_EFFECTS)
-		|| any(wetnessReflectance > 0)
+	    || any(wetnessReflectance > 0)
 #		endif
 	)
 #		if defined(DYNAMIC_CUBEMAPS)
@@ -4011,17 +4016,17 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	else
 #		if !defined(DO_ALPHA_TEST) || defined(SPARKLE)
 	float alpha = baseColor.w;
-#		if defined(EMAT) && !defined(LANDSCAPE)
-#			if defined(PARALLAX)
+#			if defined(EMAT) && !defined(LANDSCAPE)
+#				if defined(PARALLAX)
 	alpha = TexColorSampler.SampleBias(SampColorSampler, uvOriginal, SharedData::MipBias).w;
-#			elif defined(TRUE_PBR)
+#				elif defined(TRUE_PBR)
 	[branch] if (PBRParallax)
 	{
 		alpha = TexColorSampler.SampleBias(SampColorSampler, uvOriginal, SharedData::MipBias).w;
 	}
+#				endif
 #			endif
-#		endif
-#		if defined(DO_ALPHA_TEST)
+#			if defined(DO_ALPHA_TEST)
 	[branch] if ((Permutation::PixelShaderDescriptor & Permutation::LightingFlags::AdditionalAlphaMask) != 0)
 	{
 		uint2 alphaMask = input.Position.xy;
@@ -4052,24 +4057,24 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		}
 	}
 	else
-#		endif  // defined(DO_ALPHA_TEST)
+#			endif  // defined(DO_ALPHA_TEST)
 	{
 		alpha *= MaterialData.z;
 	}
-#		if !(defined(TREE_ANIM) || defined(LODOBJECTSHD) || defined(LODOBJECTS))
+#			if !(defined(TREE_ANIM) || defined(LODOBJECTSHD) || defined(LODOBJECTS))
 	alpha *= input.Color.w;
-#		endif  // !(defined(TREE_ANIM) || defined(LODOBJECTSHD) || defined(LODOBJECTS))
-#		if defined(DO_ALPHA_TEST)
-#			if defined(DEPTH_WRITE_DECALS)
+#			endif  // !(defined(TREE_ANIM) || defined(LODOBJECTSHD) || defined(LODOBJECTS))
+#			if defined(DO_ALPHA_TEST)
+#				if defined(DEPTH_WRITE_DECALS)
 	if (alpha - 0.0156862754 < 0) {
 		discard;
 	}
 	alpha = saturate(1.05 * alpha);
-#			endif  // DEPTH_WRITE_DECALS
+#				endif  // DEPTH_WRITE_DECALS
 	if (alpha - AlphaTestRefRS < 0) {
 		discard;
 	}
-#		endif      // DO_ALPHA_TEST
+#			endif      // DO_ALPHA_TEST
 #		endif
 
 #		if defined(ANISOTROPIC_ALPHA)

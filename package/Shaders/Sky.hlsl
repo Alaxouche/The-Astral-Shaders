@@ -47,6 +47,10 @@ struct VS_OUTPUT
 	float TexCoord2: TEXCOORD2;
 #endif
 
+#if defined(HORIZFADE) && defined(PROCEDURAL_NIGHT_SKY)
+	float3 StarDirection: TEXCOORD7;
+#endif
+
 #if defined(TEX) || defined(DITHER) || defined(HORIZFADE)
 	float4 Color: COLOR0;
 #endif
@@ -96,7 +100,7 @@ float GetSunGlareVisibility()
 #		else
 		bool isSky = sampleDepth >= 1.0;
 #		endif
-		visibleSamples += FrameBuffer::IsOutsideFrame(sampleUV) || isSky;
+		visibleSamples += isSky;
 	}
 	return FlareOcclusion::GetVisibility(visibleSamples);
 }
@@ -126,6 +130,9 @@ VS_OUTPUT main(VS_INPUT input)
 	vsout.TexCoord2.x = saturate((1.0 / 17.0) * eyeHeightDelta);
 	vsout.Color.xyz = ColorManagement::SRGBToWorking(BlendColor[0].xyz) * VParams;
 	vsout.Color.w = BlendColor[0].w;
+#		if defined(PROCEDURAL_NIGHT_SKY)
+	vsout.StarDirection = input.Position.xyz;
+#		endif
 
 #	else  // MOONMASK HORIZFADE
 
@@ -156,8 +163,8 @@ VS_OUTPUT main(VS_INPUT input)
 
 	vsout.Color.xyz = VParams * ColorManagement::SRGBToWorking(skyColor);
 	vsout.Color.w = BlendColor[0].w * input.Color.w;
-	vsout.SkyBlendColor0 = float4(BlendColor[0].xyz * VParams, 0);
-	vsout.SkyBlendColor2 = float4(BlendColor[2].xyz * VParams, 0);
+	vsout.SkyBlendColor0 = float4(ColorManagement::SRGBToWorking(BlendColor[0].xyz) * VParams, 0);
+	vsout.SkyBlendColor2 = float4(ColorManagement::SRGBToWorking(BlendColor[2].xyz) * VParams, 0);
 #		if defined(DITHER) && defined(TEX)
 	vsout.Color.w *= GetSunGlareVisibility();
 #		endif
@@ -165,7 +172,16 @@ VS_OUTPUT main(VS_INPUT input)
 
 #	ifdef REVERSE_Z
 	float4 skyPosition = mul(WorldViewProj, inputPosition);
-	vsout.Position = float4(skyPosition.xy, FrameBuffer::FarPlaneClipZ(skyPosition.w), skyPosition.w);
+	bool reverseProjection = FrameBuffer::IsReverseProjection();
+#		if defined(MOONMASK)
+	float skyDepthLayer = 1e-9;
+#		elif defined(TEX) && !defined(DITHER)
+	float skyDepthLayer = 2e-9;
+#		else
+	float skyDepthLayer = 0.0;
+#		endif
+	float skyLayerClipZ = reverseProjection ? skyDepthLayer * skyPosition.w : 0.0;
+	vsout.Position = float4(skyPosition.xy, FrameBuffer::FarPlaneClipZ(skyPosition.w, reverseProjection) + skyLayerClipZ, skyPosition.w);
 #	else
 	vsout.Position = mul(WorldViewProj, inputPosition).xyww;
 #	endif
@@ -237,6 +253,9 @@ cbuffer AlphaTestRefCB : register(b11)
 #		include "ProceduralSun/ProceduralSun.hlsli"
 #	endif
 
+#	if defined(PROCEDURAL_NIGHT_SKY) && (defined(HORIZFADE) || (defined(DITHER) && !defined(TEX)))
+#		include "ProceduralNightSky/ProceduralNightSky.hlsli"
+#	endif
 #	ifdef HDR_OUTPUT
 #		include "HDRDisplay/HDRSun.hlsli"
 #		include "Common/Random.hlsli"
@@ -474,13 +493,25 @@ PS_OUTPUT main(PS_INPUT input)
 
 #				if defined(PROCEDURAL_AURORA)
 	// Drawn on the sky dome so stars, moons and clouds still draw over it. The gradient is taken outside the branch.
+	// Procedural Night Sky draws its own aurora; this one steps aside while that one is on, so they never stack.
+	bool nightSkyAuroraActive = false;
+#					if defined(PROCEDURAL_NIGHT_SKY)
+	nightSkyAuroraActive = SharedData::proceduralNightSkySettings.enabled && SharedData::proceduralNightSkySettings.auroraIntensity > 0.0;
+#					endif
 	const float3 auroraDirection = normalize(input.WorldPosition.xyz);
 	const float auroraPixelAngle = length(fwidth(auroraDirection));
-	[branch] if (SharedData::proceduralAuroraSettings.Enabled && SharedData::proceduralAuroraSettings.Atmosphere.x > 0.0 && auroraDirection.z > -0.03)
+	[branch] if (!nightSkyAuroraActive && SharedData::proceduralAuroraSettings.Enabled && SharedData::proceduralAuroraSettings.Atmosphere.x > 0.0 && auroraDirection.z > -0.03)
 	{
 		// Bottle removed the Effects 11 [AURORA] curve, so a preset does not grade it.
 		psout.Color.xyz += ColorManagement::SRGBToWorking(ProceduralAurora::Render(auroraDirection, auroraPixelAngle));
 	}
+#				endif
+
+#				if defined(PROCEDURAL_NIGHT_SKY)
+	float3 auroraView = normalize(input.WorldPosition.xyz);
+	bool proceduralAuroraActive = SharedData::proceduralNightSkySettings.auroraIntensity > 0.0 && auroraView.z > 0.0 && (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InReflection);
+	[branch] if (proceduralAuroraActive)
+		psout.Color.xyz += ProceduralNightSky::EvaluateAurora(auroraView, Random::InterleavedGradientNoise(input.Position.xy, SharedData::FrameCount));
 #				endif
 
 #				if defined(EFFECTS11)
@@ -510,6 +541,20 @@ PS_OUTPUT main(PS_INPUT input)
 #			endif
 	psout.Color.xyz = float3(1.5, 1.5, 1.5) * (input.Color.xyz * baseColor.xyz + skyScale);
 	psout.Color.w = input.TexCoord2.x * (baseColor.w * input.Color.w);
+#			if defined(PROCEDURAL_NIGHT_SKY)
+	float3 starDirection = normalize(input.StarDirection);
+	float starPixelAngle = length(fwidth(starDirection));
+	bool proceduralNightSkyActive = SharedData::proceduralNightSkySettings.enabled && (Permutation::ExtraShaderDescriptor & (Permutation::ExtraFlags::InWorld | Permutation::ExtraFlags::InReflection));
+	[branch] if (proceduralNightSkyActive)
+	{
+		float3 starTint = 1.5 * input.Color.xyz * input.Color.w;
+#				if defined(EFFECTS11)
+		if (SharedData::enbSettings.Enable)
+			starTint *= SharedData::enbSettings.StarsIntensity;
+#				endif
+		psout.Color = ProceduralNightSky::Shade(starDirection, normalize(input.WorldPosition.xyz), starPixelAngle, starTint, input.TexCoord2.x);
+	}
+#			endif
 #		else
 
 	psout.Color.w = input.Color.w * baseColor.w;
@@ -545,13 +590,14 @@ PS_OUTPUT main(PS_INPUT input)
 		{
 			float3 viewDirection = normalize(input.WorldPosition.xyz);
 			float cloudTextureAlpha = saturate(baseColor.w);
-			float cloudTextureGray = pow(max(dot(baseColor.xyz, 1.0 / 3.0), 0.0), SharedData::enbSettings.CloudsCurve);
+			float cloudTextureBrightness = max(dot(baseColor.xyz, 1.0 / 3.0), 0.0);
+			float cloudTextureGray = pow(cloudTextureBrightness, SharedData::enbSettings.CloudsCurve);
 
 			float3 cloudColor = pow(max(input.Color.xyz * baseColor.xyz, 0.0), SharedData::enbSettings.CloudsCurve);
 			cloudColor = lerp(cloudColor, dot(cloudColor, 1.0 / 3.0), SharedData::enbSettings.CloudsDesaturation) * SharedData::enbSettings.CloudsIntensity * SharedData::enbSettings.CloudsColorFilter;
 
 			bool cloudScattering = SharedData::enbSettings.EnableCloudsScattering && !(Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::NoSkyScattering);
-			psout.Color.xyz = SkyScattering::ShadeCloud(cloudColor, cloudTextureAlpha, cloudTextureGray, viewDirection, cloudScattering, SampBaseSampler) + skyScale * min(SharedData::enbSettings.CloudsIntensity, 1.0);
+			psout.Color.xyz = SkyScattering::ShadeCloud(cloudColor, cloudTextureAlpha, cloudTextureGray, cloudTextureBrightness, viewDirection, cloudScattering) + skyScale * min(SharedData::enbSettings.CloudsIntensity, 1.0);
 		}
 	}
 #			endif
@@ -651,6 +697,9 @@ PS_OUTPUT main(PS_INPUT input)
 	bool linearizeAlpha = !Permutation::RenderToUI || inReflection;
 #			if defined(PROCEDURAL_SUN) && defined(TEX) && defined(DEFERRED) && !defined(DITHER) && !defined(OCCLUSION)
 	linearizeAlpha = linearizeAlpha && !proceduralSunActive;
+#			endif
+#			if defined(PROCEDURAL_NIGHT_SKY) && defined(HORIZFADE)
+	linearizeAlpha = linearizeAlpha && !proceduralNightSkyActive;
 #			endif
 	if (linearizeAlpha) {
 		psout.Color.w = pow(saturate(psout.Color.w), TransferFunctions::GAME_GAMMA);

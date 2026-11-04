@@ -4,7 +4,6 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
-#include <imgui_stdlib.h>
 
 #include "CSEditor/Browser/BrowserWidgets.h"
 #include "CSEditor/EditorWindow.h"
@@ -23,6 +22,7 @@
 #include "Globals.h"
 #include "I18n/I18n.h"
 #include "Menu.h"
+#include "Menu/Fonts.h"
 #include "Menu/PresetsPageRenderer.h"
 #include "PostProcessingMode.h"
 #include "State.h"
@@ -254,6 +254,12 @@ namespace
 			return &effectManager.enbDepthOfField;
 		if (a_setting.key == "EnablePostPassShader")
 			return &effectManager.enbEffectPostPass;
+		if (a_setting.key == "EnablePrepass")
+			return &effectManager.enbEffectPrePass;
+		if (a_setting.key == "EnableSunGlare")
+			return &effectManager.enbSunSprite;
+		if (a_setting.key == "EnableUnderwaterShader")
+			return &effectManager.enbUnderwater;
 		return nullptr;
 	}
 
@@ -276,6 +282,9 @@ namespace
 			{ &effectManager.enbAdaptation, ids.useAdaptation, T("feature.effects11.editor.file_adaptation", "Adaptation") },
 			{ &effectManager.enbDepthOfField, ids.useDepthOfField, T("feature.effects11.editor.file_depthoffield", "Depth of Field") },
 			{ &effectManager.enbEffectPostPass, ids.usePostPass, T("feature.effects11.editor.file_postpass", "Post Pass") },
+			{ &effectManager.enbEffectPrePass, ids.usePrepass, T("feature.effects11.editor.file_prepass", "Prepass") },
+			{ &effectManager.enbSunSprite, ids.useSunGlare, T("feature.effects11.editor.file_sunsprite", "Sun Sprite") },
+			{ &effectManager.enbUnderwater, ids.useUnderwater, T("feature.effects11.editor.file_underwater", "Underwater") },
 		};
 	}
 
@@ -511,7 +520,7 @@ void Effects11Editor::DrawNoPreset()
 		ImGui::Spacing();
 	}
 
-	if (ImGui::Button(T(TKEY("reload_shaders"), "Reload Shaders")))
+	if (Util::Button(T(TKEY("reload_shaders"), "Reload Shaders")))
 		ReloadShaders();
 }
 
@@ -567,20 +576,20 @@ void Effects11Editor::DrawToolbar()
 		color.w = 0.75f;
 		ImGui::PushStyleColor(ImGuiCol_Text, color);
 	}
-	if (ImGui::Button(saveLabel))
+	if (Util::Button(saveLabel))
 		Save();
 	if (dirty)
 		ImGui::PopStyleColor();
 	Util::AddTooltip(saveTip);
 
 	ImGui::SameLine();
-	if (ImGui::Button(T(TKEY("revert"), "Revert")))
+	if (Util::Button(T(TKEY("revert"), "Revert")))
 		RequestAction(PendingAction::Revert);
 	Util::AddTooltip(T(TKEY("revert_tip"), "Discard unsaved changes and reload every value from disk."));
 
 	ImGui::SameLine();
 	const char* reloadLabel = T(TKEY("reload_shaders"), "Reload Shaders");
-	if (shaderReloadNeeded ? Util::WarningButton(reloadLabel) : ImGui::Button(reloadLabel))
+	if (shaderReloadNeeded ? Util::WarningButton(reloadLabel) : Util::Button(reloadLabel))
 		RequestAction(PendingAction::ReloadShaders);
 	Util::AddTooltip(T(TKEY("reload_shaders_tip"),
 		"Recompile the .fx files and reload everything from disk.\n"
@@ -697,22 +706,12 @@ void Effects11Editor::DrawStatus()
 
 void Effects11Editor::DrawSearchBar(std::string& a_filter, const char* a_hint, bool& a_focusRequest)
 {
-	ImGui::PushID(a_hint);
-	const float clearWidth = a_filter.empty() ? 0.0f : ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
 	if (a_focusRequest) {
 		ImGui::SetKeyboardFocusHere();
 		a_focusRequest = false;
 	}
-	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - clearWidth);
-	ImGui::InputTextWithHint("##search", a_hint, &a_filter, ImGuiInputTextFlags_EscapeClearsAll);
+	Util::SearchField(a_hint, a_filter, a_hint, ImGui::GetContentRegionAvail().x, false);
 	Util::AddTooltip(T(TKEY("search_tip"), "Filter by name. Shortcut: Ctrl+F. Esc clears the search."));
-	if (!a_filter.empty()) {
-		ImGui::SameLine();
-		if (ImGui::Button("X##clear", ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight())))
-			a_filter.clear();
-		Util::AddTooltip(T(TKEY("clear_search"), "Clear the search"));
-	}
-	ImGui::PopID();
 }
 
 void Effects11Editor::DrawPeriodFocusCombo()
@@ -731,16 +730,16 @@ void Effects11Editor::DrawPeriodFocusCombo()
 		preview = PeriodName(periodFocus);
 
 	if (ImGui::BeginCombo("##periodFocus", preview.c_str())) {
-		if (ImGui::Selectable(T(TKEY("focus_current"), "Current time of day"), periodFocus == kFocusCurrent))
+		if (Util::Selectable(T(TKEY("focus_current"), "Current time of day"), periodFocus == kFocusCurrent))
 			periodFocus = kFocusCurrent;
 		Util::AddTooltip(T(TKEY("focus_current_tip"), "Show only the periods that are blended into the image right now."));
-		if (ImGui::Selectable(T(TKEY("focus_all"), "All periods"), periodFocus == kFocusAll))
+		if (Util::Selectable(T(TKEY("focus_all"), "All periods"), periodFocus == kFocusAll))
 			periodFocus = kFocusAll;
 		ImGui::Separator();
 		for (int period = 0; period < kPeriodCount; ++period) {
 			const float weight = PeriodWeight(period);
 			const std::string label = weight > kActiveWeight ? std::format("{}  ({:.0f}%)", PeriodName(period), weight * 100.0f) : PeriodName(period);
-			if (ImGui::Selectable(label.c_str(), periodFocus == period))
+			if (Util::Selectable(label.c_str(), periodFocus == period))
 				periodFocus = period;
 		}
 		ImGui::EndCombo();
@@ -1604,7 +1603,7 @@ void Effects11Editor::DrawPendingActionPopup()
 		finish();
 	}
 	ImGui::SameLine();
-	if (ImGui::Button(T(TKEY("cancel"), "Cancel")) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+	if (Util::Button(T(TKEY("cancel"), "Cancel")) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
 		finish();
 
 	ImGui::EndPopup();
@@ -1628,21 +1627,31 @@ void Effects11Editor::DrawLauncher()
 		RefreshPresetPaths();
 	Util::TextUnformattedDisabled(presetPaths.iniDisplay.c_str());
 	Util::AddTooltip(presetPaths.iniFull.c_str());
-	PresetsPageRenderer::DrawOpenButton("##Effects11OpenPresets",
-		T("feature.effects11.open_presets_tooltip", "Load and switch Effects 11 presets on the Presets page."));
+	// The editor's hotkey sits at the right end of this line, above the editor button on the selector's row
+	if (!menuSettings.Effects11EditorKey.empty()) {
+		const std::string hotkey = I18n::GetSingleton()->Format(TKEY("editor_hotkey"),
+			{ { "key", Util::Input::KeyIdToString(menuSettings.Effects11EditorKey) } }, "Hotkey: {key}");
+		MenuFonts::FontRoleGuard subtext(Menu::FontRole::Subtext);
+		BrowserUI::RightAlign(ImGui::CalcTextSize(hotkey.c_str()).x);
+		Util::TextUnformattedDisabled(hotkey.c_str());
+	}
 
 	ImGui::Spacing();
 
 	// The shared selector drives UseEffect, which is saved to enbseries.ini with the rest of the preset
 	const bool wasEnabled = globals::features::effects11.IsPresetEnabled();
-	PostProcessingMode::DrawSelector();
+	// The editor button sits on the selector's row
+	PostProcessingMode::SelectorAction openEditor;
+	openEditor.label = T(TKEY("open_editor"), "Open Effects 11 Editor");
+	openEditor.onClick = [this] { Open(true); };
+	PostProcessingMode::DrawSelector(&openEditor);
 	dirty |= globals::features::effects11.IsPresetEnabled() != wasEnabled;
 	if (dirty) {
 		SameLineIfFits(ImGui::CalcTextSize(T(TKEY("save"), "Save")).x);
 		auto color = globals::menu->GetTheme().StatusPalette.Error;
 		color.w = 0.75f;
 		ImGui::PushStyleColor(ImGuiCol_Text, color);
-		if (ImGui::Button(T(TKEY("save"), "Save")))
+		if (Util::Button(T(TKEY("save"), "Save")))
 			Save();
 		ImGui::PopStyleColor();
 		Util::AddTooltip(T(TKEY("unsaved_changes_tooltip"), "There are unsaved changes. Click to save."));
@@ -1659,17 +1668,6 @@ void Effects11Editor::DrawLauncher()
 		// Without a preset Effects 11 cannot be selected, so the editor stays open to explain how to get one.
 		const Util::LockedSection modeLock(presetLoaded && PostProcessingMode::Get() != PostProcessingMode::Mode::Effects11,
 			T(TKEY("not_active_mode"), "Effects 11 is not the active mode, so the editor shows no changes. Select Effects 11 above to use it."));
-		const float scale = Util::GetUIScale();
-		const ImVec2 buttonSize((std::min)(ImGui::GetContentRegionAvail().x, 320.0f * scale), ImGui::GetFrameHeight() * 1.6f);
-		if (ImGui::Button(T(TKEY("open_editor"), "Open Effects 11 Editor"), buttonSize))
-			Open(true);
-		if (!menuSettings.Effects11EditorKey.empty()) {
-			ImGui::SameLine();
-			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (buttonSize.y - ImGui::GetTextLineHeight()) * 0.5f);
-			const auto hotkey = I18n::GetSingleton()->Format(TKEY("editor_hotkey"),
-				{ { "key", Util::Input::KeyIdToString(menuSettings.Effects11EditorKey) } }, "Hotkey: {key}");
-			Util::TextUnformattedDisabled(hotkey.c_str());
-		}
 		ImGui::PushTextWrapPos(0.0f);
 		Util::TextUnformattedDisabled(T(TKEY("launcher_body"),
 			"The editor opens over the game, like the ENB editor, so every change shows live. "

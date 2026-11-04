@@ -4,6 +4,7 @@
 #include "FeatureIssues.h"
 #include "FeatureVersions.h"
 #include "Features/CSEditor.h"
+#include "Features/CapsuleShadows.h"
 #include "Features/CloudShadows.h"
 #include "Features/DetailMaps.h"
 #include "Features/DeveloperTools.h"
@@ -21,6 +22,7 @@
 #include "Features/HairBacklighting.h"
 #include "Features/HDRDisplay.h"
 #include "Features/HairSpecular.h"
+#include "Features/HeatHaze.h"
 #include "Features/HiZOcclusion.h"
 #include "Features/HorizonFix.h"
 #include "Features/IBL.h"
@@ -35,6 +37,8 @@
 #include "Features/LivingWindows.h"
 #include "Features/PhysicalSky.h"
 #include "Features/ProceduralAurora.h"
+#include "Features/ProceduralLightning.h"
+#include "Features/ProceduralNightSky.h"
 #include "Features/RainRefraction.h"
 #include "Features/ScreenSpaceGI.h"
 #include "Features/ScreenSpaceShadows.h"
@@ -263,6 +267,10 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::skin,
 		&globals::features::snowCover,
 		&globals::features::footstepParticles,
+		&globals::features::proceduralLightning,
+		&globals::features::proceduralNightSky,
+		&globals::features::heatHaze,
+		&globals::features::capsuleShadows,
 		&globals::features::hairBacklighting,
 		&globals::features::nightEye,
 		&globals::features::furShells,
@@ -314,11 +322,6 @@ bool Feature::ToggleAtBootSetting()
 	return state->IsFeatureDisabled(featureName);  // Return the new state
 }
 
-std::string Feature::GetDisplayCategory() const
-{
-	return TranslateCategory(GetCategory());
-}
-
 std::string Feature::TranslateCategory(std::string_view category)
 {
 	if (category == FeatureCategories::kCharacters)
@@ -359,12 +362,6 @@ std::string Feature::GetReleaseStageTag(ReleaseStage stage)
 	default:
 		return {};
 	}
-}
-
-ImVec4 Feature::GetReleaseStageColor(ReleaseStage stage)
-{
-	const auto& statusPalette = globals::menu->GetTheme().StatusPalette;
-	return stage == ReleaseStage::Alpha ? statusPalette.Error : statusPalette.Warning;
 }
 
 void Feature::DrawUnloadedUI()

@@ -20,6 +20,7 @@
 #include "Features/DynamicCubemaps.h"
 #include "Features/LandscapeSeams.h"
 #include "Features/LightLimitFix.h"
+#include "Features/RenderDoc.h"
 #include "Features/ReverseZ.h"
 #include "Features/SnowCover.h"
 #include "Features/WetnessEffects.h"
@@ -1545,6 +1546,9 @@ namespace SIE
 			const auto type = shader.shaderType.get();
 			winrt::com_ptr<ID3DBlob> shaderBlob;
 
+			// Read once: Developer Mode can toggle mid-compile
+			const bool debugCompile = ShaderCache::IsDebugCompile();
+
 			// prepare preprocessor defines
 			std::array<D3D_SHADER_MACRO, 64> defines{};
 			auto lastIndex = 0;
@@ -1555,7 +1559,7 @@ namespace SIE
 			} else if (shaderClass == ShaderClass::Compute) {
 				defines[lastIndex++] = { "CSHADER", nullptr };
 			}
-			if (globals::state->IsDeveloperMode()) {
+			if (debugCompile) {
 				defines[lastIndex++] = { "D3DCOMPILE_SKIP_OPTIMIZATION", nullptr };
 				defines[lastIndex++] = { "D3DCOMPILE_DEBUG", nullptr };
 			}
@@ -1580,7 +1584,7 @@ namespace SIE
 
 			// compile shaders — match Utils/D3D.cpp CompileShader flag policy (strictness, optional toggles, validation).
 			winrt::com_ptr<ID3DBlob> errorBlob;
-			uint32_t flags = !globals::state->IsDeveloperMode() ? (D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3) : D3DCOMPILE_DEBUG;
+			uint32_t flags = !debugCompile ? (D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3) : D3DCOMPILE_DEBUG;
 			if (globals::state->enablePartialPrecision.load(std::memory_order_relaxed)) {
 				flags |= D3DCOMPILE_PARTIAL_PRECISION;
 			}
@@ -1590,7 +1594,7 @@ namespace SIE
 			if (useDiskCache) {
 				flags |= D3DCOMPILE_SKIP_VALIDATION;
 			}
-			const uint32_t stripFlags = globals::state->IsDeveloperMode() ?
+			const uint32_t stripFlags = debugCompile ?
 			                                0u :
 			                                (D3DCOMPILER_STRIP_DEBUG_INFO | D3DCOMPILER_STRIP_TEST_BLOBS | D3DCOMPILER_STRIP_PRIVATE_DATA);
 
@@ -1975,8 +1979,10 @@ namespace SIE
 	}
 
 	RE::BSGraphics::VertexShader* ShaderCache::GetVertexShader(const RE::BSShader& shader,
-		uint32_t descriptor)
+		uint32_t descriptor, bool a_precompile)
 	{
+		if (a_precompile && backgroundCompilation)
+			return nullptr;
 		if (!SShaderCache::ResolveImageSpaceDescriptor(shader, descriptor)) {
 			return nullptr;
 		}
@@ -2014,7 +2020,7 @@ namespace SIE
 		}
 
 		if (IsAsync()) {
-			compilationSet.Add({ ShaderClass::Vertex, shader, descriptor });
+			compilationSet.Add({ ShaderClass::Vertex, shader, descriptor, a_precompile });
 		} else {
 			return MakeAndAddVertexShader(shader, descriptor);
 		}
@@ -2023,8 +2029,10 @@ namespace SIE
 	}
 
 	RE::BSGraphics::PixelShader* ShaderCache::GetPixelShader(const RE::BSShader& shader,
-		uint32_t descriptor)
+		uint32_t descriptor, bool a_precompile)
 	{
+		if (a_precompile && backgroundCompilation)
+			return nullptr;
 		auto state = globals::state;
 
 		if (!((ShaderCache::IsSupportedShader(shader) || state->IsDeveloperMode() && state->IsShaderEnabled(shader)) && state->enablePShaders)) {
@@ -2065,7 +2073,7 @@ namespace SIE
 			QueueLightingDerivatives(shader, descriptor);
 
 		if (IsAsync()) {
-			compilationSet.Add({ ShaderClass::Pixel, shader, descriptor });
+			compilationSet.Add({ ShaderClass::Pixel, shader, descriptor, a_precompile });
 		} else {
 			return MakeAndAddPixelShader(shader, descriptor);
 		}
@@ -2177,10 +2185,6 @@ namespace SIE
 
 	void ShaderCache::Clear()
 	{
-		{
-			std::lock_guard lock(activeShadersMutex);
-			activeShaderKeys.clear();
-		}
 		auto* state = globals::state;
 		if (globals::game::currentVertexShader && *globals::game::currentVertexShader == state->customVertexShader)
 			*globals::game::currentVertexShader = nullptr;
@@ -2647,12 +2651,13 @@ namespace SIE
 				if (globals::features::reverseZ.IsActive())
 					defines.emplace_back("REVERSE_Z", "");
 
+				const bool debugCompile = IsDebugCompile();
 				std::vector<D3D_SHADER_MACRO> macros;
 				for (const auto& d : defines) {
 					if (d.first && d.first[0])
 						macros.push_back({ d.first, d.second });
 				}
-				if (state->IsDeveloperMode()) {
+				if (debugCompile) {
 					macros.push_back({ "D3DCOMPILE_SKIP_OPTIMIZATION", "" });
 					macros.push_back({ "D3DCOMPILE_DEBUG", "" });
 				}
@@ -2671,7 +2676,7 @@ namespace SIE
 				macros.push_back({ "DX11", "" });
 				macros.push_back({ nullptr, nullptr });
 
-				uint32_t flags = !state->IsDeveloperMode() ? (D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3) : D3DCOMPILE_DEBUG;
+				uint32_t flags = !debugCompile ? (D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3) : D3DCOMPILE_DEBUG;
 				if (state->enablePartialPrecision.load(std::memory_order_relaxed))
 					flags |= D3DCOMPILE_PARTIAL_PRECISION;
 				if (state->enableAvoidFlowControl.load(std::memory_order_relaxed))
@@ -2780,12 +2785,37 @@ namespace SIE
 		isDiskCache = value;
 	}
 
+	bool ShaderCache::IsDebugCompile()
+	{
+		return globals::state->IsDeveloperMode() || RenderDoc::IsLoaded();
+	}
+
 	void ShaderCache::SetBackgroundCompilation(bool value)
 	{
 		{
 			// Serialize with WaitTake's predicate check and transition into wait.
 			std::scoped_lock lock{ compilationSet.compilationMutex };
 			backgroundCompilation = value;
+			if (value) {
+				// Background mode compiles on demand: drop startup precompiles no draw has asked for yet.
+				// Demanded tasks and work already started are kept.
+				for (auto it = compilationSet.availableTasks.begin(); it != compilationSet.availableTasks.end();) {
+					if (!it->IsPrecompile()) {
+						++it;
+						continue;
+					}
+					--compilationSet.totalTasks;
+					compilationSet.totalPriorityWeight -= static_cast<uint64_t>(it->GetPriority()) + 1;
+					it = compilationSet.availableTasks.erase(it);
+				}
+				if (compilationSet.totalTasks != 0 &&
+					compilationSet.completedTasks + compilationSet.failedTasks >= compilationSet.totalTasks &&
+					compilationSet.completionTime.load(std::memory_order_relaxed) == 0) {
+					LARGE_INTEGER now;
+					QueryPerformanceCounter(&now);
+					compilationSet.completionTime.store(now.QuadPart, std::memory_order_relaxed);
+				}
+			}
 		}
 		compilationSet.conditionVariable.notify_one();
 	}
@@ -2891,17 +2921,17 @@ namespace SIE
 			return;
 
 		if (const auto lite = GetLiteLightingDescriptor(descriptor))
-			std::ignore = GetPixelShader(shader, lite);
+			std::ignore = GetPixelShader(shader, lite, true);
 		if (globals::features::detailMaps.ShouldPrecompile(descriptor))
-			std::ignore = GetPixelShader(shader, descriptor | static_cast<uint32_t>(Flags::DetailMaps));
+			std::ignore = GetPixelShader(shader, descriptor | static_cast<uint32_t>(Flags::DetailMaps), true);
 		if (IsReflectionsCandidate(descriptor))
-			std::ignore = GetPixelShader(shader, descriptor | static_cast<uint32_t>(Flags::Reflections));
+			std::ignore = GetPixelShader(shader, descriptor | static_cast<uint32_t>(Flags::Reflections), true);
 
 		constexpr uint32_t seams = static_cast<uint32_t>(Flags::LandscapeSeams);
 		const auto technique = static_cast<Techniques>(0x3F & (descriptor >> 24));
 		if ((descriptor & seams) == 0 && (descriptor & static_cast<uint32_t>(Flags::Deferred)) != 0 && globals::features::landscapeSeams.IsRenderable() &&
 			(technique == Techniques::MTLand || technique == Techniques::MTLandLODBlend))
-			std::ignore = GetPixelShader(shader, descriptor | seams);
+			std::ignore = GetPixelShader(shader, descriptor | seams, true);
 	}
 
 	ShaderCache::ShaderCache()
@@ -3349,16 +3379,14 @@ namespace SIE
 		if (!globals::state->IsDeveloperMode())
 			return;
 
-		const uint64_t id = (static_cast<uint64_t>(shaderClass) << 48) | (static_cast<uint64_t>(shader.shaderType.underlying()) << 32) | descriptor;
-		std::unique_lock lock(activeShadersMutex);
-		auto keyIt = activeShaderKeys.find(id);
-		if (keyIt == activeShaderKeys.end()) {
-			lock.unlock();
-			auto newKey = SIE::SShaderCache::GetShaderString(shaderClass, shader, descriptor, true);
-			lock.lock();
-			keyIt = activeShaderKeys.try_emplace(id, std::move(newKey)).first;
-		}
-		const std::string& key = keyIt->second;
+		std::lock_guard lock(activeShadersMutex);
+
+		// Building the key formats and sorts the full defines list, so do it once per shader instead of every draw.
+		const auto taskId = ShaderCompilationTask::MakeId(shaderClass, shader.shaderType.get(), descriptor);
+		auto keyIt = activeShaderKeys.find(taskId);
+		if (keyIt == activeShaderKeys.end())
+			keyIt = activeShaderKeys.emplace(taskId, SIE::SShaderCache::GetShaderString(shaderClass, shader, descriptor, true)).first;
+		const auto& key = keyIt->second;
 
 		auto& info = activeShaders[key];
 		if (info.key.empty()) {
@@ -3541,10 +3569,11 @@ namespace SIE
 
 	ShaderCompilationTask::ShaderCompilationTask(ShaderClass aShaderClass,
 		const RE::BSShader& aShader,
-		uint32_t aDescriptor) :
+		uint32_t aDescriptor, bool a_precompile) :
 		shaderClass(aShaderClass),
 		shader(aShader), descriptor(aDescriptor),
-		cachedPriority(ComputePriority(aShaderClass, aShader, aDescriptor))
+		cachedPriority(ComputePriority(aShaderClass, aShader, aDescriptor)),
+		precompile(a_precompile)
 	{}
 
 	void ShaderCompilationTask::Perform() const
@@ -3729,6 +3758,8 @@ namespace SIE
 	void CompilationSet::Add(const ShaderCompilationTask& task)
 	{
 		std::unique_lock lock(compilationMutex);
+		if (task.IsPrecompile() && globals::shaderCache->backgroundCompilation)
+			return;
 		auto inProgressIt = tasksInProgress.find(task);
 		auto processedIt = processedTasks.find(task);
 		if (inProgressIt == tasksInProgress.end() && processedIt == processedTasks.end() && !demandedTasks.contains(task) && !globals::shaderCache->GetCompletedShader(task)) {
@@ -3746,7 +3777,14 @@ namespace SIE
 					wasAdded = demandedTasks.insert(queuedTask).second;
 				}
 			} else {
-				wasAdded = availableTasks.insert(queuedTask).second;
+				auto [queuedIt, inserted] = availableTasks.insert(queuedTask);
+				wasAdded = inserted;
+				// A draw asked for a queued startup precompile, so keep it if background mode later drops precompiles
+				if (!inserted && !task.IsPrecompile() && queuedIt->IsPrecompile()) {
+					auto node = availableTasks.extract(queuedIt);
+					node.value().RequireForRendering();
+					availableTasks.insert(std::move(node));
+				}
 			}
 			if (wasAdded) {
 				// Increment counters inside the lock so that TryTakeNext, which reads

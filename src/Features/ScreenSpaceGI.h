@@ -8,7 +8,6 @@ private:
 	static constexpr std::string_view MOD_ID = "130375";
 
 public:
-
 	virtual inline std::string GetName() override { return "Screen Space GI"; }
 	virtual std::string GetDisplayName() override { return T("feature.screen_space_gi.name", "Screen Space GI"); }
 	virtual inline std::string GetShortName() override { return "ScreenSpaceGI"; }
@@ -74,7 +73,7 @@ public:
 	{
 		bool Enabled = true;
 		bool EnableGI = true;
-		bool EnableExperimentalSpecularGI = false;
+		bool EnableExperimentalSpecularGI = true;
 		bool EnableVanillaSSAO = false;
 		// performance/quality
 		uint NumSlices = 4u;
@@ -92,6 +91,7 @@ public:
 		// mix
 		float AOPower = 1.0f;
 		float GIStrength = 1.0f;
+		float SpecularStrength = 1.0f;
 		// denoise
 		bool EnableTemporalDenoiser = true;
 		bool EnableBlur = true;
@@ -128,7 +128,7 @@ public:
 		float GISaturation;  //
 		float GIDistanceCompensation;
 		float GICompensationMaxDist;
-		float pad1;
+		float SpecularStrength;
 
 		float AOPower;  //
 		float GIStrength;

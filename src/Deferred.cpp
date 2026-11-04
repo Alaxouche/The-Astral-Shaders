@@ -9,6 +9,7 @@
 
 #include "Features/CSEditor.h"
 #include "Features/CausticLight.h"
+#include "Features/CapsuleShadows.h"
 #include "Features/DynamicCubemaps.h"
 #include "Features/Effects11.h"
 #include "Features/ExponentialHeightFog.h"
@@ -372,6 +373,9 @@ void Deferred::DeferredPasses()
 	auto& ibl = globals::features::ibl;
 
 	auto& physSky = globals::features::physicalSky;
+	auto& capsuleShadows = globals::features::capsuleShadows;
+	if (capsuleShadows.loaded)
+		capsuleShadows.Draw();
 
 	// Deferred Composite
 	{
@@ -404,9 +408,10 @@ void Deferred::DeferredPasses()
 		};
 		ID3D11ShaderResourceView* physSkyApSunLut = physSky.loaded && physSky.texApSunLut ? physSky.texApSunLut->srv.get() : nullptr;  // t21 PhysicalSky direct solar AP LUT
 		ID3D11ShaderResourceView* causticIrradiance = causticLight.loaded ? causticLight.GetOutputSRV() : nullptr;                   // t22 Caustic Light irradiance
+		ID3D11ShaderResourceView* capsuleOcclusion = capsuleShadows.loaded ? capsuleShadows.GetOcclusionSRV() : nullptr;              // t23 CapsuleOcclusionTexture
 
 		ID3D11SamplerState* samplers[]{
-			dynamicCubemaps.loaded ? linearSampler : nullptr,
+			(dynamicCubemaps.loaded || capsuleShadows.loaded) ? linearSampler : nullptr,
 			physSky.loaded ? physSky.sampSv.get() : nullptr,
 		};
 		context->CSSetSamplers(0, ARRAYSIZE(samplers), samplers);
@@ -414,6 +419,7 @@ void Deferred::DeferredPasses()
 		context->CSSetShaderResources(0, ARRAYSIZE(srvs), srvs);
 		context->CSSetShaderResources(21, 1, &physSkyApSunLut);
 		context->CSSetShaderResources(22, 1, &causticIrradiance);
+		context->CSSetShaderResources(23, 1, &capsuleOcclusion);
 
 		ID3D11UnorderedAccessView* uavs[3]{ main.UAV, normals.UAV, motionVectors.UAV };
 		context->CSSetUnorderedAccessViews(0, ARRAYSIZE(uavs), uavs, nullptr);
@@ -431,9 +437,8 @@ void Deferred::DeferredPasses()
 
 	// Clear
 	{
-		ID3D11ShaderResourceView* views[16]{ nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+		ID3D11ShaderResourceView* views[24]{};
 		context->CSSetShaderResources(0, ARRAYSIZE(views), views);
-		context->CSSetShaderResources(22, 1, views);
 
 		ID3D11UnorderedAccessView* uavs[3]{ nullptr, nullptr, nullptr };
 		context->CSSetUnorderedAccessViews(0, ARRAYSIZE(uavs), uavs, nullptr);
@@ -796,6 +801,9 @@ ID3D11ComputeShader* Deferred::GetComputeMainComposite()
 		if (globals::features::screenSpaceGI.loaded)
 			defines.push_back({ "SSGI", nullptr });
 
+		if (globals::features::capsuleShadows.loaded)
+			defines.push_back({ "CAPSULE_SHADOWS", nullptr });
+
 		if (globals::features::ibl.loaded)
 			defines.push_back({ "IBL", nullptr });
 
@@ -825,6 +833,9 @@ ID3D11ComputeShader* Deferred::GetComputeMainCompositeInterior()
 
 		if (globals::features::screenSpaceGI.loaded)
 			defines.push_back({ "SSGI", nullptr });
+
+		if (globals::features::capsuleShadows.loaded)
+			defines.push_back({ "CAPSULE_SHADOWS", nullptr });
 
 		if (globals::features::ibl.loaded)
 			defines.push_back({ "IBL", nullptr });

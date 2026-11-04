@@ -57,7 +57,6 @@ struct Feature
 	virtual std::string GetName() = 0;
 	virtual std::string GetShortName() = 0;
 	virtual std::string GetDisplayName() { return GetName(); }
-	std::string GetDisplayCategory() const;
 	static std::string TranslateCategory(std::string_view category);
 	virtual std::string GetFeatureModLink() { return ""; }
 	virtual std::string_view GetShaderDefineName() { return ""; }
@@ -144,9 +143,6 @@ public:
 	 * it (see GetReleaseStage) avoid a redundant lookup.
 	 */
 	static std::string GetReleaseStageTag(ReleaseStage stage);
-
-	/** @brief Theme colour for a stage tag: Error for Alpha, Warning for Beta. */
-	static ImVec4 GetReleaseStageColor(ReleaseStage stage);
 
 	/**
 	 * Whether the feature is disabled at boot by default (before any user override).

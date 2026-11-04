@@ -19,6 +19,8 @@ namespace LightAttach
 		// On SE 1.5.97 and VR 1.4.15 the same call sits in ShadowSceneNode::PurgeStaleLights, which the address library does not cover on VR.
 		constexpr std::uintptr_t kSePurgeEnableCallRva = 0x12BE843;
 		constexpr std::uintptr_t kVrPurgeEnableCallRva = 0x12FC2C3;
+		// Longest run of frames an unchanged light skips its walk; the fork measured 600 within 0.4 ms of 60.
+		constexpr std::uint32_t kRefreshFrames = 60;
 
 		std::mutex trackerLock;
 		LightAttachGate::Tracker tracker;
@@ -87,10 +89,9 @@ namespace LightAttach
 				bool walk;
 				{
 					const auto frame = globals::state->frameCountAtomic.load(std::memory_order_relaxed);
-					const auto refreshFrames = static_cast<std::uint32_t>(feature.settings.LightAttachRefreshFrames);
 					const auto before = MakeSignature(*a_node, *a_light);
 					std::lock_guard lock(trackerLock);
-					walk = tracker.ShouldWalk(a_light, before, frame, refreshFrames);
+					walk = tracker.ShouldWalk(a_light, before, frame, kRefreshFrames);
 				}
 				if (!walk) {
 					return;

@@ -5,6 +5,7 @@
 #include "Deferred.h"
 #include "Features/CSEditor.h"
 #include "Features/CausticLight.h"
+#include "Features/CapsuleShadows.h"
 #include "Features/CloudShadows.h"
 #include "Features/DetailMaps.h"
 #include "Features/DeveloperTools.h"
@@ -21,6 +22,7 @@
 #include "Features/HairBacklighting.h"
 #include "Features/HDRDisplay.h"
 #include "Features/HairSpecular.h"
+#include "Features/HeatHaze.h"
 #include "Features/HiZOcclusion.h"
 #include "Features/HorizonFix.h"
 #include "Features/IBL.h"
@@ -34,6 +36,8 @@
 #include "Features/PostProcessing.h"
 #include "Features/LivingWindows.h"
 #include "Features/PhysicalSky.h"
+#include "Features/ProceduralLightning.h"
+#include "Features/ProceduralNightSky.h"
 #include "Features/ProceduralSun.h"
 #include "Features/ProceduralAurora.h"
 #include "Features/RainRefraction.h"
@@ -129,6 +133,10 @@ namespace globals
 		Skin skin{};
 		SnowCover snowCover{};
 		FootstepParticles footstepParticles{};
+		ProceduralLightning proceduralLightning{};
+		ProceduralNightSky proceduralNightSky{};
+		HeatHaze heatHaze{};
+		CapsuleShadows capsuleShadows{};
 		HairBacklighting hairBacklighting{};
 		NightEye nightEye{};
 		FurShells furShells{};

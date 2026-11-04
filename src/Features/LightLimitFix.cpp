@@ -36,11 +36,9 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	LocalShadowFilterScale,
 	LocalShadowUpdatesPerFrame,
 	SkipRedundantLightAttach,
-	LightAttachRefreshFrames)
+	LightSourceSize)
 
 static constexpr uint CLUSTER_MAX_LIGHTS = 128;
-static constexpr int LIGHT_ATTACH_REFRESH_FRAMES_MIN = 1;
-static constexpr int LIGHT_ATTACH_REFRESH_FRAMES_MAX = 600;
 
 /** @brief Returns the index of the largest option not above a_value, or 0 when every option is above it. Options must be ascending. */
 template <size_t N>
@@ -114,13 +112,7 @@ void LightLimitFix::DrawLightAttachSettings()
 		ImGui::Text("%s",
 			T(TKEY("skip_redundant_light_attach_tooltip"),
 				"The game re-checks every dynamic light's nearby geometry each frame, which costs milliseconds in scenes with hundreds of lights. "
-				"With this on, a light that has not moved or changed is only re-checked at the interval below."));
-	}
-
-	Util::DisableGuard disableInterval(!settings.SkipRedundantLightAttach);
-	ImGui::SliderInt(T(TKEY("light_attach_refresh_frames"), "Light Update Interval (frames)"), &settings.LightAttachRefreshFrames, LIGHT_ATTACH_REFRESH_FRAMES_MIN, LIGHT_ATTACH_REFRESH_FRAMES_MAX, "%d", ImGuiSliderFlags_AlwaysClamp);
-	if (auto _tt = Util::HoverTooltipWrapper()) {
-		ImGui::Text("%s", T(TKEY("light_attach_refresh_frames_tooltip"), "How many frames an unchanged light may go without being re-checked. Lower values track scene changes sooner at a small cost; a light that moves is always re-checked immediately."));
+				"With this on, a light that has not moved or changed is only re-checked every 60 frames."));
 	}
 }
 
@@ -181,6 +173,11 @@ void LightLimitFix::DrawSettings()
 		}
 	}
 
+	ImGui::SliderFloat(T(TKEY("light_source_size"), "Light Source Size"), &settings.LightSourceSize, 0.0f, MaxLightSourceSize, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	if (auto _tt = Util::HoverTooltipWrapper()) {
+		ImGui::Text("%s", T(TKEY("light_source_size_tooltip"), "Gives local lights a physical size, so their highlights on polished and wet surfaces have a shape instead of a pinpoint. 0 turns it off."));
+	}
+
 	ImGui::Spacing();
 
 	if (ImGui::TreeNodeEx(T(TKEY("statistics"), "Statistics"), ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -203,31 +200,27 @@ void LightLimitFix::DrawSettings()
 
 	ImGui::SeparatorText(T(TKEY("debug"), "Debug"));
 
-	if (ImGui::TreeNode(T(TKEY("light_limit_vis"), "Light Limit Visualization"))) {
-		ImGui::Checkbox(T(TKEY("enable_lights_vis"), "Enable Lights Visualisation"), &settings.EnableLightsVisualisation);
+	ImGui::Checkbox(T(TKEY("enable_lights_vis"), "Enable Lights Visualisation"), &settings.EnableLightsVisualisation);
+	if (auto _tt = Util::HoverTooltipWrapper()) {
+		ImGui::Text("%s", T(TKEY("enable_lights_vis_tooltip"), "Enables visualization of the light limit\n"));
+	}
+
+	{
+		static const char* comboOptions[] = { "Light Limit", "Strict Lights Count", "Clustered Lights Count", "Shadow Mask" };
+		ImGui::Combo(T(TKEY("lights_vis_mode"), "Lights Visualisation Mode"), (int*)&settings.LightsVisualisationMode, comboOptions, 4);
 		if (auto _tt = Util::HoverTooltipWrapper()) {
-			ImGui::Text("%s", T(TKEY("enable_lights_vis_tooltip"), "Enables visualization of the light limit\n"));
+			ImGui::Text("%s", T(TKEY("lights_vis_mode_tooltip"),
+								  " - Visualise the light limit. Red when the \"strict\" light limit is reached (portal-strict lights).\n"
+								  " - Visualise the number of strict lights.\n"
+								  " - Visualise the number of clustered lights.\n"
+								  " - Visualize the Shadow Mask.\n"));
 		}
-
-		{
-			static const char* comboOptions[] = { "Light Limit", "Strict Lights Count", "Clustered Lights Count", "Shadow Mask" };
-			ImGui::Combo(T(TKEY("lights_vis_mode"), "Lights Visualisation Mode"), (int*)&settings.LightsVisualisationMode, comboOptions, 4);
-			if (auto _tt = Util::HoverTooltipWrapper()) {
-				ImGui::Text("%s", T(TKEY("lights_vis_mode_tooltip"),
-									  " - Visualise the light limit. Red when the \"strict\" light limit is reached (portal-strict lights).\n"
-									  " - Visualise the number of strict lights.\n"
-									  " - Visualise the number of clustered lights.\n"
-									  " - Visualize the Shadow Mask.\n"));
-			}
-		}
-		currentEnableLightsVisualisation = settings.EnableLightsVisualisation;
-		if (previousEnableLightsVisualisation != currentEnableLightsVisualisation) {
-			globals::state->SetDefines(settings.EnableLightsVisualisation ? "LLFDEBUG" : "");
-			shaderCache->Clear(RE::BSShader::Type::Lighting);
-			previousEnableLightsVisualisation = currentEnableLightsVisualisation;
-		}
-
-		ImGui::TreePop();
+	}
+	currentEnableLightsVisualisation = settings.EnableLightsVisualisation;
+	if (previousEnableLightsVisualisation != currentEnableLightsVisualisation) {
+		globals::state->SetDefines(settings.EnableLightsVisualisation ? "LLFDEBUG" : "");
+		shaderCache->Clear(RE::BSShader::Type::Lighting);
+		previousEnableLightsVisualisation = currentEnableLightsVisualisation;
 	}
 }
 
@@ -394,7 +387,7 @@ void LightLimitFix::SaveSettings(json& o_json)
 void LightLimitFix::LoadSettings(json& o_json)
 {
 	settings = o_json;
-	settings.LightAttachRefreshFrames = std::clamp(settings.LightAttachRefreshFrames, LIGHT_ATTACH_REFRESH_FRAMES_MIN, LIGHT_ATTACH_REFRESH_FRAMES_MAX);
+	settings.LightSourceSize = std::isfinite(settings.LightSourceSize) ? std::clamp(settings.LightSourceSize, 0.0f, MaxLightSourceSize) : 1.0f;
 }
 
 void LightLimitFix::RestoreDefaultSettings()
@@ -640,7 +633,13 @@ LightLimitFix::LightData LightLimitFix::ProcessLight(RE::BSLight* bsLight, RE::N
 		light.sizeBias = ScaledUnitsSq * runtimeData->size * runtimeData->size * 0.5f;
 	}
 	light.invRadius = 1.f / light.radius;
+	light.sourceRadius = GetSourceRadius(light.radius);
 	return light;
+}
+
+float LightLimitFix::GetSourceRadius(const float a_lightRadius) const
+{
+	return std::clamp(a_lightRadius * SourceRadiusScale, MinSourceRadius, MaxSourceRadius) * settings.LightSourceSize;
 }
 
 float LightLimitFix::CalculateRadius(const float intensity, const bool shadowCaster, const float cutoffOverride, const float size)
@@ -1249,6 +1248,7 @@ void LightLimitFix::AddParticleLightsToBuffer(eastl::vector<LightData>& a_lights
 		light.color *= invPI * pl.color.alpha;
 
 		light.radius = pl.radius * 0.5f;
+		light.sourceRadius = GetSourceRadius(light.radius);
 
 		light.lightFlags.set(LightFlags::Simple);
 		SetLightPosition(light, pl.position);
