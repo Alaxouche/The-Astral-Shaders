@@ -1714,7 +1714,7 @@ void NeuralRendering::DrawRuntimeDiagnostics() const
 			return;
 		}
 		const auto color = value == validated ? Util::Colors::GetSuccess() : value == unverified ? Util::Colors::GetWarning() :
-		                                                                                           Util::Colors::GetTimerCritical();
+		                                                                                           Util::Colors::GetError();
 		ImGui::TextColored(color, "%s", value.c_str());
 	});
 	const auto active = std::find_if(builds.begin(), builds.end(), [&](const RuntimeBuild& build) { return build.variant == selected; });

@@ -146,13 +146,12 @@ namespace
 		return accent;
 	}
 
-	/** @brief The bottle logo in the theme's accent, in a square: the theme's icon, marking it as one CS ships. */
+	/** @brief A palette glyph in the theme's accent, in a square: the theme's icon, marking it as one CS ships. */
 	void DrawThemeLogo(const ThemeManager::ThemeInfo& info, float size)
 	{
 		ImGui::Dummy(ImVec2(size, size));
-		const ImVec2 min = ImGui::GetItemRectMin();
-		const float width = size * Util::Icons::kBottleAspect;
-		Util::Icons::DrawBottle(ImGui::GetWindowDrawList(), ImVec2(min.x + (size - width) * 0.5f, min.y), size, ImGui::GetColorU32(ThemeAccent(info)));
+		Icons::DrawCenteredGlyph(ImGui::GetWindowDrawList(), ImGui::GetItemRectMin(), ImVec2(size, size), size * 0.8f,
+			Icons::TI(ICON_TI_PALETTE), ImGui::GetColorU32(ThemeAccent(info)));
 	}
 
 	/** @brief Circular translucent arrow button centered on center; returns true when clicked. */
