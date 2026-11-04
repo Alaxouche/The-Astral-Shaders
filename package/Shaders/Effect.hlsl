@@ -629,30 +629,28 @@ float GetViewRayShadow(float3 worldPosition, float2 screenPosition, float depth)
 	return shadow;
 }
 
+/** @brief Takes the shadowed share of the sun out of a lit colour; unshadowed, the colour is unchanged. */
 float3 GetLightingShadow(float3 color, float3 worldPosition, float2 screenPosition, float depth, inout float shadowVariance)
 {
-	float3 dirColor;
-	float3 ambientColor;
-	ShadowSampling::ExtractLighting(color, dirColor, ambientColor);
-
 	float shadow = GetViewRayShadow(worldPosition, screenPosition, depth);
 
 	shadowVariance = 1.0 - sqrt(saturate(fwidth(shadow)));
 
-	dirColor *= shadow;
-
 #		if defined(EXP_HEIGHT_FOG)
 	if (SharedData::exponentialHeightFogSettings.enabled) {
-		dirColor *= ExponentialHeightFog::GetSunlightFogAttenuation(worldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz);
+		shadow *= ExponentialHeightFog::GetSunlightFogAttenuation(worldPosition.xyz, FrameBuffer::CameraPosAdjust.xyz);
 	}
 #		endif
 
+	float3 sunVisibility = shadow;
 #		if defined(PHYSICAL_SKY)
 	if (SharedData::physSkyData.enabled)
-		dirColor *= PhysSky::SampleTr(normalize(SharedData::DirLightDirection.xyz), SampDepthSampler);
+		sunVisibility *= PhysSky::SampleTr(normalize(SharedData::DirLightDirection.xyz), SampDepthSampler);
 #		endif
 
-	return dirColor + ambientColor;
+	float3 dirLight = ShadowSampling::GetDirectionalLighting();
+	float3 sceneLight = ShadowSampling::GetSceneLightingColor();
+	return color * (1.0 - saturate(dirLight * (1.0 - sunVisibility) / max(sceneLight, EPSILON_DIVISION)));
 }
 #	endif
 
