@@ -93,7 +93,9 @@ void CloudShadows::CheckResourcesSide(int side)
 	auto context = globals::d3d::context;
 
 	float black[4] = { 0, 0, 0, 0 };
+	globals::profiler->BeginPass("CloudShadows::ClearLayer");
 	context->ClearRenderTargetView(cloudShadowLayerRTVs[0][side], black);
+	globals::profiler->EndPass();
 	renderedLayersMask[side] = 0;
 }
 
@@ -105,6 +107,7 @@ void CloudShadows::PropagateToCompletion(int side)
 
 	auto context = globals::d3d::context;
 
+	globals::profiler->BeginPass("CloudShadows::Propagate");
 	uint32_t newLayers = mask & ~globalRenderedMask;
 	if (newLayers) {
 		unsigned long bit;
@@ -136,6 +139,7 @@ void CloudShadows::PropagateToCompletion(int side)
 			texCloudShadowLayers[kMaxCloudLayers - 1]->resource.get(), subresource, 0, 0, 0,
 			texCloudShadowLayers[fromLayer]->resource.get(), subresource, nullptr);
 	}
+	globals::profiler->EndPass();
 }
 
 void CloudShadows::SkyShaderHacks()
@@ -182,9 +186,11 @@ void CloudShadows::SkyShaderHacks()
 		int fromLayer = std::max(prevLayer, 0);
 
 		if (layer > 0) {
+			globals::profiler->BeginPass("CloudShadows::LayerSeed");
 			context->CopySubresourceRegion(
 				texCloudShadowLayers[layer]->resource.get(), subresource, 0, 0, 0,
 				texCloudShadowLayers[fromLayer]->resource.get(), subresource, nullptr);
+			globals::profiler->EndPass();
 		}
 
 		// The layer chain is being written by this draw, so self shadowing reads last frame's composite
@@ -264,6 +270,7 @@ void CloudShadows::ReflectionsPrepass()
 
 		auto context = globals::d3d::context;
 
+		globals::profiler->BeginPass("CloudShadows::OcclusionCopy");
 		// No cloud layer draws, so nothing would overwrite the last weather's occlusion
 		auto clouds = globals::game::sky->clouds;
 		if (!clouds || clouds->numLayers == 0) {
@@ -278,6 +285,7 @@ void CloudShadows::ReflectionsPrepass()
 		}
 
 		context->CopyResource(texCubemapCloudOccCopy->resource.get(), texCloudShadowLayers[kMaxCloudLayers - 1]->resource.get());
+		globals::profiler->EndPass();
 
 		ID3D11ShaderResourceView* srv = texCubemapCloudOccCopy->srv.get();
 		context->PSSetShaderResources(25, 1, &srv);
