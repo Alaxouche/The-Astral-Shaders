@@ -302,7 +302,8 @@ namespace SharedData
 		float FireIntensity;
 
 		float FireCurve;
-		float3 pad0;
+		float PBRColorPow;
+		float2 pad0;
 
 		float CloudsCurve;
 		float CloudsDesaturation;
@@ -509,8 +510,7 @@ namespace SharedData
 		float MicroShadowStrength;
 		uint EnableMultiScatter;
 		uint EnableHorizonOcclusion;
-		uint EnableLayeredFuzz;
-		uint2 pad;
+		uint3 pad;
 	};
 
 
@@ -917,10 +917,10 @@ namespace SharedData
 	float4 GetWaterData(float3 worldPosition)
 	{
 		// floor keeps negative coordinates and cell borders exact
-		float2 absolutePosition = worldPosition.xy + FrameBuffer::CameraPosAdjust.xy;
-		int2 cellInt = (int2)(floor(absolutePosition / 4096.0) - floor(FrameBuffer::CameraPosAdjust.xy / 4096.0)) + 2;  // 5x5 cell grid
-		// Position inside the cell, for the blend across its borders
-		float2 cellFrac = frac(absolutePosition / 4096.0);
+		float2 cellPosition = (worldPosition.xy + FrameBuffer::CameraPosAdjust.xy) / 4096.0;
+		float2 cellFloor = floor(cellPosition);
+		float2 cellFrac = cellPosition - cellFloor;
+		int2 cellInt = (int2)(cellFloor - floor(FrameBuffer::CameraPosAdjust.xy / 4096.0)) + 2;  // 5x5 cell grid
 
 		return BlendWaterData(cellInt, cellFrac, worldPosition.z);
 	}

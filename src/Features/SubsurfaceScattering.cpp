@@ -4,6 +4,7 @@
 #include "Deferred.h"
 #include "ShaderCache.h"
 #include "State.h"
+#include "Utils/MathUtils.h"
 
 #define I18N_KEY_PREFIX "feature.sss."
 
@@ -20,7 +21,13 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	HumanProfile,
 	BurleySamples,
 	MeanFreePathBase,
-	MeanFreePathHuman)
+	MeanFreePathHuman,
+	EnableFoliageProfile,
+	FoliageProfile,
+	MeanFreePathFoliage,
+	EnableTranslucentProfile,
+	TranslucentProfile,
+	MeanFreePathTranslucent)
 
 void SubsurfaceScattering::DrawSettings()
 {
@@ -116,6 +123,33 @@ void SubsurfaceScattering::DrawSettings()
 				ImGui::TreePop();
 			}
 		}
+
+		ImGui::Spacing();
+		ImGui::Checkbox(T(TKEY("enable_foliage_profile"), "Foliage Profile"), (bool*)&settings.EnableFoliageProfile);
+		if (auto _tt = Util::HoverTooltipWrapper()) {
+			ImGui::Text("%s", T(TKEY("enable_foliage_profile_tooltip"), "Softens PBR foliage that has subsurface data. Costly on dense leaves."));
+		}
+		ImGui::Checkbox(T(TKEY("enable_translucent_profile"), "Translucent Profile"), (bool*)&settings.EnableTranslucentProfile);
+		if (auto _tt = Util::HoverTooltipWrapper()) {
+			ImGui::Text("%s", T(TKEY("enable_translucent_profile_tooltip"), "Diffuses light inside thick PBR subsurface materials such as wax, marble or ice."));
+		}
+
+		auto drawExtraProfile = [&](const char* a_label, bool a_enabled, DiffusionProfile& a_profile, float4& a_meanFreePath) {
+			if (!a_enabled || !ImGui::TreeNodeEx(a_label))
+				return;
+			if (settings.SSMode == 0) {
+				ImGui::SliderFloat(T(TKEY("blur_radius"), "Blur Radius"), &a_profile.BlurRadius, 0, 3, "%.2f");
+				ImGui::SliderFloat(T(TKEY("thickness"), "Thickness"), &a_profile.Thickness, 0, 3, "%.2f");
+				updateKernels |= ImGui::ColorEdit3(T(TKEY("strength"), "Strength"), (float*)&a_profile.Strength);
+				updateKernels |= ImGui::ColorEdit3(T(TKEY("falloff"), "Falloff"), (float*)&a_profile.Falloff);
+			} else {
+				ImGui::ColorEdit3(T(TKEY("mean_free_path_color"), "Mean Free Path Color"), (float*)&a_meanFreePath);
+				ImGui::SliderFloat(T(TKEY("mean_free_path_distance"), "Mean Free Path Distance"), &a_meanFreePath.w, 0.01f, 10.0f, "%.2f");
+			}
+			ImGui::TreePop();
+		};
+		drawExtraProfile(T(TKEY("foliage_profile"), "Foliage Profile Settings"), settings.EnableFoliageProfile, settings.FoliageProfile, settings.MeanFreePathFoliage);
+		drawExtraProfile(T(TKEY("translucent_profile"), "Translucent Profile Settings"), settings.EnableTranslucentProfile, settings.TranslucentProfile, settings.MeanFreePathTranslucent);
 
 		ImGui::Spacing();
 		ImGui::Spacing();
@@ -234,15 +268,22 @@ void SubsurfaceScattering::DrawSSS()
 
 		blurCBData.SSSS_FOVY = atan(1.0f / cameraData.projMat.m[0][0]) * 2.0f * (180.0f / 3.14159265359f);
 
-		blurCBData.BaseProfile = { settings.BaseProfile.BlurRadius, settings.BaseProfile.Thickness, 0, 0 };
-		blurCBData.HumanProfile = { settings.HumanProfile.BlurRadius, settings.HumanProfile.Thickness, 0, 0 };
+		auto profileData = [](const DiffusionProfile& a_profile, bool a_enabled) {
+			return float4{ a_profile.BlurRadius, a_profile.Thickness, a_enabled ? 1.0f : 0.0f, 0.0f };
+		};
+		blurCBData.Profiles[kProfileBase] = profileData(settings.BaseProfile, true);
+		blurCBData.Profiles[kProfileHuman] = profileData(settings.HumanProfile, true);
+		blurCBData.Profiles[kProfileFoliage] = profileData(settings.FoliageProfile, settings.EnableFoliageProfile);
+		blurCBData.Profiles[kProfileTranslucent] = profileData(settings.TranslucentProfile, settings.EnableTranslucentProfile);
 
 		blurCBData.BurleySamples = settings.BurleySamples;
 		// Burley always does full albedo removal/reapply; scatter mode only applies to Separable SSS.
 		blurCBData.ScatterMode = (settings.SSMode == 0) ? (uint)std::clamp(settings.ScatterMode, (int)kPreScatter, (int)kPreAndPostScatter) : (uint)kPostScatter;
 
-		blurCBData.MeanFreePathBase = settings.MeanFreePathBase;
-		blurCBData.MeanFreePathHuman = settings.MeanFreePathHuman;
+		blurCBData.MeanFreePath[kProfileBase] = settings.MeanFreePathBase;
+		blurCBData.MeanFreePath[kProfileHuman] = settings.MeanFreePathHuman;
+		blurCBData.MeanFreePath[kProfileFoliage] = settings.MeanFreePathFoliage;
+		blurCBData.MeanFreePath[kProfileTranslucent] = settings.MeanFreePathTranslucent;
 
 		blurCB->Update(blurCBData);
 	}
@@ -423,9 +464,17 @@ void SubsurfaceScattering::Reset()
 
 	if (updateKernels) {
 		updateKernels = false;
-		CalculateKernel(settings.BaseProfile, blurCBData.BaseKernel);
-		CalculateKernel(settings.HumanProfile, blurCBData.HumanKernel);
+		CalculateKernel(settings.BaseProfile, blurCBData.Kernels[kProfileBase]);
+		CalculateKernel(settings.HumanProfile, blurCBData.Kernels[kProfileHuman]);
+		CalculateKernel(settings.FoliageProfile, blurCBData.Kernels[kProfileFoliage]);
+		CalculateKernel(settings.TranslucentProfile, blurCBData.Kernels[kProfileTranslucent]);
 	}
+}
+
+void SubsurfaceScattering::OnSubsurfaceMaterial(bool a_foliage)
+{
+	if (a_foliage ? settings.EnableFoliageProfile : settings.EnableTranslucentProfile)
+		validMaterials = true;
 }
 
 void SubsurfaceScattering::RestoreDefaultSettings()
@@ -438,6 +487,9 @@ void SubsurfaceScattering::LoadSettings(json& o_json)
 {
 	settings = o_json;
 	settings.ScatterMode = std::clamp(settings.ScatterMode, (int)kPreScatter, (int)kPreAndPostScatter);
+	const Settings defaults{};
+	settings.MeanFreePathFoliage.w = Util::ClampFinite(settings.MeanFreePathFoliage.w, defaults.MeanFreePathFoliage.w, 0.01f, 10.0f);
+	settings.MeanFreePathTranslucent.w = Util::ClampFinite(settings.MeanFreePathTranslucent.w, defaults.MeanFreePathTranslucent.w, 0.01f, 10.0f);
 	updateKernels = true;
 }
 

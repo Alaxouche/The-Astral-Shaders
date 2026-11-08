@@ -48,6 +48,7 @@ struct HeatHaze : Feature
 	virtual void RestoreDefaultSettings() override;
 
 	void Render(RE::BSShaderAccumulator* a_accumulator);
+	float GetNearestFireDistance() const;
 
 private:
 	struct Fire
@@ -61,6 +62,7 @@ private:
 	void SelectPlumes();
 	void Draw();
 	bool EnsureSceneCopy(const D3D11_TEXTURE2D_DESC& a_desc);
+	bool BuildCopyBoxes(const float2& a_resolution, const float2& a_size);
 
 	ID3D11VertexShader* GetVS();
 	ID3D11PixelShader* GetPS();
@@ -69,6 +71,7 @@ private:
 	std::vector<RE::NiBound> fireSamples;
 	std::vector<std::pair<float, uint32_t>> fireOrder;
 	std::unordered_map<RE::FormID, bool> fireBaseCache;
+	std::vector<D3D11_BOX> copyBoxes;
 
 	FrameData frameData{};
 	uint32_t plumeCount = 0;

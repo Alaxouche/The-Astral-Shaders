@@ -1,12 +1,14 @@
 #include "Upscaling.h"
 
 #include "../I18n/I18n.h"
+#include "CameraFX.h"
 #include "Deferred.h"
 #include "HDRDisplay.h"
 #include "Hooks.h"
 #include "Menu.h"
 #include "PostProcessing.h"
 #include "RenderDoc.h"
+#include "ScreenshotFeature.h"
 #include "State.h"
 #include "TerrainBlending.h"
 #include "Upscaling/DX12SwapChain.h"
@@ -1836,7 +1838,7 @@ void Upscaling::RecordFrameGenPresent(double a_presentMs, UINT a_syncInterval, b
 	lastPresent = now;
 
 	auto* state = globals::state;
-	const bool menuOpen = (state && state->IsPausedOrMenuOpen(globals::game::ui)) || (globals::menu && globals::menu->IsEnabled);
+	const bool menuOpen = (state && state->IsPausedOrMenuOpen(globals::game::ui)) || (globals::menu && globals::menu->IsOpen());
 	static bool wasSampling = false;
 	const bool sampling = frameGenerationPrepared && !menuOpen;
 	const bool continuous = sampling && wasSampling;
@@ -2287,6 +2289,7 @@ void Upscaling::Main_UpdateJitter::thunk(RE::BSGraphics::State* a_state)
 void Upscaling::MenuManagerDrawInterfaceStartHook::thunk(int64_t a1)
 {
 	globals::features::upscaling.PostDisplay();
+	globals::features::screenshotFeature.SnapshotCleanScene();
 
 	// For non-Frame Gen HDR: redirect kFRAMEBUFFER.RTV to UI texture before vanilla UI renders
 	// When FG is active, its SetUIBuffer redirects to uiBufferWrapped instead
@@ -2297,6 +2300,7 @@ void Upscaling::MenuManagerDrawInterfaceStartHook::thunk(int64_t a1)
 	}
 
 	upscaling.CaptureHudLessColor();
+	globals::features::cameraFX.DrawBeforeInterface();
 
 	func(a1);
 }

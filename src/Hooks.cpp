@@ -29,6 +29,7 @@
 #include "Features/PostProcessing.h"
 #include "Features/ProceduralAurora.h"
 #include "Features/RainRefraction.h"
+#include "Features/RemoteControl/FrameRecorder.h"
 #include "Features/ReverseZ.h"
 #include "Features/RemoteControl/NvPerf.h"
 #include "Features/RenderDoc.h"
@@ -288,6 +289,8 @@ namespace EffectExtensions
 		static void thunk(RE::BSShader* shader, RE::BSRenderPass* pass, uint32_t renderFlags)
 		{
 			func(shader, pass, renderFlags);
+			if (globals::state->currentVertexDescriptor & static_cast<uint32_t>(SIE::ShaderCache::EffectShaderFlags::SkyObject))
+				globals::features::reverseZ.ClearSkyDepthBias();
 			ExternalEmittance::UpdatePermutation(pass);
 			globals::state->permutationData.EffectRadius = pass->geometry->worldBound.radius;
 			if (globals::features::nightEye.loaded)
@@ -546,6 +549,8 @@ struct IDXGISwapChain_Present
 
 		globals::state->Reset();
 
+		FrameRecorder::OnPresentEnd();
+
 		NvPerf::OnPresentEnd();
 
 		TracyD3D11Collect(globals::state->tracyCtx);
@@ -688,6 +693,8 @@ struct BSShaderRenderTargets_Create
 	static void thunk()
 	{
 		Util::SetGameSettingValue<std::int32_t>("iNumFocusShadow:Display", iNumFocusShadow, 0);
+		if (globals::features::hdrDisplay.loaded)
+			globals::features::hdrDisplay.PreCreateRenderTargets();
 		func();
 		globals::ReInit();
 		globals::features::reverseZ.SetupDepthTargets();
@@ -716,6 +723,19 @@ bool Hooks::InstallBeforeInputPoll()
 	return BSInputDeviceManager_BeforeInputPoll::func.address() != 0;
 }
 
+static bool HasMouseWheelEvent(const RE::InputEvent* a_event)
+{
+	for (; a_event; a_event = a_event->next) {
+		const auto* button = a_event->AsButtonEvent();
+		if (button && button->GetDevice() == RE::INPUT_DEVICE::kMouse) {
+			const auto code = button->GetIDCode();
+			if (code == RE::BSWin32MouseDevice::Key::kWheelUp || code == RE::BSWin32MouseDevice::Key::kWheelDown)
+				return true;
+		}
+	}
+	return false;
+}
+
 struct BSInputDeviceManager_PollInputDevices
 {
 	static void thunk(RE::BSTEventSource<RE::InputEvent*>* a_dispatcher, RE::InputEvent* const* a_events)
@@ -734,7 +754,7 @@ struct BSInputDeviceManager_PollInputDevices
 
 		if (a_events) {
 			if (auto* inputManager = RE::BSInputDeviceManager::GetSingleton()) {
-				if (const auto* mouse = inputManager->GetMouse())
+				if (const auto* mouse = inputManager->GetMouse(); mouse && HasMouseWheelEvent(*a_events))
 					menu->RecordDirectInputWheelDelta(mouse->GetRuntimeData().dInputNextState.z);
 			}
 			menu->ProcessInputEvents(a_events);

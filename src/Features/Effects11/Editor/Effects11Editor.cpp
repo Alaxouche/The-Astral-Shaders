@@ -362,7 +362,7 @@ void Effects11Editor::Open(bool a_returnToMenu)
 	popupOpenLastFrame = false;
 	RefreshPresetPaths();
 	open.store(true, std::memory_order_relaxed);
-	globals::menu->IsEnabled = false;
+	globals::menu->Close();
 }
 
 void Effects11Editor::Close(bool a_restoreMenu)
@@ -371,7 +371,7 @@ void Effects11Editor::Close(bool a_restoreMenu)
 		return;
 	pendingAction = PendingAction::None;
 	if (a_restoreMenu && returnToMenu)
-		globals::menu->IsEnabled = true;
+		globals::menu->Open();
 	returnToMenu = false;
 }
 
@@ -380,7 +380,7 @@ void Effects11Editor::Toggle()
 	if (IsOpen())
 		Close();
 	else
-		Open(globals::menu->IsEnabled);
+		Open(globals::menu->IsOpen());
 }
 
 void Effects11Editor::OpenCSEditor()
@@ -399,7 +399,7 @@ void Effects11Editor::ResumeAfterCSEditor()
 	if (!resumeAfterCSEditor || EditorWindow::GetSingleton()->open)
 		return;
 	resumeAfterCSEditor = false;
-	if (!globals::menu->IsEnabled && EditorWindow::CanBeOpen())
+	if (!globals::menu->IsOpen() && EditorWindow::CanBeOpen())
 		Open(resumeReturnToMenu);
 }
 
@@ -908,6 +908,14 @@ void Effects11Editor::DrawCategory(const std::string& a_category, const char* a_
 			globals::menu->MarkUnsavedChanges();
 		Util::AddTooltip(T(TKEY("rain_visibility_tip"),
 			"Exaggerates how much each drop differs from the scene behind it, so rain stands out more. 1 = physically based.\n"
+			"Saved with Community Shaders' Save Settings, not with the preset."));
+	}
+
+	if (a_category == "ENVIRONMENT") {
+		if (ImGui::SliderFloat(T(TKEY("pbr_color_pow"), "ColorPow on PBR"), &globals::features::effects11.settings.PBRColorPowStrength, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+			globals::menu->MarkUnsavedChanges();
+		Util::AddTooltip(T(TKEY("pbr_color_pow_tip"),
+			"How much of the preset's ColorPow reaches PBR materials. 0 = PBR keeps its authored colours, 1 = same as vanilla materials.\n"
 			"Saved with Community Shaders' Save Settings, not with the preset."));
 	}
 

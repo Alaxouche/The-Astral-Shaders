@@ -360,7 +360,8 @@ VS_OUTPUT main(VS_INPUT input)
 
 	float2 gridOffset = LandBlendParams.zw - input.Position.xy;
 	vsout.LandBlendWeights2.w = 1 - saturate(0.000375600968 * (9625.59961 - length(gridOffset)));
-	vsout.LandBlendWeights2.xyz = input.LandBlendWeights2.xyz;
+	vsout.LandBlendWeights2.xy = input.LandBlendWeights2.xy;
+	vsout.LandBlendWeights2.z = 0;
 #	elif defined(PROJECTED_UV) && !defined(SKINNED)
 	float3x3 texProjWorld3x3 = float3x3(World[0].xyz, World[1].xyz, World[2].xyz);
 	vsout.TexProj = mul(texProjWorld3x3, TextureProj[2].xyz);
@@ -686,7 +687,7 @@ cbuffer PerMaterial : register(b1)
 	float3 PBRParams1 : packoffset(c15.y);  // roughness scale, displacement scale, specular level
 	float4 PBRParams2 : packoffset(c16);    // subsurface color, subsurface opacity
 
-	float3 MaterialObjectRGBScale : packoffset(c17);  // RGB multipliers for material objects
+	float4 MaterialObjectRGBScale : packoffset(c17);  // projected material RGB scale, fuzz roughness (negative uses base roughness)
 };
 
 cbuffer PerGeometry : register(b2)
@@ -1497,11 +1498,12 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 #		if defined(TRUE_PBR) && !defined(LANDSCAPE) && !defined(LODLANDSCAPE)
 	bool PBRParallax = false;
+	sampledCoatColor.rgb = Color::PBRColorPow(sampledCoatColor.rgb);
 	[branch] if ((PBRFlags & PBR::Flags::HasFeatureTexture0) != 0)
 	{
 		float4 sampledCoatProperties;
 		MESH_TV_SAMPLE(sampledCoatProperties, TexRimSoftLightWorldMapOverlaySampler, SampRimSoftLightWorldMapOverlaySampler, uv);
-		sampledCoatColor.rgb *= Color::Albedo(Color::LinearSRGBToWorking(sampledCoatProperties.rgb));
+		sampledCoatColor.rgb *= Color::PBRAlbedo(Color::LinearSRGBToWorking(sampledCoatProperties.rgb));
 		sampledCoatColor.a *= sampledCoatProperties.a;
 	}
 #			if !defined(FACEGEN)
@@ -1583,6 +1585,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 #		if defined(TRUE_PBR)
 	float4 blendedRMAOS = 0;
+	float blendedPBRWeight = 0;
 #		endif
 
 #		if defined(EMAT)
@@ -1728,7 +1731,11 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		undef SampleTerrainColor
 
 	float4 sampledBaseColor = float4(blendedRGB, blendedAlpha);
+#		if defined(TRUE_PBR)
+	baseColor = float4(Color::LandscapeAlbedo(blendedRGB, saturate(blendedPBRWeight)), blendedAlpha);
+#		else
 	baseColor = float4(Color::Albedo(blendedRGB), blendedAlpha);
+#		endif
 	normal = float4(blendedNormalRGB, blendedNormalAlpha);
 #		if defined(TRUE_PBR)
 	rawRMAOS = blendedRMAOS;
@@ -1747,7 +1754,11 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	sampledBaseColor.rgb = GetFacegenRGBTintBaseColor(sampledBaseColor.rgb, uv);
 #		endif
 	baseColor = Permutation::BaseTextureIsWorking ? sampledBaseColor : ColorManagement::DiffuseToWorking(sampledBaseColor, PBRTextures);
+#		if defined(TRUE_PBR)
+	baseColor.rgb = Color::PBRAlbedo(baseColor.rgb);
+#		else
 	baseColor.rgb = Color::Albedo(baseColor.rgb);
+#		endif
 	float4 normalColor;
 	MESH_TV_SAMPLE_BIAS(normalColor, TexNormalSampler, SampNormalSampler, uv);
 	normal = normalColor;
@@ -1900,7 +1911,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	complexMaterial = complexMaterial && complexMaterialColor.y > (4.0 / 255.0);
 	shininess = lerp(shininess, shininess * complexMaterialColor.y, complexMaterial);
 	if (complexMaterial) {
-		complexSpecular = lerp(1.0, baseColor.xyz, complexMaterialColor.z);
+		complexSpecular = lerp(1.0, Color::UndoEnbColorPow(baseColor.xyz), complexMaterialColor.z);
 #		if defined(VANILLA_FRESNEL)
 		complexSpecular = saturate(complexSpecular * (SharedData::vanillaFresnelSettings.Enable ? SharedData::vanillaFresnelSettings.ComplexMaterialF0Multiplier : 1.0));
 #		endif
@@ -2202,11 +2213,11 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #			endif
 #			if defined(TRUE_PBR)
 #				if defined(ENABLE_LL)
-		projBaseColor *= ProjectedUVParams2.xyz * max(0, MaterialObjectRGBScale);
+		projBaseColor *= ProjectedUVParams2.xyz * max(0, MaterialObjectRGBScale.xyz);
 		projBaseColor = Color::LinearSRGBToWorking(max(0, projBaseColor));
 #				else
 		projBaseColor *= Color::LinearSRGBToWorking(ProjectedUVParams2.xyz);
-		projBaseColor = max(0, projBaseColor.xyz * MaterialObjectRGBScale);
+		projBaseColor = max(0, projBaseColor.xyz * MaterialObjectRGBScale.xyz);
 #				endif
 #			else
 		projBaseColor *= ColorManagement::SRGBToWorking(ProjectedUVParams2.xyz);
@@ -2233,7 +2244,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	} else {
 		if (projWeight > 0) {
 #			if defined(TRUE_PBR)
-			baseColor.xyz = Color::Albedo(Color::LinearSRGBToWorking(ProjectedUVParams2.xyz));
+			baseColor.xyz = Color::PBRAlbedo(Color::LinearSRGBToWorking(ProjectedUVParams2.xyz));
 #			else
 			baseColor.xyz = Color::Albedo(ColorManagement::SRGBToWorking(ProjectedUVParams2.xyz));
 #			endif
@@ -2384,8 +2395,9 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	pbrVertexColor = pbrVertexAO == 0.0f ? 1.0f : pbrVertexColor * lerp(1 / max(pbrVertexAO, 0.001), 1, SharedData::truePBRSettings.VertexAOStrength);
 	pbrVertexColor = Color::LinearSRGBToWorking(pbrVertexColor);
 
-	baseColor.xyz = Color::PBRMaterialToLinear(baseColor.xyz) * pbrVertexColor;
-	material.F0 = lerp(rawRMAOS.w, baseColor.xyz, material.Metallic);
+	float3 linearBaseColor = Color::PBRMaterialToLinear(baseColor.xyz);
+	baseColor.xyz = linearBaseColor * pbrVertexColor;
+	material.F0 = lerp(rawRMAOS.w, Color::UndoPBRColorPow(linearBaseColor) * pbrVertexColor, material.Metallic);
 	baseColor.xyz = Color::LinearToPBRMaterial(baseColor.xyz);
 
 	material.GlintScreenSpaceScale = max(1, glintParameters.x);
@@ -2402,14 +2414,14 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		if !defined(LANDSCAPE) && !defined(LODLANDSCAPE)
 	[branch] if ((PBRFlags & PBR::Flags::Subsurface) != 0)
 	{
-		material.SubsurfaceColor = PBRParams2.xyz;
+		material.SubsurfaceColor = Color::PBRColorPow(PBRParams2.xyz);
 		material.Thickness = PBRParams2.w;
 		material.SubsurfaceBalance = LightingEffectParams.x;
 		[branch] if ((PBRFlags & PBR::Flags::HasFeatureTexture0) != 0)
 		{
 			float4 sampledSubsurfaceProperties = TexRimSoftLightWorldMapOverlaySampler.Sample(SampRimSoftLightWorldMapOverlaySampler, uv);
 
-			material.SubsurfaceColor *= Color::Albedo(Color::LinearSRGBToWorking(sampledSubsurfaceProperties.xyz));
+			material.SubsurfaceColor *= Color::PBRAlbedo(Color::LinearSRGBToWorking(sampledSubsurfaceProperties.xyz));
 			material.SubsurfaceColor *= Color::LinearToPBRMaterial(pbrVertexColor);
 
 			material.Thickness *= sampledSubsurfaceProperties.w;
@@ -2444,13 +2456,18 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 	[branch] if ((PBRFlags & PBR::Flags::Fuzz) != 0)
 	{
-		material.FuzzColor = MultiLayerParallaxData.xyz;
+		material.FuzzColor = Color::LinearSRGBToWorking(MultiLayerParallaxData.xyz);
 		material.FuzzWeight = MultiLayerParallaxData.w;
+		material.FuzzRoughness = MaterialObjectRGBScale.w;
 		[branch] if ((PBRFlags & PBR::Flags::HasFeatureTexture1) != 0)
 		{
 			float4 sampledFuzzProperties = TexBackLightSampler.Sample(SampBackLightSampler, uv);
-			material.FuzzColor *= Color::Albedo(Color::LinearSRGBToWorking(sampledFuzzProperties.xyz));
+			material.FuzzColor *= Color::LinearSRGBToWorking(sampledFuzzProperties.xyz);
 			material.FuzzWeight *= sampledFuzzProperties.w;
+		}
+		[branch] if ((PBRFlags & PBR::Flags::HasFuzzRoughnessTexture) != 0)
+		{
+			material.FuzzRoughness = TexParallaxSampler.Sample(SampParallaxSampler, uv).g;
 		}
 		material.FuzzWeight = lerp(material.FuzzWeight, 0, projectedMaterialWeight);
 	}
@@ -2496,7 +2513,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	material.RoughnessSecondary = min(1.0, material.RoughnessSecondary + ExtraRoughness);
 	material.SecondarySpecIntensity = SharedData::skinData.skinParams2.x;
 	material.Thickness = 1 - skinsk.x;
-	material.SubsurfaceColor = skinsk.xyz;
+	material.SubsurfaceColor = Color::EnbColorPow(skinsk.xyz);
 	material.F0 = SharedData::skinData.skinParams2.zzz;
 	material.AO = skinAO;
 	material.Curvature = Skin::CalculateCurvature(worldNormal.xyz);
@@ -2623,7 +2640,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #				endif
 						material.Roughness = lerp(originRoughness, material.Roughness, envMask);
 						if (!isEyeMaterial && !usingDynamicCubemap) {
-							material.F0 = saturate(material.F0 + envMask * material.BaseColor);
+							material.F0 = saturate(material.F0 + envMask * Color::UndoEnbColorPow(material.BaseColor));
 							material.BaseColor = lerp(material.BaseColor, 0, envMask);
 						}
 #				if defined(EMAT)
@@ -2819,22 +2836,17 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	endif  // SNOW_COVER
 
 #	if defined(LANDSCAPE)
-	// Snow Deformation: packed snow in a print. Its domain shader carries the field height in LandBlendWeights2.z,
-	// offset by 1000 and scaled by the shading setting; a draw without it carries the mesh's own data there (< 500).
-	// Snow pressed down is denser than fresh snow: a little greyer, smoother and without sparkle. The loose snow pushed
-	// up around the print stays bright.
-	[branch] if (input.LandBlendWeights2.z > 500)
+	[branch] if (input.LandBlendWeights2.z > 0.0)
 	{
-		float sdField = input.LandBlendWeights2.z - 1000;
-		float packed = saturate(-sdField * 0.25);
-		float loose = saturate(sdField * 0.5);
-		material.BaseColor *= (1 - 0.16 * packed) * (1 + 0.05 * loose);
-		material.Roughness = lerp(material.Roughness, material.Roughness * 0.75, packed);
-#		if defined(TRUE_PBR)
-		material.GlintLogMicrofacetDensity = lerp(material.GlintLogMicrofacetDensity, 1, packed);
+		float packedSnow = saturate(input.LandBlendWeights2.z);
+		material.BaseColor *= lerp(1.0, float3(0.86, 0.89, 0.93), packedSnow);
+		material.Roughness *= lerp(1.0, 0.8, packedSnow);
+#		if !defined(TRUE_PBR)
+		material.Shininess *= lerp(1.0, 1.3, packedSnow);
 #		endif
 	}
 #	endif
+
 	float2 uvOriginal_ddx = ddx(uvOriginal);
 	float2 uvOriginal_ddy = ddy(uvOriginal);
 
@@ -3102,7 +3114,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 #	if defined(WATER_EFFECTS)
 	if (inWorld || inReflection)
-		dirLightColor *= WaterEffects::ComputeCaustics(waterData, input.WorldPosition.xyz);
+		dirLightColor *= WaterEffects::ComputeCaustics(waterData, input.WorldPosition.xyz, input.Position.xy);
 #	endif
 
 	// Apply world shadow (terrain shadows, cloud shadows) directly to light color
@@ -3259,6 +3271,9 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	if defined(TRUE_PBR)
 	dirLightContext = CreateDirectLightingContext(worldNormal.xyz, coatWorldNormal, vertexNormal.xyz, refractedViewDirection, viewDirection, refractedDirLightDirection, DirLightDirection, dirLightColor, dirDetailedShadow, dirSoftShadow);
 	material.SpecularMultiScatter = SharedData::truePBRSettings.EnableMultiScatter != 0 ? PBR::SpecularMultiScatter(material.F0, material.Roughness, saturate(abs(dot(dirLightContext.worldNormal, dirLightContext.viewDir)) + EPSILON_DOT_CLAMP)) : 1.0;
+	float directFuzzNdotV = clamp(abs(dot(dirLightContext.worldNormal, dirLightContext.viewDir)), isThinSurface ? 0.0f : EPSILON_DOT_CLAMP, 1.0f);
+	material.Fuzz = PBR::CreateFuzzLayer(material, directFuzzNdotV);
+	PBR::CacheFuzzLTC(material.Fuzz, dirLightContext.worldNormal, dirLightContext.viewDir, directFuzzNdotV);
 	if (thinSurfaceNormals)
 		dirLightContext.backTransmissionVisibility = PBR::GetThinSurfaceBackTransmissionVisibility(thinSurfaceFaceNormal, DirLightDirection);
 #	else
@@ -3342,7 +3357,8 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		}
 #				endif
 #			endif
-		EvaluateLighting(pointLightContext, material, tbnTr, uvOriginal, uvOriginal_ddx, uvOriginal_ddy, pointLightOutput);
+		EvaluateLighting(pointLightContext, material,
+			tbnTr, uvOriginal, uvOriginal_ddx, uvOriginal_ddy, pointLightOutput);
 #			if defined(WETNESS_EFFECTS)
 		if (waterRoughnessSpecular < 1)
 			EvaluateWetnessLighting(wetnessNormal, pointLightContext, waterRoughnessSpecular, wetnessFilmRoughness, pointLightOutput);
@@ -3538,7 +3554,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	if !defined(LANDSCAPE)
 	if (Permutation::PixelShaderDescriptor & Permutation::LightingFlags::CharacterLight) {
 		float charLightMul = saturate(dot(viewDirection, worldNormal.xyz)) * CharacterLightParams.x + CharacterLightParams.y * saturate(dot(float2(0.164398998, -0.986393988), worldNormal.yz));
-		float charLightColor = min(CharacterLightParams.w, max(0, CharacterLightParams.z * TexCharacterLightProjNoiseSampler.Sample(SampCharacterLightProjNoiseSampler, baseShadowUV).x));
+		float charLightColor = min(CharacterLightParams.w, max(0, CharacterLightParams.z * TexCharacterLightProjNoiseSampler.SampleLevel(SampCharacterLightProjNoiseSampler, float2(0.5, 0.5), 16).x));
 		diffuseColor += (charLightMul * charLightColor).xxx;
 	}
 #	endif
@@ -3737,7 +3753,14 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 	indirectContext = CreateIndirectLightingContext(ambientNormal, vertexNormal.xyz, viewDirection);
 
-	GetIndirectLobeWeights(indirectLobeWeights, indirectContext, material, uvOriginal);
+#	if defined(TRUE_PBR)
+	float indirectFuzzNdotV = clamp(abs(dot(indirectContext.worldNormal, indirectContext.viewDir)), isThinSurface ? 0.0f : EPSILON_DOT_CLAMP, 1.0f);
+	// Ambient uses its own normal and the unrefracted view, so rebuild the layer only if that changes NdotV.
+	[branch] if (indirectFuzzNdotV != directFuzzNdotV)
+		material.Fuzz = PBR::CreateFuzzLayer(material, indirectFuzzNdotV);
+#	endif
+	GetIndirectLobeWeights(indirectLobeWeights, indirectContext, material,
+		uvOriginal);
 
 #	if defined(WETNESS_EFFECTS)
 #		if defined(DYNAMIC_CUBEMAPS)
@@ -3791,6 +3814,9 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	}
 #	else
 	color.xyz += diffuseColor * material.BaseColor;
+#		if defined(EFFECTS11)
+	color.xyz += emitColor * (Color::UndoEnbColorPow(material.BaseColor) - material.BaseColor);
+#		endif
 #	endif
 
 #	if defined(LIVING_WINDOWS_ACTIVE)
@@ -4200,6 +4226,13 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	if (input.FurShell > 0.0)
 		psout.Masks.x = 0;
 #			endif
+#		elif defined(SSS) && defined(TRUE_PBR)
+	psout.Masks = float4(0, 0, masksZ, psout.Diffuse.w);
+	[branch] if ((PBRFlags & PBR::Flags::Subsurface) != 0 && (isFoliage || !isThinSurface))
+	{
+		float3 subsurfaceMask = saturate(material.SubsurfaceColor) * saturate(1.0 - material.Thickness);
+		psout.Masks.xy = float2(max(subsurfaceMask.r, max(subsurfaceMask.g, subsurfaceMask.b)), isFoliage ? 2.0 : 3.0);
+	}
 #		else
 	psout.Masks = float4(0, 0, masksZ, psout.Diffuse.w);
 #		endif

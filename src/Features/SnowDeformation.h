@@ -49,15 +49,15 @@ struct SnowDeformation : Feature
 		bool UseSnowCover = true;
 		bool DisplaceShadows = true;
 		bool SinkActors = true;
+		bool FirmRoads = true;
 		float BlanketHeight = 20.0f;
 		float Depth = 6.0f;
 		float Lifetime = 240.0f;
 		float TrianglePixels = 24.0f;
 		/** @brief Height of the snow pushed up around a print, as a share of its depth. */
 		float RimHeight = 0.2f;
-		/** @brief How much packed snow in a print darkens and loses its sparkle (0 off, 1 full). Off by default: the
-		 * shaded trail stood out from the snow around it. */
-		float TrenchShading = 0.0f;
+		/** @brief Strength of the packed-snow shading in a print (0 off, 1 Bottle's look). */
+		float PackedSnowShading = 1.0f;
 	};
 
 	Settings settings;
@@ -244,6 +244,7 @@ private:
 		RE::FormID owner = 0;
 		uint8_t kind = 0;
 		bool trail = false;
+		bool road = false;
 	};
 
 	struct ActorSink
@@ -303,6 +304,7 @@ private:
 		float landZ = 0.0f;
 		float snow = -1.0f;
 		float cap = 1.0f;
+		float road = 0.0f;
 		bool hasLand = false;
 		bool hasCap = false;
 	};
@@ -397,7 +399,9 @@ private:
 	void DispatchProbes(uint32_t a_stampCount);
 	void ReadProbes();
 	void PublishMeasurements(const std::vector<std::pair<RE::FormID, float>>& a_measurements);
-	void UpdateLevel(uint32_t a_index, const RE::NiPoint3& a_position, float a_decay, float a_deltaTime, bool a_sinking, bool a_gateSnowCover, bool a_skylightingReady);
+	void UpdateLevel(uint32_t a_index, const RE::NiPoint3& a_position, float a_decay, float a_deltaTime, float a_snowfall, bool a_sinking, bool a_gateSnowCover, bool a_skylightingReady);
+	void LoadRoadTextures();
+	bool IsRoad(RE::TES* a_tes, const RE::NiPoint3& a_position) const;
 	void RebuildActivity(Level& a_level);
 	bool OverlapsLevel(const Level& a_level, const RE::NiBound& a_bound) const;
 	bool OverlapsActivity(const RE::NiBound& a_bound) const;
@@ -448,8 +452,10 @@ private:
 	// dispatched instead of every active tile on every frame.
 	float pendingDecay = 1.0f;
 	uint32_t decayFrames = 0;
-	// Repose relaxes slopes by a share per dispatch; a batch frame stands for several frames of it.
-	float reposeRate = 0.1f;
+	// Repose relaxes slopes by a share per dispatch; a batch frame stands for this many frames of it.
+	uint32_t reposeFrames = 1;
+	std::unordered_set<const RE::TESLandTexture*> roadTextures;
+	bool grassControlFound = false;
 	eastl::unique_ptr<Buffer> probeBuffer;
 	std::array<winrt::com_ptr<ID3D11Buffer>, kProbeLatency> probeStaging;
 	std::array<ProbeFrame, kProbeLatency> probeFrames;

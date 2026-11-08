@@ -463,7 +463,7 @@ void FidelityFX::DestroyFSRResources()
 	}
 
 	// Reset crash logging flag when resources are destroyed
-	fsrDispatchCrashLogged = false;
+	fsrDispatchCrashLogged.Reset();
 
 	WaitForRuntimeUpscalerIdle();
 	DestroyRuntimeUpscalerContexts(false);
