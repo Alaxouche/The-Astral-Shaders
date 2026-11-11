@@ -106,7 +106,7 @@ void ScreenSpaceGI::DrawSettings()
 				recompileFlag = true;
 			}
 			if (auto _tt = Util::HoverTooltipWrapper()) {
-				ImGui::Text("1 Slice, 6 Steps, blur enabled, no GI\n");
+				ImGui::Text("%s", T(TKEY("ao_only_tooltip"), "1 Slice, 6 Steps, blur enabled, no GI"));
 			}
 
 			ImGui::TableNextColumn();
@@ -237,8 +237,8 @@ void ScreenSpaceGI::DrawSettings()
 		if (auto _tt = Util::HoverTooltipWrapper()) {
 			std::vector<std::string> tooltipLines = {
 				T(TKEY("depth_fade_range_tooltip"), "Distance range where depth-based effects fade out."),
-				"Near: " + Util::Units::FormatDistance(settings.DepthFadeRange.x),
-				"Far: " + Util::Units::FormatDistance(settings.DepthFadeRange.y)
+				std::string(T(TKEY("depth_fade_near"), "Near")) + ": " + Util::Units::FormatDistance(settings.DepthFadeRange.x),
+				std::string(T(TKEY("depth_fade_far"), "Far")) + ": " + Util::Units::FormatDistance(settings.DepthFadeRange.y)
 			};
 			Util::DrawMultiLineTooltip(tooltipLines);
 		}
@@ -346,6 +346,7 @@ void ScreenSpaceGI::DrawSettings()
 		BUFFER_VIEWER_NODE(texRadiance, debugRescale)
 		BUFFER_VIEWER_NODE(texAo[0], debugRescale)
 		BUFFER_VIEWER_NODE(texAo[1], debugRescale)
+		BUFFER_VIEWER_NODE(texAoBlur, debugRescale)
 		BUFFER_VIEWER_NODE(texIlY[0], debugRescale)
 		BUFFER_VIEWER_NODE(texIlY[1], debugRescale)
 		BUFFER_VIEWER_NODE(texIlCoCg[0], debugRescale)
@@ -556,6 +557,12 @@ void ScreenSpaceGI::SetupResources()
 			texAo[1] = eastl::make_unique<Texture2D>(texDesc, "SSGI::AO[1]");
 			texAo[1]->CreateSRV(srvDesc);
 			texAo[1]->CreateUAV(uavDesc);
+
+			texAoBlur = eastl::make_unique<Texture2D>(texDesc, "SSGI::AOBlur");
+			texAoBlur->CreateSRV(srvDesc);
+			texAoBlur->CreateUAV(uavDesc);
+
+			outputAo = texAo[0].get();
 		}
 
 		srvDesc.Format = uavDesc.Format = texDesc.Format = DXGI_FORMAT_R8_UNORM;
@@ -666,6 +673,7 @@ void ScreenSpaceGI::CompileComputeShaders()
 			{ &upsampleCompute, "upsample.cs.hlsl", {} },
 		};
 
+	const bool enableGI = settings.EnableGI;
 	for (auto& info : shaderInfos) {
 		if (settings.ResolutionMode == 1)
 			info.defines.push_back({ "HALF_RES", "" });
@@ -673,7 +681,7 @@ void ScreenSpaceGI::CompileComputeShaders()
 			info.defines.push_back({ "QUARTER_RES", "" });
 		if (settings.EnableTemporalDenoiser)
 			info.defines.push_back({ "TEMPORAL_DENOISER", "" });
-		if (settings.EnableGI)
+		if (enableGI)
 			info.defines.push_back({ "GI", "" });
 		if (settings.EnableExperimentalSpecularGI)
 			info.defines.push_back({ "GI_SPECULAR", "" });
@@ -685,6 +693,7 @@ void ScreenSpaceGI::CompileComputeShaders()
 			info.programPtr->attach(rawPtr);
 	}
 
+	compiledWithGI = enableGI;
 	recompileFlag = false;
 }
 
@@ -727,7 +736,7 @@ void ScreenSpaceGI::UpdateSB()
 		data.GIRadius = settings.GIRadius / data.EffectRadius;
 		data.Thickness = settings.Thickness;
 		data.DepthFadeRange = settings.DepthFadeRange;
-		data.DepthFadeScaleConst = 1 / (settings.DepthFadeRange.y - settings.DepthFadeRange.x);
+		data.DepthFadeScaleConst = 1 / std::max(settings.DepthFadeRange.y - settings.DepthFadeRange.x, 1.0f);
 
 		data.GISaturation = settings.GISaturation;
 		data.GIDistanceCompensation = settings.GIDistanceCompensation;
@@ -791,13 +800,17 @@ void ScreenSpaceGI::DrawSSGI()
 	if (settings.Enabled && settings.EnableExperimentalSpecularGI)
 		EnsureGiSpecularTextures();
 
+	if (settings.Enabled && recompileFlag)
+		ClearShaderCache();
+
 	if (!(settings.Enabled && ShadersOK())) {
 		if (!outputsCleared) {
 			FLOAT clr[4] = { 0.f, 0.f, 0.f, 0.f };
-			context->ClearUnorderedAccessViewFloat(texAo[outputAoIdx]->uav.get(), clr);
+			context->ClearUnorderedAccessViewFloat(outputAo->uav.get(), clr);
 			context->ClearUnorderedAccessViewFloat(texIlY[outputIlIdx]->uav.get(), clr);
 			context->ClearUnorderedAccessViewFloat(texIlCoCg[outputIlIdx]->uav.get(), clr);
 			outputsCleared = true;
+			queuedResetHistory = true;
 		}
 		return;
 	}
@@ -830,9 +843,6 @@ void ScreenSpaceGI::DrawSSGI()
 	}
 
 	//////////////////////////////////////////////////////
-
-	if (recompileFlag)
-		ClearShaderCache();
 
 	UpdateSB();
 
@@ -919,7 +929,7 @@ void ScreenSpaceGI::DrawSSGI()
 		// Prefilter radiance texture instead of using GenerateMips for proper dynamic resolution handling.
 		// radianceDisocc wrote mip 0 directly to texRadianceTemp above, so we can bind it
 		// as SRV input here without an intermediate CopySubresourceRegion.
-		if (settings.EnableGI) {
+		if (compiledWithGI) {
 			TracyD3D11Zone(globals::state->tracyCtx, "SSGI - Prefilter Radiance");
 
 			resetViews();
@@ -998,6 +1008,8 @@ void ScreenSpaceGI::DrawSSGI()
 		lastFrameAoTexIdx = inputAoTexIdx;
 	}
 
+	Texture2D* aoResult = texAo[inputAoTexIdx].get();
+
 	// blur
 	if (settings.EnableBlur) {
 		TracyD3D11Zone(globals::state->tracyCtx, "SSGI - Diffuse Blur");
@@ -1008,10 +1020,12 @@ void ScreenSpaceGI::DrawSSGI()
 		srvs.at(2) = texAccumFrames[lastFrameAccumTexIdx]->srv.get();
 		srvs.at(3) = texIlY[inputGITexIdx]->srv.get();
 		srvs.at(4) = texIlCoCg[inputGITexIdx]->srv.get();
+		srvs.at(5) = aoResult->srv.get();
 
 		uavs.at(0) = texAccumFrames[!lastFrameAccumTexIdx]->uav.get();
 		uavs.at(1) = texIlY[!inputGITexIdx]->uav.get();
 		uavs.at(2) = texIlCoCg[!inputGITexIdx]->uav.get();
+		uavs.at(3) = texAoBlur->uav.get();
 
 		context->CSSetShaderResources(0, (uint)srvs.size(), srvs.data());
 		context->CSSetUnorderedAccessViews(0, (uint)uavs.size(), uavs.data(), nullptr);
@@ -1020,16 +1034,19 @@ void ScreenSpaceGI::DrawSSGI()
 		context->Dispatch((internalRes[0] + 7u) >> 3, (internalRes[1] + 7u) >> 3, 1);
 		globals::profiler->EndPass();
 
-		inputGITexIdx = !inputGITexIdx;
-		lastFrameGITexIdx = inputGITexIdx;
+		if (compiledWithGI) {
+			inputGITexIdx = !inputGITexIdx;
+			lastFrameGITexIdx = inputGITexIdx;
+		}
 		lastFrameAccumTexIdx = !lastFrameAccumTexIdx;
+		aoResult = texAoBlur.get();
 	}
 
 	// upsample
 	if (settings.ResolutionMode != 0) {
 		resetViews();
 		srvs.at(0) = texWorkingDepth->srv.get();
-		srvs.at(1) = texAo[inputAoTexIdx]->srv.get();
+		srvs.at(1) = aoResult->srv.get();
 		srvs.at(2) = texIlY[inputGITexIdx]->srv.get();
 		srvs.at(3) = texIlCoCg[inputGITexIdx]->srv.get();
 		srvs.at(4) = GiSpecularSRV(inputAoTexIdx);
@@ -1048,10 +1065,12 @@ void ScreenSpaceGI::DrawSSGI()
 
 		inputAoTexIdx = !inputAoTexIdx;
 		inputGITexIdx = !inputGITexIdx;
+		aoResult = texAo[inputAoTexIdx].get();
 	}
 
 	outputAoIdx = inputAoTexIdx;
 	outputIlIdx = inputGITexIdx;
+	outputAo = aoResult;
 
 	// cleanup
 	resetViews();

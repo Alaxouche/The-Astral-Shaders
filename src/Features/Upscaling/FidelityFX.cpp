@@ -278,7 +278,9 @@ void FidelityFX::Present(bool a_useFrameGeneration, bool a_isHDR)
 	configParameters.generationRect.height = swapChain.swapChainDesc.Height;
 
 	if (ffx::Configure(frameGenContext, configParameters) != ffx::ReturnCode::Ok) {
-		logger::critical("[FidelityFX] Failed to configure frame generation!");
+		static Util::OnceFlag configureErrorLogged;
+		if (configureErrorLogged.First())
+			logger::critical("[FidelityFX] Failed to configure frame generation!");
 	}
 
 	// Register UI buffer with FidelityFX only when FG is active
@@ -296,7 +298,9 @@ void FidelityFX::Present(bool a_useFrameGeneration, bool a_isHDR)
 	}
 
 	if (ffx::Configure(swapChainContext, uiConfig) != ffx::ReturnCode::Ok) {
-		logger::critical("[FidelityFX] Failed to configure UI composition!");
+		static Util::OnceFlag uiConfigureErrorLogged;
+		if (uiConfigureErrorLogged.First())
+			logger::critical("[FidelityFX] Failed to configure UI composition!");
 	}
 
 	if (a_useFrameGeneration) {
@@ -348,7 +352,9 @@ void FidelityFX::Present(bool a_useFrameGeneration, bool a_isHDR)
 		cameraConfig.cameraPosition[2] = cameraFrame.GetCameraPosAdjust().z;
 
 		if (ffx::Dispatch(frameGenContext, dispatchParameters, cameraConfig) != ffx::ReturnCode::Ok) {
-			logger::critical("[FidelityFX] Failed to dispatch frame generation!");
+			static Util::OnceFlag dispatchErrorLogged;
+			if (dispatchErrorLogged.First())
+				logger::critical("[FidelityFX] Failed to dispatch frame generation!");
 		}
 	}
 

@@ -119,14 +119,19 @@ float Fibres(float2 uv, float period, float salt)
 
 RWTexture2D<unorm float4> FrostOutput : register(u0);
 
-static const float FrostAspect = 16.0 / 9.0;
+// The screen's aspect at bake time, from the frame constants; the CPU re-bakes the mask when it changes. A fixed 16:9
+// stretched the ferns and bubbles on ultrawide screens and squashed them on 4:3 and 16:10.
+float FrostAspect()
+{
+	return CameraFX::Resolution.x * CameraFX::Resolution.w;
+}
 
 float BakedArrival(float2 uv)
 {
-	float2 p = float2(uv.x * FrostAspect, uv.y);
+	float2 p = float2(uv.x * FrostAspect(), uv.y);
 	float shaped = CameraFX::FrameArrival(uv, 4.5);
 	float broad = CameraFX::Fbm(p * 2.6 + 3.7, 5);
-	float2 centred = (uv - 0.5) * float2(FrostAspect, 1.0);
+	float2 centred = (uv - 0.5) * float2(FrostAspect(), 1.0);
 	float angle = atan2(centred.y, centred.x);
 	float warp = CameraFX::Fbm(float2(angle * 3.0, shaped * 4.0) + 11.0, 3);
 	float fingers = pow(CameraFX::Ridge(float2(angle * 15.0 + warp * 4.0, shaped * 2.5)), 4.0);
@@ -138,48 +143,48 @@ float Fern(float2 d, float2 direction, float fernLength, float seed)
 	float2 normal = float2(-direction.y, direction.x);
 	float u = dot(d, direction);
 	float v = dot(d, normal);
-	if (u < -0.01 || u > fernLength + 0.01 || abs(v) > fernLength * 0.5)
-		return 0.0;
+	float value = 0.0;
+	if (u >= -0.01 && u <= fernLength + 0.01 && abs(v) <= fernLength * 0.5) {
+		float t = saturate(u / fernLength);
+		float bow = (CameraFX::ValueNoise(float2(u * 22.0, seed * 7.0)) - 0.5) * 0.012 + sin(u * 8.0 + seed * 5.0) * 0.005;
+		v -= bow * t;
+		float stemWidth = 0.0026 * (1.0 - 0.7 * t) + 0.0006;
+		float tipFade = 1.0 - smoothstep(0.82, 1.0, t);
+		value = exp(-v * v / (stemWidth * stemWidth)) * tipFade;
 
-	float t = saturate(u / fernLength);
-	float bow = (CameraFX::ValueNoise(float2(u * 22.0, seed * 7.0)) - 0.5) * 0.012 + sin(u * 8.0 + seed * 5.0) * 0.005;
-	v -= bow * t;
-	float stemWidth = 0.0026 * (1.0 - 0.7 * t) + 0.0006;
-	float tipFade = 1.0 - smoothstep(0.82, 1.0, t);
-	float value = exp(-v * v / (stemWidth * stemWidth)) * tipFade;
-
-	float spacing = 0.0075 + 0.0045 * CameraFX::Hash12(float2(seed, 2.9));
-	float angle = 0.85 + 0.25 * CameraFX::Hash12(float2(seed, 5.3));
-	float ca = cos(angle);
-	float sa = sin(angle);
-	float last = floor(u / spacing);
-	[loop] for (int j = 0; j < 7; j++)
-	{
-		float k = last - j;
-		if (k < 1.0)
-			break;
-		float origin = k * spacing;
-		float progress = origin / fernLength;
-		[unroll] for (int side = 0; side < 2; side++)
+		float spacing = 0.0075 + 0.0045 * CameraFX::Hash12(float2(seed, 2.9));
+		float angle = 0.85 + 0.25 * CameraFX::Hash12(float2(seed, 5.3));
+		float ca = cos(angle);
+		float sa = sin(angle);
+		float last = floor(u / spacing);
+		[loop] for (int j = 0; j < 7; j++)
 		{
-			float mirror = side == 0 ? 1.0 : -1.0;
-			float reach = (fernLength - origin) * (0.28 + 0.2 * CameraFX::Hash12(float2(k + mirror * 0.5, seed))) * (1.0 - 0.35 * progress);
-			float2 rel = float2(u - origin, v * mirror);
-			float along = rel.x * ca + rel.y * sa;
-			float across = rel.y * ca - rel.x * sa;
-			if (along < 0.0 || along > reach)
-				continue;
-			float s = along / max(reach, 1e-4);
-			float width = stemWidth * 0.6 * (1.0 - s) + 0.0004;
-			float branch = exp(-across * across / (width * width)) * 0.85;
-			float barbSpacing = 0.0022;
-			float barbOrigin = floor(along / barbSpacing) * barbSpacing;
-			float2 barbRel = float2(along - barbOrigin, abs(across));
-			float barbAlong = barbRel.x * 0.6 + barbRel.y * 0.8;
-			float barbAcross = barbRel.y * 0.6 - barbRel.x * 0.8;
-			float barbReach = width * 3.5 * (1.0 - s);
-			float barb = barbAlong > 0.0 && barbAlong < barbReach ? exp(-barbAcross * barbAcross / (width * width * 0.25)) * 0.5 : 0.0;
-			value = max(value, max(branch, barb) * tipFade);
+			float k = last - j;
+			if (k < 1.0)
+				break;
+			float origin = k * spacing;
+			float progress = origin / fernLength;
+			[unroll] for (int side = 0; side < 2; side++)
+			{
+				float mirror = side == 0 ? 1.0 : -1.0;
+				float reach = (fernLength - origin) * (0.28 + 0.2 * CameraFX::Hash12(float2(k + mirror * 0.5, seed))) * (1.0 - 0.35 * progress);
+				float2 rel = float2(u - origin, v * mirror);
+				float along = rel.x * ca + rel.y * sa;
+				float across = rel.y * ca - rel.x * sa;
+				if (along < 0.0 || along > reach)
+					continue;
+				float s = along / max(reach, 1e-4);
+				float width = stemWidth * 0.6 * (1.0 - s) + 0.0004;
+				float branch = exp(-across * across / (width * width)) * 0.85;
+				float barbSpacing = 0.0022;
+				float barbOrigin = floor(along / barbSpacing) * barbSpacing;
+				float2 barbRel = float2(along - barbOrigin, abs(across));
+				float barbAlong = barbRel.x * 0.6 + barbRel.y * 0.8;
+				float barbAcross = barbRel.y * 0.6 - barbRel.x * 0.8;
+				float barbReach = width * 3.5 * (1.0 - s);
+				float barb = barbAlong > 0.0 && barbAlong < barbReach ? exp(-barbAcross * barbAcross / (width * width * 0.25)) * 0.5 : 0.0;
+				value = max(value, max(branch, barb) * tipFade);
+			}
 		}
 	}
 	return value;
@@ -195,13 +200,13 @@ float FernLayer(float2 p, float cellSize, float2 lengths, float reach, float sal
 		{
 			float2 id = cell + float2(x, y) + salt;
 			float2 origin = (cell + float2(x, y) + 0.2 + 0.6 * CameraFX::Hash22(id + 9.1)) * cellSize;
-			float2 originUV = float2(origin.x / FrostAspect, origin.y);
+			float2 originUV = float2(origin.x / FrostAspect(), origin.y);
 			float near = 1.0 - smoothstep(reach * 0.3, reach, CameraFX::FrameArrival(saturate(originUV), 4.5));
 			if (CameraFX::Hash12(id * 1.31 + 5.7) > 0.95 * near)
 				continue;
 			float2 oc = originUV - 0.5;
-			float2 inward = abs(oc.x) * FrostAspect > abs(oc.y) ? float2(-sign(oc.x), 0.0) : float2(0.0, -sign(oc.y));
-			float2 toCentre = normalize(float2(0.5 * FrostAspect, 0.5) - origin);
+			float2 inward = abs(oc.x) * FrostAspect() > abs(oc.y) ? float2(-sign(oc.x), 0.0) : float2(0.0, -sign(oc.y));
+			float2 toCentre = normalize(float2(0.5 * FrostAspect(), 0.5) - origin);
 			float2 direction = normalize(lerp(inward, toCentre, 0.4));
 			direction = CameraFX::Rotate(direction, (CameraFX::Hash12(id + 3.3) - 0.5) * 1.6);
 			float fernLength = lerp(lengths.x, lengths.y, CameraFX::Hash12(id + 7.7));
@@ -213,7 +218,7 @@ float FernLayer(float2 p, float cellSize, float2 lengths, float reach, float sal
 
 float FernRelief(float2 uv)
 {
-	float2 p = float2(uv.x * FrostAspect, uv.y);
+	float2 p = float2(uv.x * FrostAspect(), uv.y);
 	float relief = FernLayer(p, 0.1, float2(0.08, 0.2), 0.36, 0.0);
 	relief = max(relief, FernLayer(p, 0.045, float2(0.03, 0.08), 0.42, 71.0) * 0.8);
 	float fuzz = pow(CameraFX::Ridge(p * 140.0), 6.0) * smoothstep(0.05, 0.4, relief);
@@ -222,7 +227,7 @@ float FernRelief(float2 uv)
 
 float Bubbles(float2 uv, float arrival)
 {
-	float2 p = float2(uv.x * FrostAspect, uv.y);
+	float2 p = float2(uv.x * FrostAspect(), uv.y);
 	float zone = smoothstep(0.04, 0.12, arrival) * (1.0 - smoothstep(0.3, 0.45, arrival));
 	float value = 0.5;
 	[unroll] for (int layer = 0; layer < 2; layer++)
@@ -248,7 +253,7 @@ float Bubbles(float2 uv, float arrival)
 
 float Snow(float2 uv)
 {
-	float2 p = float2(uv.x * FrostAspect, uv.y);
+	float2 p = float2(uv.x * FrostAspect(), uv.y);
 	float frame = 1.0 - smoothstep(0.0, 0.3, BakedArrival(uv));
 	float grains = 0.0;
 	[unroll] for (int layer = 0; layer < 2; layer++)

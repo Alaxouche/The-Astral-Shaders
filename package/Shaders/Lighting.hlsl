@@ -1498,12 +1498,11 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 #		if defined(TRUE_PBR) && !defined(LANDSCAPE) && !defined(LODLANDSCAPE)
 	bool PBRParallax = false;
-	sampledCoatColor.rgb = Color::PBRColorPow(sampledCoatColor.rgb);
 	[branch] if ((PBRFlags & PBR::Flags::HasFeatureTexture0) != 0)
 	{
 		float4 sampledCoatProperties;
 		MESH_TV_SAMPLE(sampledCoatProperties, TexRimSoftLightWorldMapOverlaySampler, SampRimSoftLightWorldMapOverlaySampler, uv);
-		sampledCoatColor.rgb *= Color::PBRAlbedo(Color::LinearSRGBToWorking(sampledCoatProperties.rgb));
+		sampledCoatColor.rgb *= Color::Albedo(Color::LinearSRGBToWorking(sampledCoatProperties.rgb));
 		sampledCoatColor.a *= sampledCoatProperties.a;
 	}
 #			if !defined(FACEGEN)
@@ -1585,7 +1584,6 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 #		if defined(TRUE_PBR)
 	float4 blendedRMAOS = 0;
-	float blendedPBRWeight = 0;
 #		endif
 
 #		if defined(EMAT)
@@ -1731,11 +1729,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		undef SampleTerrainColor
 
 	float4 sampledBaseColor = float4(blendedRGB, blendedAlpha);
-#		if defined(TRUE_PBR)
-	baseColor = float4(Color::LandscapeAlbedo(blendedRGB, saturate(blendedPBRWeight)), blendedAlpha);
-#		else
 	baseColor = float4(Color::Albedo(blendedRGB), blendedAlpha);
-#		endif
 	normal = float4(blendedNormalRGB, blendedNormalAlpha);
 #		if defined(TRUE_PBR)
 	rawRMAOS = blendedRMAOS;
@@ -1754,11 +1748,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	sampledBaseColor.rgb = GetFacegenRGBTintBaseColor(sampledBaseColor.rgb, uv);
 #		endif
 	baseColor = Permutation::BaseTextureIsWorking ? sampledBaseColor : ColorManagement::DiffuseToWorking(sampledBaseColor, PBRTextures);
-#		if defined(TRUE_PBR)
-	baseColor.rgb = Color::PBRAlbedo(baseColor.rgb);
-#		else
 	baseColor.rgb = Color::Albedo(baseColor.rgb);
-#		endif
 	float4 normalColor;
 	MESH_TV_SAMPLE_BIAS(normalColor, TexNormalSampler, SampNormalSampler, uv);
 	normal = normalColor;
@@ -2244,7 +2234,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	} else {
 		if (projWeight > 0) {
 #			if defined(TRUE_PBR)
-			baseColor.xyz = Color::PBRAlbedo(Color::LinearSRGBToWorking(ProjectedUVParams2.xyz));
+			baseColor.xyz = Color::Albedo(Color::LinearSRGBToWorking(ProjectedUVParams2.xyz));
 #			else
 			baseColor.xyz = Color::Albedo(ColorManagement::SRGBToWorking(ProjectedUVParams2.xyz));
 #			endif
@@ -2366,6 +2356,9 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 	material.F0 = 0;
 	material.Roughness = 1;
+#	if !defined(TRUE_PBR)
+	material.AO = 1;
+#	endif
 
 #	if defined(TRUE_PBR)
 	material.Noise = screenNoise;
@@ -2397,7 +2390,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 	float3 linearBaseColor = Color::PBRMaterialToLinear(baseColor.xyz);
 	baseColor.xyz = linearBaseColor * pbrVertexColor;
-	material.F0 = lerp(rawRMAOS.w, Color::UndoPBRColorPow(linearBaseColor) * pbrVertexColor, material.Metallic);
+	material.F0 = lerp(rawRMAOS.w, Color::PBRColorPow(Color::UndoEnbColorPow(linearBaseColor)) * pbrVertexColor, material.Metallic);
 	baseColor.xyz = Color::LinearToPBRMaterial(baseColor.xyz);
 
 	material.GlintScreenSpaceScale = max(1, glintParameters.x);
@@ -2414,14 +2407,14 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		if !defined(LANDSCAPE) && !defined(LODLANDSCAPE)
 	[branch] if ((PBRFlags & PBR::Flags::Subsurface) != 0)
 	{
-		material.SubsurfaceColor = Color::PBRColorPow(PBRParams2.xyz);
+		material.SubsurfaceColor = Color::EnbColorPow(PBRParams2.xyz);
 		material.Thickness = PBRParams2.w;
 		material.SubsurfaceBalance = LightingEffectParams.x;
 		[branch] if ((PBRFlags & PBR::Flags::HasFeatureTexture0) != 0)
 		{
 			float4 sampledSubsurfaceProperties = TexRimSoftLightWorldMapOverlaySampler.Sample(SampRimSoftLightWorldMapOverlaySampler, uv);
 
-			material.SubsurfaceColor *= Color::PBRAlbedo(Color::LinearSRGBToWorking(sampledSubsurfaceProperties.xyz));
+			material.SubsurfaceColor *= Color::Albedo(Color::LinearSRGBToWorking(sampledSubsurfaceProperties.xyz));
 			material.SubsurfaceColor *= Color::LinearToPBRMaterial(pbrVertexColor);
 
 			material.Thickness *= sampledSubsurfaceProperties.w;
@@ -2451,6 +2444,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 				coatWorldNormal = normalize(mul(tbn, TransformNormal(sampledCoatProperties.xyz)));
 			}
 		}
+		material.CoatRoughness = clamp(material.CoatRoughness, PBR::Constants::MinRoughness, PBR::Constants::MaxRoughness);
 		material.CoatStrength = lerp(material.CoatStrength, 0, projectedMaterialWeight);
 	}
 

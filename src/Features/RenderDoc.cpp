@@ -62,17 +62,17 @@ void RenderDoc::Load()
 	// Load RenderDoc only from our expected location. Do not fall back to system PATH.
 	std::filesystem::path renderdocPath = GetRenderDocDllPath();
 	if (renderdocPath.empty() || !std::filesystem::exists(renderdocPath)) {
-		logger::debug("[RenderDoc] renderdoc.dll not found at expected path: {}", renderdocPath.string());
+		logger::debug("[RenderDoc] renderdoc.dll not found at expected path: {}", Util::PathHelpers::ToUtf8(renderdocPath));
 		return;
 	}
 
 	std::wstring widePath = renderdocPath.wstring();
 	HMODULE moduleHandle = LoadLibraryW(widePath.c_str());
-	logger::debug("[RenderDoc] Attempting to load renderdoc.dll from {}", renderdocPath.string());
+	logger::debug("[RenderDoc] Attempting to load renderdoc.dll from {}", Util::PathHelpers::ToUtf8(renderdocPath));
 
 	renderDocModule = moduleHandle;
 	if (!renderDocModule) {
-		logger::debug("[RenderDoc] Failed to load renderdoc.dll from {}", renderdocPath.string());
+		logger::debug("[RenderDoc] Failed to load renderdoc.dll from {}", Util::PathHelpers::ToUtf8(renderdocPath));
 		return;
 	}
 
@@ -429,7 +429,7 @@ void RenderDoc::DrawSettings()
 								// Calculate time ago dynamically for tooltip
 								std::string currentTimeAgo = Util::FormatTimeAgo(file.lastWriteTime);
 								std::string tooltip = std::format("File: {}\nSize: {}\nCreated: {}",
-									file.fullPath.string(), file.sizeStr, currentTimeAgo);
+									Util::PathHelpers::ToUtf8(file.fullPath), file.sizeStr, currentTimeAgo);
 
 								// Add deletion error message if applicable
 								if (file.deletionFailed && !file.deletionErrorMessage.empty()) {
@@ -501,7 +501,7 @@ std::string RenderDoc::GetCapturesDirectory() const
 {
 	auto path = GetCapturesPath();
 	Util::FileHelpers::EnsureDirectoryExists(path);
-	return path.string();
+	return Util::PathHelpers::ToUtf8(path);
 }
 
 void RenderDoc::ClearFrameCaptures()
@@ -598,7 +598,7 @@ void RenderDoc::RefreshCaptureFileCache()
 
 			CaptureFileInfo info;
 			info.fullPath = entry.path();
-			info.filename = entry.path().filename().string();
+			info.filename = Util::PathHelpers::ToUtf8(entry.path().filename());
 			info.fileSize = entry.file_size(ec);
 			if (ec)
 				continue;
@@ -771,7 +771,7 @@ bool RenderDoc::HasSufficientDiskSpaceForConfiguredCapture(uint64_t* a_requiredS
 	try {
 		auto capturesDir = GetCapturesDirectory();
 		std::error_code ec;
-		const uint64_t freeSpace = std::filesystem::space(capturesDir, ec).available;
+		const uint64_t freeSpace = std::filesystem::space(Util::PathHelpers::FromUtf8(capturesDir), ec).available;
 		if (ec) {
 			logger::warn("[RenderDoc] Failed to check available space in '{}': {}", capturesDir, ec.message());
 			return false;

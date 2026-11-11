@@ -242,6 +242,8 @@ void PerformanceOverlay::LoadSettings(json& j)
 		// Fallback to defaults if JSON is invalid
 		this->settings = PerformanceOverlay::Settings{};
 	}
+	this->settings.FrameHistorySize = std::clamp(this->settings.FrameHistorySize, Settings::kMinFrameHistorySize, Settings::kMaxFrameHistorySize);
+	this->settings.UpdateInterval = std::isfinite(this->settings.UpdateInterval) ? std::clamp(this->settings.UpdateInterval, 0.001f, Settings::kMaxUpdateInterval) : Settings{}.UpdateInterval;
 	// Ensure history buffers match loaded size
 	this->state.frameTimeHistory.Resize(this->settings.FrameHistorySize);
 	this->state.postFGFrameTimeHistory.Resize(this->settings.FrameHistorySize);
@@ -1995,6 +1997,11 @@ void PerformanceOverlay::UpdateGraphValues()
 		settings.kMaxFrameHistorySize);
 	state.frameTimeHistory.Resize(settings.FrameHistorySize);
 	state.postFGFrameTimeHistory.Resize(settings.FrameHistorySize);
+
+	if (state.frequency == 0) {
+		REX::W32::QueryPerformanceFrequency(&state.frequency);
+		REX::W32::QueryPerformanceCounter(&state.lastFrameCounter);
+	}
 
 	// Calculate counter deltas
 	REX::W32::QueryPerformanceCounter(&state.currentFrameCounter);
