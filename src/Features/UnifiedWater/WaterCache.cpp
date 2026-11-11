@@ -35,6 +35,9 @@ namespace
 
 	// Bump whenever the generator's output changes for the same plugins: every signature and cell store is then rebuilt.
 	constexpr uint32_t kCacheVersion = 2;
+	// Bump when only the .wc output changes: every worldspace is merged again from its cell store, no plugin is re-read.
+	// 1: worldspaces without bounds in their record take the bounds of their cells.
+	constexpr uint32_t kGeneratorRevision = 1;
 
 	constexpr uint32_t kCellStoreLabel = Util::FCC("WCDB");
 	constexpr uint64_t kHashOffset = 14695981039346656037ull;
@@ -400,6 +403,7 @@ uint64_t WaterCache::ComputeSignature(RE::TESWorldSpace* worldSpace, const Plugi
 {
 	uint64_t hash = kHashOffset;
 	HashValue(hash, kCacheVersion);
+	HashValue(hash, kGeneratorRevision);
 	HashValue(hash, waterForms);
 	HashString(hash, worldSpace->GetFormEditorID());
 	HashValue(hash, worldSpace->formID);
@@ -509,8 +513,16 @@ bool WaterCache::LoadCaches()
 			continue;
 
 		DiskCache diskCache;
+		bool unwritten = false;
+		{
+			std::scoped_lock lock(async.unwrittenMutex);
+			if (const auto it = async.unwritten.find(key); it != async.unwritten.end()) {
+				diskCache = it->second;
+				unwritten = true;
+			}
+		}
 		const auto fileName = std::format("{}_cache.wc", key);
-		if (!TryReadCacheFromFile(fileName, diskCache.header, diskCache.instructions)) {
+		if (!unwritten && !TryReadCacheFromFile(fileName, diskCache.header, diskCache.instructions)) {
 			logger::info("[Unified Water] [Cache] Could not locate disk cache for {}", key);
 			// An unreadable cache must not keep passing its signature check
 			DeleteFileW(GetSignaturePath(key).c_str());
@@ -610,13 +622,25 @@ bool WaterCache::GenerateCaches(const std::vector<RE::TESWorldSpace*>& worldSpac
 			DiskCache cache = {};
 			bool complete = true;
 			const auto name = std::format("{}_cache.wc", editorID);
-			const auto success = BuildDiskCache(worldSpace, cache, pluginStamps, verifyCells, complete) && TryWriteCacheToFile(name, cache.header, cache.instructions);
-			if (success) {
+			const bool built = BuildDiskCache(worldSpace, cache, pluginStamps, verifyCells, complete);
+			const bool written = built && TryWriteCacheToFile(name, cache.header, cache.instructions);
+			if (built && !written) {
+				// Kept in memory for this session; unsigned, so the next launch builds and writes it again
+				logger::warn("[Unified Water] [Cache] {}: built but not saved, used for this session and rebuilt next launch", editorID);
+				std::scoped_lock lock(async.unwrittenMutex);
+				async.unwritten[editorID] = std::move(cache);
+			}
+			const bool success = built;
+			if (written) {
 				logger::debug("[Unified Water] [Cache] {} generation complete", editorID);
+				{
+					std::scoped_lock lock(async.unwrittenMutex);
+					async.unwritten.erase(editorID);
+				}
 				// A plugin that could not be read leaves the cache unsigned, so the next launch tries it again
 				if (complete && !WriteSignature(editorID, ComputeSignature(worldSpace, pluginStamps, waterFormsHash)))
 					logger::warn("[Unified Water] [Cache] Failed to write the signature of {}; it will be rebuilt next launch", editorID);
-			} else {
+			} else if (!built) {
 				async.failed.store(true, std::memory_order_relaxed);
 				logger::error("[Unified Water] [Cache] {} generation failed", editorID);
 			}
@@ -907,6 +931,60 @@ void WaterCache::BuildMergedCells(RE::TESWorldSpace* worldSpace, const WorldSpac
 	}
 }
 
+bool WaterCache::TryDeriveBoundsFromCells(RE::TESWorldSpace* worldSpace, const PluginStamps& stamps, WorldSpaceHeader::MinMax& outBounds, bool& outComplete)
+{
+	constexpr WorldSpaceHeader::MinMax kWholePlugin{ INT32_MIN, INT32_MIN, INT32_MAX, INT32_MAX };
+
+	const std::string editorID{ worldSpace->GetFormEditorID() };
+	CellStore store;
+	TryReadCellStore(editorID, store);
+
+	auto* files = worldSpace->sourceFiles.array;
+	const auto fileCount = files ? static_cast<int32_t>(files->size()) : 0;
+	bool storeChanged = false;
+	bool found = false;
+	WorldSpaceHeader::MinMax bounds{ INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN };
+
+	for (int32_t i = 0; i < fileCount; ++i) {
+		auto* file = files->data()[i];
+		const auto stamp = file ? stamps.find(file) : stamps.end();
+		if (stamp == stamps.end())
+			continue;
+
+		// Only the plugin parser sees every cell; the engine scan needs the bounds this is looking for
+		const auto key = GetPluginKey(file);
+		auto& plugin = store[key];
+		const bool covered = plugin.stamp == stamp->second && plugin.scanned.minX == kWholePlugin.minX && plugin.scanned.minY == kWholePlugin.minY &&
+		                     plugin.scanned.maxX == kWholePlugin.maxX && plugin.scanned.maxY == kWholePlugin.maxY;
+		if (!covered) {
+			if (!TryReadPluginCells(worldSpace, file, plugin)) {
+				logger::warn("[Unified Water] [Cache] {}: Could not read {} for the worldspace bounds", editorID, file->fileName);
+				store.erase(key);
+				outComplete = false;
+				continue;
+			}
+			plugin.stamp = stamp->second;
+			storeChanged = true;
+		}
+
+		for (const auto& cell : plugin.cells) {
+			bounds.minX = std::min(bounds.minX, cell.x);
+			bounds.minY = std::min(bounds.minY, cell.y);
+			bounds.maxX = std::max(bounds.maxX, cell.x);
+			bounds.maxY = std::max(bounds.maxY, cell.y);
+			found = true;
+		}
+	}
+
+	// Saved now so BuildMergedCells finds these plugins covered and does not parse them a second time
+	if (storeChanged && !TryWriteCellStore(editorID, store))
+		logger::warn("[Unified Water] [Cache] {}: Failed to write the cell store", editorID);
+
+	if (found)
+		outBounds = bounds;
+	return found;
+}
+
 bool WaterCache::ResolveMergedCell(const RE::TESWorldSpace* worldSpace, RE::TESFileArray* files, const MergedCell& cell, RE::FormID& outFormID, float& outWaterHeight, float& outLandHeight)
 {
 	if (cell.waterFile < 0 || !cell.hasLand) {
@@ -1036,11 +1114,28 @@ bool WaterCache::BuildDiskCache(RE::TESWorldSpace* worldSpace, DiskCache& diskCa
 		hdr.dataCount = 0;
 	}
 
+	const auto validSize = [&] { return hdr.width > 0 && hdr.height > 0 && hdr.width <= 512 && hdr.height <= 512; };
 	bool invalidWS = wsMin.x == FLT_MIN || wsMin.y == FLT_MIN || wsMax.x == FLT_MAX || wsMax.y == FLT_MAX || wsMin.x == FLT_MAX || wsMin.y == FLT_MAX || wsMax.x == FLT_MIN || wsMax.y == FLT_MIN;
-	invalidWS = invalidWS || hdr.width <= 0 || hdr.height <= 0 || hdr.width > 512 || hdr.height > 512;
+	invalidWS = invalidWS || !validSize();
+
+	// Many mod worldspaces never set their object bounds (NAM0/NAM9): take the bounds of the cells their plugins define
+	if (invalidWS && !hasPrecache) {
+		if (TryDeriveBoundsFromCells(worldSpace, stamps, hdr.bounds, outComplete)) {
+			hdr.width = maxX - minX + 1;
+			hdr.height = maxY - minY + 1;
+			hdr.dataCount = 0;
+			invalidWS = !validSize();
+			if (!invalidWS)
+				logger::info("[Unified Water] [Cache] {}: no bounds in its record, using its cells' ({}, {}) to ({}, {})", editorID.c_str(), minX, minY, maxX, maxY);
+		} else {
+			logger::info("[Unified Water] [Cache] {}: no bounds and no exterior cells, nothing to cache", editorID.c_str());
+			diskCache = {};
+			return true;
+		}
+	}
 
 	if (invalidWS) {
-		logger::warn("[Unified Water] [Cache] {}: Invalid WorldSpace - skipping", editorID.c_str());
+		logger::warn("[Unified Water] [Cache] {}: Invalid WorldSpace bounds ({}x{} cells) - skipping", editorID.c_str(), hdr.width, hdr.height);
 		diskCache = {};
 		return true;
 	}

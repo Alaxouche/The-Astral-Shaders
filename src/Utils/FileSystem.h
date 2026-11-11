@@ -274,7 +274,9 @@ namespace Util
 		/**
 		 * @brief Writes a file through a temporary and a rename, so a reader or a crash never sees it half written.
 		 *
-		 * Uses Win32 handles for the same reason as ReadWholeFile. Parent directories are created.
+		 * Uses Win32 handles for the same reason as ReadWholeFile. Parent directories are created. Transient failures
+		 * (sharing violations, a virtual filesystem refusing the rename) are retried, then the target is written directly;
+		 * a final failure is logged with its Win32 error and leaves no partial file.
 		 * @param a_path File to replace.
 		 * @param a_parts Byte ranges written one after the other.
 		 * @return Whether the file now holds exactly those bytes.

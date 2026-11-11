@@ -189,6 +189,9 @@ private:
 		std::jthread monitor;
 		std::atomic<bool> running{ false };
 		std::atomic<bool> failed{ false };
+		// Caches built this session that could not be written: LoadCaches uses them so the worldspace keeps its water
+		std::mutex unwrittenMutex;
+		std::unordered_map<std::string, DiskCache> unwritten;
 	};
 
 	struct BuildProgress
@@ -272,6 +275,11 @@ private:
 	static bool BuildDiskCache(RE::TESWorldSpace* worldSpace, DiskCache& diskCache, const PluginStamps& stamps, bool verifyCells, bool& outComplete);
 	/** @brief Fills the merged cells of a worldspace from its cell store, scanning only the plugins the store does not cover. */
 	static void BuildMergedCells(RE::TESWorldSpace* worldSpace, const WorldSpaceHeader& header, const PluginStamps& stamps, std::vector<MergedCell>& outCells, bool& outComplete);
+	/**
+	 * @brief Bounds of every exterior cell the worldspace's plugins define, for a worldspace whose record has none.
+	 * Parses the plugins not yet in the cell store and saves it. Returns false when no plugin defines a cell.
+	 */
+	static bool TryDeriveBoundsFromCells(RE::TESWorldSpace* worldSpace, const PluginStamps& stamps, WorldSpaceHeader::MinMax& outBounds, bool& outComplete);
 	/** @brief Reads every exterior CELL a plugin defines in the worldspace straight from the plugin file. */
 	static bool TryReadPluginCells(const RE::TESWorldSpace* worldSpace, const RE::TESFile* file, PluginCells& outCells);
 	/** @brief Reads every CELL a plugin defines within the bounds through the engine, for a plugin TryReadPluginCells could not parse. */

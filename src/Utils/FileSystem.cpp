@@ -359,30 +359,73 @@ namespace Util
 			return 0;
 		}
 
+		namespace
+		{
+			/** @brief Creates (or truncates) a_path and writes the parts into it; 0 on success, otherwise the Win32 error. */
+			DWORD WriteParts(const std::wstring& a_path, std::initializer_list<std::span<const char>> a_parts)
+			{
+				winrt::file_handle file{ CreateFileW(a_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr) };
+				if (!file)
+					return GetLastError();
+				for (const auto part : a_parts) {
+					size_t offset = 0;
+					while (offset < part.size()) {
+						DWORD count = 0;
+						const auto chunk = static_cast<DWORD>(std::min<size_t>(part.size() - offset, 1u << 30));
+						if (!WriteFile(file.get(), part.data() + offset, chunk, &count, nullptr))
+							return GetLastError();
+						if (count != chunk)
+							return ERROR_WRITE_FAULT;
+						offset += chunk;
+					}
+				}
+				return 0;
+			}
+
+			/** @brief Errors another handle or a virtual filesystem (MO2's USVFS) can cause for a moment, worth a retry. */
+			bool IsTransientWriteError(DWORD a_error)
+			{
+				return a_error == ERROR_ACCESS_DENIED || a_error == ERROR_SHARING_VIOLATION || a_error == ERROR_LOCK_VIOLATION ||
+				       a_error == ERROR_USER_MAPPED_FILE || a_error == ERROR_DELETE_PENDING;
+			}
+		}
+
 		bool WriteFileAtomic(const std::filesystem::path& a_path, std::initializer_list<std::span<const char>> a_parts)
 		{
 			std::error_code ec;
 			std::filesystem::create_directories(a_path.parent_path(), ec);
 
-			const auto temp = std::format(L"{}.{}.tmp", a_path.wstring(), GetCurrentThreadId());
-			bool written = false;
-			{
-				winrt::file_handle file{ CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr) };
-				written = static_cast<bool>(file);
-				for (const auto part : a_parts) {
-					size_t offset = 0;
-					while (written && offset < part.size()) {
-						DWORD count = 0;
-						const auto chunk = static_cast<DWORD>(std::min<size_t>(part.size() - offset, 1u << 30));
-						written = WriteFile(file.get(), part.data() + offset, chunk, &count, nullptr) && count == chunk;
-						offset += chunk;
-					}
-				}
-			}
-			if (written && MoveFileExW(temp.c_str(), a_path.c_str(), MOVEFILE_REPLACE_EXISTING))
-				return true;
+			// Process, thread and call qualified: concurrent writers, even of the same target, never share a temporary.
+			static std::atomic<uint32_t> serial = 0;
+			const auto temp = std::format(L"{}.{}.{}.{}.tmp", a_path.wstring(), GetCurrentProcessId(), GetCurrentThreadId(), serial.fetch_add(1, std::memory_order_relaxed));
+			const auto target = a_path.wstring();
 
-			DeleteFileW(temp.c_str());
+			// MO2's USVFS fails a rename now and then while other threads create files in the same folder (several Unified
+			// Water caches failed together that way), and an antivirus scan can hold a fresh file for a moment: retry, then
+			// write the target directly, which a virtual filesystem accepts where it rejects the replace.
+			constexpr int kAttempts = 5;
+			DWORD error = 0;
+			for (int attempt = 0; attempt < kAttempts; ++attempt) {
+				if (attempt)
+					std::this_thread::sleep_for(std::chrono::milliseconds(20 << attempt));
+				error = WriteParts(temp, a_parts);
+				if (!error) {
+					if (MoveFileExW(temp.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING))
+						return true;
+					error = GetLastError();
+				}
+				DeleteFileW(temp.c_str());
+				if (!IsTransientWriteError(error))
+					break;
+			}
+
+			const DWORD directError = WriteParts(target, a_parts);
+			if (!directError) {
+				logger::warn("Replaced '{}' by direct write (rename failed with Win32 error {})", Util::PathHelpers::ToUtf8(a_path), error);
+				return true;
+			}
+			logger::error("Could not write '{}' (Win32 error {}, direct write {})", Util::PathHelpers::ToUtf8(a_path), error, directError);
+			DeleteFileW(target.c_str());
 			return false;
 		}
 
