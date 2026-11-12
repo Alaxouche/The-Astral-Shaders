@@ -1433,7 +1433,7 @@ PS_OUTPUT main(PS_INPUT input)
 
 	float3 dirColor;
 	float3 ambientColor;
-	ShadowSampling::ExtractLighting(diffuseOutput.refractionDiffuseColor, dirColor, ambientColor);
+	ShadowSampling::ExtractLighting(diffuseOutput.refractionDiffuseColor, input.WPosition.xyz, dirColor, ambientColor);
 
 	dirColor *= dirShadow;
 
@@ -1531,7 +1531,7 @@ PS_OUTPUT main(PS_INPUT input)
 	[branch] if (shore.foam > 1e-3)
 	{
 		// Foam is a rough white scatterer lit like the scene around it.
-		const float3 foamLight = ShadowSampling::GetAmbientLighting() + ShadowSampling::GetDirectionalLighting() * saturate(SharedData::DirLightDirection.z) * surfaceShadow;
+		const float3 foamLight = ShadowSampling::GetAmbientLighting(input.WPosition.xyz) + ShadowSampling::GetDirectionalLighting() * saturate(SharedData::DirLightDirection.z) * surfaceShadow;
 		// Thin foam is translucent: the water under it still shows through, so a spreading edge
 		// takes the sea's own colour instead of going straight to white paint.
 		const float3 foamColor = lerp(GetWaterColor(ShallowColor.xyz) * 1.2, foamLight * 0.82, saturate(shore.foam * 1.6));
@@ -1574,7 +1574,7 @@ PS_OUTPUT main(PS_INPUT input)
 
 #						if defined(IBL)
 		if (SharedData::iblSettings.EnableIBL) {
-			fogColor = ImageBasedLighting::GetFogIBLColor(fogColor);
+			fogColor = ImageBasedLighting::GetFogIBLColor(fogColor, input.WPosition.xyz);
 		}
 #						endif
 #						if defined(EXP_HEIGHT_FOG)
@@ -1626,7 +1626,7 @@ PS_OUTPUT main(PS_INPUT input)
 	[branch] if (shore.foam > 1e-3)
 	{
 		// Foam is a rough white scatterer lit like the scene around it.
-		const float3 foamLight = ShadowSampling::GetAmbientLighting() + ShadowSampling::GetDirectionalLighting() * saturate(SharedData::DirLightDirection.z) * surfaceShadow;
+		const float3 foamLight = ShadowSampling::GetAmbientLighting(input.WPosition.xyz) + ShadowSampling::GetDirectionalLighting() * saturate(SharedData::DirLightDirection.z) * surfaceShadow;
 		// Thin foam is translucent: the water under it still shows through, so a spreading edge
 		// takes the sea's own colour instead of going straight to white paint.
 		const float3 foamColor = lerp(GetWaterColor(ShallowColor.xyz) * 1.2, foamLight * 0.82, saturate(shore.foam * 1.6));
@@ -1669,7 +1669,7 @@ PS_OUTPUT main(PS_INPUT input)
 
 #						if defined(IBL)
 		if (SharedData::iblSettings.EnableIBL) {
-			preFogColor = ImageBasedLighting::GetFogIBLColor(preFogColor);
+			preFogColor = ImageBasedLighting::GetFogIBLColor(preFogColor, input.WPosition.xyz);
 		}
 #						endif
 #						if defined(EXP_HEIGHT_FOG)
@@ -1708,7 +1708,7 @@ PS_OUTPUT main(PS_INPUT input)
 #						endif
 #						if defined(IBL)
 		if (SharedData::iblSettings.EnableIBL) {
-			fogColor = ImageBasedLighting::GetFogIBLColor(fogColor);
+			fogColor = ImageBasedLighting::GetFogIBLColor(fogColor, input.WPosition.xyz);
 		}
 #						endif
 		refractionColor = lerp(refractionColor, fogColor, fogFactor);
