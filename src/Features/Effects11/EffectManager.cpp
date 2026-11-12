@@ -227,6 +227,14 @@ void EffectManager::RegisterSettings()
 	settingManager.RegisterBoolSetting("ForceMinMaxValues", "ADAPTATION", false, false);
 	settingManager.RegisterFloatSetting("AdaptationMin", "ADAPTATION", 0.1f, 0.0f, 65536.0f, 0.01f, false);
 	settingManager.RegisterFloatSetting("AdaptationMax", "ADAPTATION", 10.0f, 0.0f, 65536.0f, 0.01f, false);
+	// Interior adaptation, independent of the exterior one: a fire in a dark room should not swing exposure like the
+	// sun does outside. Off keeps ENB's single set of values for both.
+	settingManager.RegisterBoolSetting("UseInteriorValues", "ADAPTATION", false, false);
+	settingManager.RegisterFloatSetting("AdaptationSensitivityInterior", "ADAPTATION", 0.25f, 0.0f, 1.0f, 0.01f, false);
+	settingManager.RegisterFloatSetting("AdaptationTimeInterior", "ADAPTATION", 3.0f, 0.05f, 100.0f, 0.01f, false);
+	settingManager.RegisterBoolSetting("ForceMinMaxValuesInterior", "ADAPTATION", false, false);
+	settingManager.RegisterFloatSetting("AdaptationMinInterior", "ADAPTATION", 0.1f, 0.0f, 65536.0f, 0.01f, false);
+	settingManager.RegisterFloatSetting("AdaptationMaxInterior", "ADAPTATION", 10.0f, 0.0f, 65536.0f, 0.01f, false);
 
 	settingManager.RegisterFloatSetting("FocusingTime", "DEPTHOFFIELD", 1.0f, 0.1f, 10.0f, 0.01f, false);
 	settingManager.RegisterFloatSetting("ApertureTime", "DEPTHOFFIELD", 1.0f, 0.1f, 10.0f, 0.01f, false);
@@ -399,6 +407,11 @@ void EffectManager::RegisterSettings()
 	settingManager.SetSettingDependency("StarsAnimationIntensity", "SKY", "EnableAnimatedStars", "SKY");
 	settingManager.SetSettingDependency("AdaptationMin", "ADAPTATION", "ForceMinMaxValues", "ADAPTATION");
 	settingManager.SetSettingDependency("AdaptationMax", "ADAPTATION", "ForceMinMaxValues", "ADAPTATION");
+	settingManager.SetSettingDependency("AdaptationSensitivityInterior", "ADAPTATION", "UseInteriorValues", "ADAPTATION");
+	settingManager.SetSettingDependency("AdaptationTimeInterior", "ADAPTATION", "UseInteriorValues", "ADAPTATION");
+	settingManager.SetSettingDependency("ForceMinMaxValuesInterior", "ADAPTATION", "UseInteriorValues", "ADAPTATION");
+	settingManager.SetSettingDependency("AdaptationMinInterior", "ADAPTATION", "ForceMinMaxValuesInterior", "ADAPTATION");
+	settingManager.SetSettingDependency("AdaptationMaxInterior", "ADAPTATION", "ForceMinMaxValuesInterior", "ADAPTATION");
 
 	settingManager.SetCategoryExteriorOnly("RAIN", true);
 	settingManager.SetCategoryExteriorOnly("SKYLIGHTING", true);

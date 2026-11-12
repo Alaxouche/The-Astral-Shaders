@@ -37,15 +37,41 @@ private:
 	 */
 	ID3D11ShaderResourceView* MaskProceduralSun(ID3D11ShaderResourceView* a_source);
 
+	// Two float4s: already a whole number of 16-byte registers, so no alignas (it would pad the effect object)
+	struct InteriorCB
+	{
+		float4 Parameters;  // min, max, sensitivity, time factor
+		float4 Options;     // x: clamp to min/max
+	};
+
+	/**
+	 * @brief Interior adaptation in place of the preset's Draw pass, from the interior values (UseInteriorValues).
+	 * @return False when the shader or its buffer is unavailable; the preset's pass then runs.
+	 */
+	bool DrawInteriorAdaptation(ID3D11ShaderResourceView* a_current, ID3D11ShaderResourceView* a_previous, TextureManager::Texture& a_target);
+
+	ID3D11PixelShader* interiorPS = nullptr;
+	bool interiorPSFailed = false;
+	winrt::com_ptr<ID3D11Buffer> interiorCB;
+	bool interiorActive = false;  // set by UpdateEffectVariables: indoors with UseInteriorValues on
+	InteriorCB interiorValues{};
+
 	ID3D11PixelShader* sunMaskPS = nullptr;
 	bool sunMaskPSFailed = false;
 	winrt::com_ptr<ID3D11Buffer> sunMaskCB;
 	winrt::com_ptr<ID3D11SamplerState> sunMaskSampler;
 
-	uint32_t idForceMinMax = 0xFFFFFFFF;
-	uint32_t idAdaptTime = 0xFFFFFFFF;
-	uint32_t idAdaptMin = 0xFFFFFFFF;
-	uint32_t idAdaptMax = 0xFFFFFFFF;
-	uint32_t idAdaptSens = 0xFFFFFFFF;
+	/** @brief Setting IDs of one set of adaptation values ([ADAPTATION] in enbseries.ini). */
+	struct ValueIDs
+	{
+		uint32_t forceMinMax = 0xFFFFFFFF;
+		uint32_t time = 0xFFFFFFFF;
+		uint32_t min = 0xFFFFFFFF;
+		uint32_t max = 0xFFFFFFFF;
+		uint32_t sensitivity = 0xFFFFFFFF;
+	};
+	ValueIDs exterior;
+	ValueIDs interior;  // the *Interior keys, used indoors when UseInteriorValues is on
+	uint32_t idUseInterior = 0xFFFFFFFF;
 	bool idsCached = false;
 };
