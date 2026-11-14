@@ -573,7 +573,9 @@ void PhysicalSky::SettingsGeneral()
 		ImGui::TableNextColumn();
 		ImGui::Text("%s", T(TKEY("shader_status"), "Shader Status: "));
 		ImGui::TableNextColumn();
-		if (ShadersOK())
+		if (shaders.Pending())
+			ImGui::TextColored(Util::Colors::GetWarning(), "%s", T(TKEY("compiling"), "Compiling"));
+		else if (ShadersOK())
 			ImGui::TextColored({ 0, 1, 0, 1 }, T("feature.physical_sky.ok", "OK"));
 		else
 			ImGui::TextColored({ 1, 0, 0, 1 }, T("feature.physical_sky.error", "ERROR"));
@@ -1676,17 +1678,33 @@ void PhysicalSky::SetupResources()
 		texApShadow->CreateUAV(uavDesc);
 	}
 
-	CompileShaders();
-
 	// Volumetric cloud resources
 	SetupVolumetricResources();
+
+	UpdateShaders();
 }
 
 void PhysicalSky::ClearShaderCache()
 {
 	texturePreview.ClearShaderCache();
-	CompileShaders();
-	CompileVolumetricShaders();
+	recompileRequested = true;
+}
+
+void PhysicalSky::UpdateShaders()
+{
+	if (recompileRequested.exchange(false)) {
+		shaders.Cancel();
+		baseShadersQueued = volumetricShadersQueued = false;
+	}
+	shaders.Publish();
+	if (!baseShadersQueued) {
+		CompileShaders();
+		baseShadersQueued = true;
+	}
+	if (!volumetricShadersQueued && settings.enabled && settings.enableVolumetricClouds) {
+		CompileVolumetricShaders();
+		volumetricShadersQueued = true;
+	}
 }
 
 void PhysicalSky::CompileShaders()
@@ -1695,7 +1713,7 @@ void PhysicalSky::CompileShaders()
 	{
 		winrt::com_ptr<ID3D11ComputeShader>* csPtr;
 		std::string_view filename;
-		std::vector<std::pair<const char*, const char*>> defines = {};
+		Util::AsyncShaderSet::Defines defines = {};
 		std::string_view entry = "main";
 	};
 
@@ -1709,12 +1727,8 @@ void PhysicalSky::CompileShaders()
 		{ &csShadowAccumHalfRes, "ShadowAccum.cs.hlsl", { { "HALF_RES", "" } } }
 	};
 
-	for (auto& info : shaderInfos) {
-		*info.csPtr = nullptr;
-		auto path = std::filesystem::path("Data\\Shaders\\PhysicalSky") / info.filename;
-		if (auto rawPtr = reinterpret_cast<ID3D11ComputeShader*>(Util::CompileShader(path.c_str(), info.defines, "cs_5_0", info.entry.data())))
-			info.csPtr->attach(rawPtr);
-	}
+	for (auto& info : shaderInfos)
+		shaders.Add(*info.csPtr, (std::filesystem::path(kShaderDir) / info.filename).wstring(), std::move(info.defines), std::string(info.entry));
 }
 
 bool PhysicalSky::ShadersOK()
@@ -1758,6 +1772,7 @@ bool PhysicalSky::SetLocalCloudState(const LocalNdfState& state)
 
 void PhysicalSky::Reset()
 {
+	UpdateShaders();
 	const auto worldspaceID = GetCurrentWorldspaceEditorID();
 	if (cloudAmbientWorldspace != worldspaceID) {
 		cloudAmbientValid = false;
