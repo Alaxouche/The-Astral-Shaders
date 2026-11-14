@@ -410,7 +410,8 @@ void Deferred::DeferredPasses()
 		TracyD3D11Zone(globals::state->tracyCtx, "Deferred Composite");
 
 		// The probe array can be missing while Skylighting is loaded (not yet created, or released on reset).
-		ID3D11ShaderResourceView* skylightingProbes = skylighting.loaded && skylighting.texProbeArray ? skylighting.texProbeArray->srv.get() : nullptr;
+		const bool skylightingReady = skylighting.loaded && skylighting.texProbeArray;
+		ID3D11ShaderResourceView* skylightingProbes = skylightingReady ? skylighting.texProbeArray->srv.get() : nullptr;
 		ID3D11ShaderResourceView* srvs[]{
 			specular.SRV,                                                                         // t0  SpecularTexture
 			albedo.SRV,                                                                           // t1  AlbedoTexture
@@ -427,7 +428,7 @@ void Deferred::DeferredPasses()
 			ibl.loaded ? ibl.skyIBLTexture->srv.get() : nullptr,                                  // t12 SkyIBLTexture
 			ssrOutput,                                                                            // t13 SsrTexture (Screen Space Reflections)
 			masks2.SRV,                                                                           // t14 Masks2Texture (vertexAO in .x)
-			nullptr,                                                                              // t15
+			skylightingReady ? skylighting.texProbeCoverage->srv.get() : nullptr,                 // t15 SkylightingProbeCoverage
 			physSky.loaded ? physSky.texApLut->srv.get() : nullptr,                               // t16 PhysicalSky AP LUT
 			physSky.loaded ? physSky.texApShadow->srv.get() : nullptr,                            // t17 PhysicalSky AP shadow
 			physSky.loaded && physSky.texVolTr ? physSky.texVolTr->srv.get() : nullptr,           // t18 PhysicalSky cloud transmittance
@@ -437,6 +438,8 @@ void Deferred::DeferredPasses()
 		ID3D11ShaderResourceView* physSkyApSunLut = physSky.loaded && physSky.texApSunLut ? physSky.texApSunLut->srv.get() : nullptr;  // t21 PhysicalSky direct solar AP LUT
 		ID3D11ShaderResourceView* causticIrradiance = causticLight.loaded ? causticLight.GetOutputSRV() : nullptr;                   // t22 Caustic Light irradiance
 		ID3D11ShaderResourceView* capsuleOcclusion = capsuleShadows.loaded ? capsuleShadows.GetOcclusionSRV() : nullptr;              // t23 CapsuleOcclusionTexture
+		// Skylighting probe coverage and zenith depth sit at t15/t24 here, not upstream's t18/t19 (Physical Sky)
+		ID3D11ShaderResourceView* skylightingZenith = skylightingReady ? skylighting.texZenithOcclusion->srv.get() : nullptr;  // t24 SkylightingZenithDepth
 
 		ID3D11SamplerState* samplers[]{
 			(dynamicCubemaps.loaded || capsuleShadows.loaded) ? linearSampler : nullptr,
@@ -448,6 +451,7 @@ void Deferred::DeferredPasses()
 		context->CSSetShaderResources(21, 1, &physSkyApSunLut);
 		context->CSSetShaderResources(22, 1, &causticIrradiance);
 		context->CSSetShaderResources(23, 1, &capsuleOcclusion);
+		context->CSSetShaderResources(24, 1, &skylightingZenith);
 
 		ID3D11UnorderedAccessView* uavs[3]{ main.UAV, normals.UAV, motionVectors.UAV };
 		context->CSSetUnorderedAccessViews(0, ARRAYSIZE(uavs), uavs, nullptr);
@@ -477,7 +481,7 @@ void Deferred::DeferredPasses()
 
 	// Clear
 	{
-		ID3D11ShaderResourceView* views[24]{};
+		ID3D11ShaderResourceView* views[25]{};  // t0-t24, Skylighting zenith depth included
 		context->CSSetShaderResources(0, ARRAYSIZE(views), views);
 
 		ID3D11UnorderedAccessView* uavs[3]{ nullptr, nullptr, nullptr };
