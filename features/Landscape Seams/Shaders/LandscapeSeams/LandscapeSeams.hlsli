@@ -45,12 +45,12 @@ namespace LandscapeSeams
 	Texture2D<float4> Displacement1 : register(t58);
 
 	Texture2D<float4> Color2 : register(t59);
-	Texture2D<float4> Normal2 : register(t69);
+	Texture2D<float4> Normal2 : register(t120);  // t120 is Tree Wind's, vertex shader only; t69 is Physical Sky's mean profile
 	Texture2D<float4> Aux2 : register(t117);  // t99 is Advanced Skin's SK map, t127 Night Eye's eyeshine mask
 	Texture2D<float4> Displacement2 : register(t101);
 
-	Texture2D<float4> Color3 : register(t118);  // t123 is Fur Shells' depth
-	Texture2D<float4> Normal3 : register(t124);
+	Texture2D<float4> Color3 : register(t118);
+	Texture2D<float4> Normal3 : register(t123);  // shared with Fur Shells' depth, which landscape never draws and Fur Shells rebinds per draw; t124 is Night Eye's mask
 	Texture2D<float4> Aux3 : register(t100);  // t100 is Grass Collision's, vertex shader only
 	Texture2D<float4> Displacement3 : register(t68);
 
