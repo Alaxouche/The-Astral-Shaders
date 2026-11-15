@@ -608,6 +608,9 @@ struct PhysicalSky final : public Feature
 		kMainViewAndCubemap
 	};
 	void SetupVolumetricResources();
+	void SetupVolumetricScreenResources();
+	bool volumetricScreenResourcesReady = false;
+	bool volumetricNeutralCleared = false;
 	/** @brief Queues every volumetric cloud shader, including the cloud managers'. */
 	void CompileVolumetricShaders();
 	Util::AsyncShaderSet shaders;  ///< Every Physical Sky shader; compiled off the render thread.
@@ -645,6 +648,8 @@ struct PhysicalSky final : public Feature
 	winrt::com_ptr<ID3D11SamplerState> originalPSGrassSampler = nullptr;
 	winrt::com_ptr<ID3D11SamplerState> originalPSWaterSampler = nullptr;
 	uint32_t originalPSWaterSamplerModifiedBits = 0;
+	bool grassSamplerModified = false;
+	bool waterSamplerModified = false;
 
 	void ModifySky();
 	void RestoreSamplers();

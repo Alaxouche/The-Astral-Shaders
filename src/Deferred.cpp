@@ -371,7 +371,8 @@ void Deferred::DeferredPasses()
 	if (nrd.loaded) {
 		const bool ssgiDenoises = ssgi.loaded && ssgi.settings.Enabled && ssgi.settings.EnableREBLUR;
 		const bool ssrDenoises = ssr.loaded && ssr.settings.Enabled && ssr.settings.EnableREBLUR && globals::features::dynamicCubemaps.loaded;
-		nrd.PrepareGuides(ssgiDenoises || ssrDenoises);
+		const bool ssgiMultiBounce = ssgi.loaded && ssgi.settings.Enabled && ssgi.settings.EnableGI && ssgi.settings.EnableMultiBounce;
+		nrd.PrepareGuides(ssgiDenoises || ssrDenoises, ssgiMultiBounce);
 	}
 
 	if (ssgi.loaded) {
