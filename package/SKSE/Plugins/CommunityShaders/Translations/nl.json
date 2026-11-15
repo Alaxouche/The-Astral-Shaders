@@ -27,6 +27,5 @@
     "feature.exp_height_fog.vanilla_fog": "Vanillamist",
     "feature.exp_height_fog.vanilla_strength": "Sterkte van weersmist",
     "feature.exp_height_fog.volumetric_extinction_scale": "Extinctieschaal",
-    "feature.exp_height_fog.volumetric_extinction_scale_tooltip": "Schaalt de mistdichtheid bij het volgen van vanillamist, ook wanneer volumetrische mist is uitgeschakeld. In de handmatige modus heeft dit alleen invloed op volumetrische mist.",
-    "feature.exp_height_fog.debug": "Kwaliteit en temporele filtering"
+    "feature.exp_height_fog.volumetric_extinction_scale_tooltip": "Schaalt de mistdichtheid bij het volgen van vanillamist, ook wanneer volumetrische mist is uitgeschakeld. In de handmatige modus heeft dit alleen invloed op volumetrische mist."
 }

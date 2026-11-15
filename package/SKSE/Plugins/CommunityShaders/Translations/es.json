@@ -119,6 +119,5 @@
     "feature.exp_height_fog.vanilla_fog": "Niebla original",
     "feature.exp_height_fog.vanilla_strength": "Intensidad de la niebla del clima",
     "feature.exp_height_fog.volumetric_extinction_scale": "Escala de extinción",
-    "feature.exp_height_fog.volumetric_extinction_scale_tooltip": "Ajusta la densidad al seguir la niebla original, incluso si la niebla volumétrica está desactivada. En modo manual, solo afecta a la niebla volumétrica.",
-    "feature.exp_height_fog.debug": "Calidad y filtrado temporal"
+    "feature.exp_height_fog.volumetric_extinction_scale_tooltip": "Ajusta la densidad al seguir la niebla original, incluso si la niebla volumétrica está desactivada. En modo manual, solo afecta a la niebla volumétrica."
 }

@@ -30,6 +30,9 @@ struct HistogramAutoExposure : public PostProcessFeature
 
 		float AdaptSpeed = 1.5f;
 
+		float HighlightProtection = 0.f;
+		float HighlightLimitEV = 2.5f;
+
 		// purkinje
 		float PurkinjeStartEV = 1.5f;  // Scene EV100 before exposure, same calibration as AdaptationRange.
 		float PurkinjeMaxEV = -1.f;    // Scene EV100 before exposure.
@@ -48,10 +51,12 @@ struct HistogramAutoExposure : public PostProcessFeature
 		float PurkinjeStrength;
 		float ExposureTarget;  // Metered luminance after exposure, before tone mapping.
 
-		float pad[2];
+		float HighlightLimit;
+		float HighlightProtection;
 	};
 	static_assert(sizeof(AutoExposureCB) == 48);
 	static_assert(offsetof(AutoExposureCB, ExposureTarget) == 36);
+	static_assert(offsetof(AutoExposureCB, HighlightLimit) == 40);
 	std::unique_ptr<ConstantBuffer> autoExposureCB = nullptr;
 	std::unique_ptr<StructuredBuffer> histogramSB = nullptr;
 	std::unique_ptr<StructuredBuffer> adaptationSB = nullptr;

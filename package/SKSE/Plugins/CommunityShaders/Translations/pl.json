@@ -101,6 +101,5 @@
     "feature.exp_height_fog.vanilla_fog": "Mgła podstawowej gry",
     "feature.exp_height_fog.vanilla_strength": "Siła mgły pogodowej",
     "feature.exp_height_fog.volumetric_extinction_scale": "Skala ekstynkcji",
-    "feature.exp_height_fog.volumetric_extinction_scale_tooltip": "Skaluje gęstość mgły podczas dopasowywania do mgły podstawowej gry, nawet gdy mgła wolumetryczna jest wyłączona. W trybie ręcznym wpływa tylko na mgłę wolumetryczną.",
-    "feature.exp_height_fog.debug": "Jakość i filtrowanie czasowe"
+    "feature.exp_height_fog.volumetric_extinction_scale_tooltip": "Skaluje gęstość mgły podczas dopasowywania do mgły podstawowej gry, nawet gdy mgła wolumetryczna jest wyłączona. W trybie ręcznym wpływa tylko na mgłę wolumetryczną."
 }

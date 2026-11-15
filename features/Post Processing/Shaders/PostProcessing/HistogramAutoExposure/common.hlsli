@@ -9,5 +9,6 @@ cbuffer AutoExposureCB : register(b1)
 	float PurkinjeStrength;
 	float ExposureTarget;
 
-	float2 pad;
+	float HighlightLimit;
+	float HighlightProtection;
 };

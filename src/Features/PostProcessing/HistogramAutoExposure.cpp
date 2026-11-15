@@ -13,6 +13,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	AdaptationRange,
 	AdaptArea,
 	AdaptSpeed,
+	HighlightProtection,
+	HighlightLimitEV,
 	PurkinjeStartEV,
 	PurkinjeMaxEV,
 	PurkinjeStrength)
@@ -133,6 +135,15 @@ void HistogramAutoExposure::DrawSettings()
 				"Turning up the minimum, for example, makes it adapt less to darkness and therefore prevents over-brightening of dark scenes."));
 	ImGui::EndDisabled();
 
+	ImGui::SliderFloat(T("feature.post_processing.histogram_auto_exposure.highlight_protection", "Highlight Protection"), &settings.HighlightProtection, 0.f, 1.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	if (auto _tt = Util::HoverTooltipWrapper())
+		ImGui::TextUnformatted(T("feature.post_processing.histogram_auto_exposure.highlight_protection_tooltip",
+			"Lowers exposure when large bright surfaces such as snow would overexpose because darker parts of the view dominate the average. 0 disables it."));
+	ImGui::SliderFloat(T("feature.post_processing.histogram_auto_exposure.highlight_limit", "Highlight Limit"), &settings.HighlightLimitEV, 0.5f, 5.f, "%+.2f EV", ImGuiSliderFlags_AlwaysClamp);
+	if (auto _tt = Util::HoverTooltipWrapper())
+		ImGui::TextUnformatted(T("feature.post_processing.histogram_auto_exposure.highlight_limit_tooltip",
+			"Stops above middle grey that the 90th percentile of the metering area may reach before Highlight Protection lowers exposure. Lower values keep snow and bright cloud darker."));
+
 	ImGui::SeparatorText(T("feature.post_processing.histogram_auto_exposure.purkinje_effect", "Purkinje Effect"));
 	Util::SettingHint(
 		T("feature.post_processing.histogram_auto_exposure.the_purkinje_effect_simulates_the_blue_shift_of",
@@ -214,6 +225,20 @@ void HistogramAutoExposure::DrawSettings()
 		drawMarker(log2(parameters.LuminanceRange.y) + 3.0f, IM_COL32(255, 200, 0, 255));
 		drawMarker(adaptedEV100, IM_COL32(0, 255, 0, 255));
 		drawMarker(compensatedTargetEV100, IM_COL32(0, 220, 255, 255));
+		if (settings.HighlightProtection > 0.f) {
+			float totalSamples = 0.f;
+			for (int i = kFirstLuminanceBin; i < kHistogramBins; i++)
+				totalSamples += static_cast<float>(histogramData[i]);
+			float cumulativeSamples = 0.f;
+			for (int i = kFirstLuminanceBin; i < kHistogramBins && totalSamples > 0.f; i++) {
+				cumulativeSamples += static_cast<float>(histogramData[i]);
+				if (cumulativeSamples >= totalSamples * 0.9f) {
+					const float histogramPos = static_cast<float>(i - kFirstLuminanceBin) / static_cast<float>(kLastLuminanceBin - kFirstLuminanceBin);
+					drawMarker(histogramPos * (kMaxEV100 - kMinEV100) + kMinEV100, IM_COL32(255, 80, 220, 255));
+					break;
+				}
+			}
+		}
 
 		if (ImGui::IsItemHovered()) {
 			const float mouseX = ImGui::GetIO().MousePos.x;
@@ -237,6 +262,8 @@ void HistogramAutoExposure::DrawSettings()
 		ImGui::TextColored(ImVec4(0, 0.86f, 1, 1), T("feature.post_processing.histogram_auto_exposure.cyan_compensation_target", "Cyan: Compensation Target"));
 		ImGui::SameLine();
 		ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), T("feature.post_processing.histogram_auto_exposure.yellow_adaptation_range", "Yellow: Adaptation Range"));
+		if (settings.HighlightProtection > 0.f)
+			ImGui::TextColored(ImVec4(1, 0.31f, 0.86f, 1), T("feature.post_processing.histogram_auto_exposure.magenta_highlight_percentile", "Magenta: 90th Percentile (Highlight Protection)"));
 	} else {
 		histogramReadbackRequested = false;
 	}
@@ -362,6 +389,8 @@ void HistogramAutoExposure::Draw(TextureInfo& inout_tex)
 		.PurkinjeMaxEV = settings.PurkinjeMaxEV,
 		.PurkinjeStrength = settings.PurkinjeStrength,
 		.ExposureTarget = parameters.ExposureTarget,
+		.HighlightLimit = exp2(std::clamp(settings.HighlightLimitEV, 0.5f, 5.f)),
+		.HighlightProtection = std::clamp(settings.HighlightProtection, 0.f, 1.f),
 	};
 	autoExposureCB->Update(cbData);
 
