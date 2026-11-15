@@ -10,33 +10,15 @@ public:
 	virtual void Execute() override;
 	virtual void UpdateEffectVariables() override;
 
-	/** @brief Releases the sun mask shader so it recompiles on the next frame it is needed. */
+	/** @brief Releases the interior adaptation shader so it recompiles on the next frame it is needed. */
 	void ClearShaderCache();
 
 	TextureManager::Texture textureCurrent;
-	TextureManager::Texture textureSunMasked;
 
 protected:
 	void CreateEffectTextures() override;
 
 private:
-	struct alignas(16) SunMaskCB
-	{
-		Matrix CameraViewProj;
-		Matrix CameraViewProjInverse;
-		float4 SunDirection;
-		float4 DynamicResolution;
-		float4 MaskParams;
-	};
-
-	/** @brief Compiles the sun mask shader and creates its constant buffer and sampler on first use. */
-	bool EnsureSunMaskResources();
-	/**
-	 * @brief Replaces the procedural sun disc with the surrounding sky in the image adaptation measures.
-	 * @return The masked image, or a_source when masking is off or unavailable.
-	 */
-	ID3D11ShaderResourceView* MaskProceduralSun(ID3D11ShaderResourceView* a_source);
-
 	// Two float4s: already a whole number of 16-byte registers, so no alignas (it would pad the effect object)
 	struct InteriorCB
 	{
@@ -55,11 +37,6 @@ private:
 	winrt::com_ptr<ID3D11Buffer> interiorCB;
 	bool interiorActive = false;  // set by UpdateEffectVariables: indoors with UseInteriorValues on
 	InteriorCB interiorValues{};
-
-	ID3D11PixelShader* sunMaskPS = nullptr;
-	bool sunMaskPSFailed = false;
-	winrt::com_ptr<ID3D11Buffer> sunMaskCB;
-	winrt::com_ptr<ID3D11SamplerState> sunMaskSampler;
 
 	/** @brief Setting IDs of one set of adaptation values ([ADAPTATION] in enbseries.ini). */
 	struct ValueIDs

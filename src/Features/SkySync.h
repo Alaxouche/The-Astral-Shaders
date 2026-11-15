@@ -1,21 +1,18 @@
 #pragma once
-#include <array>
-#include <optional>
-
 #include "RE/M/Moon.h"
-
 #include "Utils/Moon.h"
+
+struct PhysicalSky;
 
 /** @brief Synchronizes volumetric lighting and shadow direction with actual sun and moon positions. */
 struct SkySync : Feature
 {
-	// Physical Sky reads the raw caster directions and supplies the directional light colours.
-	friend struct PhysicalSky;
-
 private:
 	static constexpr std::string_view MOD_ID = "153543";
 
 public:
+	friend struct PhysicalSky;
+
 	virtual inline std::string GetName() override { return "Sky Sync"; }
 	virtual std::string GetDisplayName() override { return T("feature.sky_sync.name", "Sky Sync"); }
 	virtual inline std::string GetShortName() override { return "SkySync"; }
@@ -216,10 +213,6 @@ private:
 	float moonNightWeight = 0.0f;
 	float lightNightWeight = 0.0f;
 	float flashWeight = 0.0f;  // lightning's share of this frame's directional light
-	// Physical Sky's directional light colours for the sun, Masser and Secunda (set when it overrides
-	// the directional light), and the casters' intensities from the last Update that scale them.
-	std::optional<std::array<RE::NiColor, BodyCount>> lightColors = {};
-	float casterIntensities[BodyCount] = {};
 	bool sunBelowHorizon = false;
 	ShadowFader shadowFader;
 

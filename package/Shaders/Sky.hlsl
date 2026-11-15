@@ -110,6 +110,16 @@ VS_OUTPUT main(VS_INPUT input)
 
 	float4 inputPosition = float4(input.Position.xyz, 1.0);
 
+#	if defined(PHYSICAL_SKY) && defined(DITHER) && !defined(TEX)
+	if (SharedData::physSkyData.enabled) {
+		// The atmosphere mesh ends at the equator; the LUT covers the whole sky.
+		const float radius = length(inputPosition.xyz);
+		const float cosZenith = saturate(inputPosition.z / max(radius, 1e-6));
+		inputPosition.xy *= 2.0 * cosZenith;
+		inputPosition.z = radius * (2.0 * cosZenith * cosZenith - 1.0);
+	}
+#	endif
+
 #	if defined(OCCLUSION)
 
 	// Intentionally left blank
@@ -226,12 +236,6 @@ cbuffer AlphaTestRefCB : register(b11)
 #	include "Common/SharedData.hlsli"
 
 #	if defined(CLOUD_SHADOWS)
-#		if defined(CLOUDS)
-// Cloud self shadowing is an extension of the fork's own Cloud Shadows -- its settings field, its
-// GetCloudSelfShadow and the per-deck t26 binding all live there, and none of that is in this
-// build. Never defining CLOUD_SELF_SHADOW compiles the path out; Physical Sky's own use of the
-// occlusion cubemap sits under a different guard and is unaffected.
-#		endif
 #		include "CloudShadows/CloudShadows.hlsli"
 #	endif
 
@@ -247,16 +251,8 @@ cbuffer AlphaTestRefCB : register(b11)
 #		include "Effects11/SkyScattering.hlsli"
 #	endif
 
-#	if defined(PROCEDURAL_SUN)
-#		include "ProceduralSun/ProceduralSun.hlsli"
-#	endif
-
 #	if defined(PROCEDURAL_NIGHT_SKY) && (defined(HORIZFADE) || (defined(DITHER) && !defined(TEX)))
 #		include "ProceduralNightSky/ProceduralNightSky.hlsli"
-#	endif
-#	ifdef HDR_OUTPUT
-#		include "HDRDisplay/HDRSun.hlsli"
-#		include "Common/Random.hlsli"
 #	endif
 
 #	if defined(PHYSICAL_SKY)
@@ -272,7 +268,27 @@ cbuffer AlphaTestRefCB : register(b11)
 #		include "ExponentialHeightFog/ExponentialHeightFog.hlsli"
 #	endif
 
+#	ifdef HDR_OUTPUT
+#		include "HDRDisplay/HDRSun.hlsli"
+#	endif
+
 Texture2D<float> TexDepthSampler : register(t17);
+
+#	if defined(PHYSICAL_SKY)
+float GetPhysSkyCloudShadow(float3 viewDir, uint2 pxCoord)
+{
+	if ((Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InReflection) != 0) {
+#		if defined(CLOUD_SHADOWS)
+		float cloudCubeSample = CloudShadows::CloudShadowsTexture.SampleLevel(SampBaseSampler, viewDir, 0).x;
+		return saturate(cloudCubeSample * SharedData::cloudShadowsSettings.Opacity);
+#		else
+		return 0.0;
+#		endif
+	}
+
+	return PhysSky::GetApShadow(pxCoord);
+}
+#	endif
 
 #	if defined(EFFECTS11) && defined(HORIZFADE)
 float3 ShadeStars(float4 starTexel, float2 uv)
@@ -293,31 +309,6 @@ float3 ShadeStars(float4 starTexel, float2 uv)
 	float3 squared = color * color;
 	color = lerp(color, squared * squared, SharedData::enbSettings.StarsCurve);
 	return max(color, 0.0) * SharedData::enbSettings.StarsIntensity;
-}
-#	endif
-
-#	if defined(PHYSICAL_SKY)
-float GetPhysSkyCloudShadow(float3 viewDir, uint2 pxCoord)
-{
-	if ((Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InReflection) != 0) {
-#		if defined(CLOUD_SHADOWS)
-		float cloudCubeSample = CloudShadows::CloudShadowsTexture.SampleLevel(SampBaseSampler, viewDir, 0).x;
-		return saturate(cloudCubeSample * SharedData::cloudShadowsSettings.Opacity);
-#		else
-		return 0.0;
-#		endif
-	}
-
-	return PhysSky::GetApShadow(pxCoord);
-}
-#	endif
-
-// The sun disc belongs to the Procedural Sun feature alone; Physical Sky no longer draws one, so the
-// two can never stack.
-#	if defined(PROCEDURAL_SUN)
-bool ProceduralSunActive()
-{
-	return SharedData::proceduralSunSettings.enabled;
 }
 #	endif
 
@@ -367,72 +358,17 @@ PS_OUTPUT main(PS_INPUT input)
 	baseColor.xyz = ColorManagement::TextureToWorking(baseColor.xyz);
 	baseColor = PParams.xxxx * (-baseColor + blendColor) + baseColor;
 #		endif
-
-#		if defined(PROCEDURAL_SUN) && defined(TEX) && defined(DEFERRED) && !defined(DITHER) && !defined(CLOUDS) && !defined(MOONMASK)
-	bool proceduralSunActive = SharedData::proceduralSunSettings.enabled &&
-	                           (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::IsSun) &&
-	                           (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InWorld);
-	[branch] if (proceduralSunActive) {
-		float3 viewDirection = normalize(input.WorldPosition.xyz);
-		float cosTheta = clamp(dot(viewDirection, SharedData::SunDirection.xyz), -1.0, 1.0);
-
-		float influenceCos = ProceduralSun::GetInfluenceCos(
-			SharedData::proceduralSunSettings.sunDiskCos,
-			SharedData::proceduralSunSettings.haloEnabled,
-			SharedData::proceduralSunSettings.sunHaloCos,
-			SharedData::proceduralSunSettings.haloIntensity);
-
-		float3 proceduralSunColor = 0.0;
-		float sunCoverage = 0.0;
-
-		[branch] if (cosTheta > influenceCos) {
-			float3 limbDarkening;
-			float discCoverage;
-			ProceduralSun::EvaluateDisc(
-				cosTheta,
-				SharedData::proceduralSunSettings.sunDiskCos,
-				SharedData::proceduralSunSettings.edgeSoftness,
-				limbDarkening,
-				discCoverage);
-
-			float haloProfile = 0.0;
-			if (SharedData::proceduralSunSettings.haloEnabled) {
-				haloProfile = ProceduralSun::EvaluateHalo(
-					cosTheta,
-					SharedData::proceduralSunSettings.sunDiskCos,
-					SharedData::proceduralSunSettings.sunHaloCos,
-					SharedData::proceduralSunSettings.haloFalloff);
-			}
-
-			ProceduralSun::ComposeDiscAndHalo(
-				limbDarkening,
-				discCoverage,
-				SharedData::proceduralSunSettings.diskIntensity,
-				haloProfile,
-				SharedData::proceduralSunSettings.haloIntensity,
-				proceduralSunColor,
-				sunCoverage);
-
-#			if defined(CLOUD_SHADOWS)
-			float cloudExtinction = SharedData::proceduralSunSettings.cloudExtinction * sunCoverage;
-			[branch] if (cloudExtinction > 0.0) {
-				float capturedCloudOcclusion = CloudShadows::CloudShadowsTexture.SampleLevel(SampBaseSampler, viewDirection, 0).x;
-				proceduralSunColor *= ProceduralSun::GetCloudTransmission(capturedCloudOcclusion, cloudExtinction);
-			}
-#			endif
-		}
-
-		baseColor.xyz = proceduralSunColor;
-		baseColor.w = sunCoverage * saturate(TexBaseSampler.SampleLevel(SampBaseSampler, 0.5, 0).w);
-
-		skyScale = 0.0;
-	}
+#		if defined(PHYSICAL_SKY)
+	bool enableProceduralSun = SharedData::physSkyData.sunDiskCos > 0.0 && SharedData::physSkyData.enabled && (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::IsSun);
+	baseColor.xyz *= enableProceduralSun ? 0.f : 1.f;
+#		else
+	bool enableProceduralSun = false;
 #		endif
 
 #		if defined(HDR_OUTPUT)
 	float hdrSunGain = HDRSun::GetHdrSunGain(input.TexCoord0.xy, baseColor);
 	baseColor.xyz *= hdrSunGain;
-	if (HDRSun::IsHdrSunActive()) {
+	if (HDRSun::IsHdrSunActive() && !enableProceduralSun) {
 		// Dither bright output to reduce banding in high-boost sun path.
 		// Same baseColor/skyScale treatment for DITHER and non-DITHER; DITHER adds noiseGrad later.
 		baseColor.xyz += (Random::InterleavedGradientNoise(input.Position.xy) - 0.5f) *
@@ -441,10 +377,14 @@ PS_OUTPUT main(PS_INPUT input)
 	}
 
 #			if defined(CLOUD_SHADOWS)
-	if (HDRSun::IsHdrSunActive()) {
+	if (HDRSun::IsHdrSunActive() && !enableProceduralSun) {
 		float cloudMult = CloudShadows::GetCloudShadowMult(input.WorldPosition.xyz, SampBaseSampler);
 		baseColor.xyz *= cloudMult;
+#				if defined(ENABLE_LL)
+		alphaTransmittance = cloudMult;
+#				else
 		baseColor.w *= cloudMult;
+#				endif
 	}
 #			endif
 #		endif
@@ -469,12 +409,6 @@ PS_OUTPUT main(PS_INPUT input)
 	psout.Color.xyz *= 1.0 + noiseGrad;
 	psout.Color.w = baseColor.w * input.Color.w;
 
-#				if defined(PROCEDURAL_SUN) && defined(CLOUD_SHADOWS) && defined(DEFERRED)
-	if (ProceduralSunActive() && SharedData::proceduralSunSettings.cloudExtinction > 0.0) {
-		float capturedCloudOcclusion = CloudShadows::CloudShadowsTexture.SampleLevel(SampBaseSampler, SharedData::SunDirection.xyz, 0).x;
-		psout.Color.w *= ProceduralSun::GetGlareCloudTransmission(capturedCloudOcclusion, SharedData::proceduralSunSettings.cloudExtinction);
-	}
-#				endif
 #			else
 	float3 skyGradientColor = input.Color.xyz;
 
@@ -491,25 +425,13 @@ PS_OUTPUT main(PS_INPUT input)
 
 #				if defined(PROCEDURAL_AURORA)
 	// Drawn on the sky dome so stars, moons and clouds still draw over it. The gradient is taken outside the branch.
-	// Procedural Night Sky draws its own aurora; this one steps aside while that one is on, so they never stack.
-	bool nightSkyAuroraActive = false;
-#					if defined(PROCEDURAL_NIGHT_SKY)
-	nightSkyAuroraActive = SharedData::proceduralNightSkySettings.enabled && SharedData::proceduralNightSkySettings.auroraIntensity > 0.0;
-#					endif
 	const float3 auroraDirection = normalize(input.WorldPosition.xyz);
 	const float auroraPixelAngle = length(fwidth(auroraDirection));
-	[branch] if (!nightSkyAuroraActive && SharedData::proceduralAuroraSettings.Enabled && SharedData::proceduralAuroraSettings.Atmosphere.x > 0.0 && auroraDirection.z > -0.03)
+	[branch] if (SharedData::proceduralAuroraSettings.Enabled && SharedData::proceduralAuroraSettings.Atmosphere.x > 0.0 && auroraDirection.z > -0.03)
 	{
-		// Bottle removed the Effects 11 [AURORA] curve, so a preset does not grade it.
-		psout.Color.xyz += ColorManagement::SRGBToWorking(ProceduralAurora::Render(auroraDirection, auroraPixelAngle));
+		float3 aurora = ColorManagement::SRGBToWorking(ProceduralAurora::Render(auroraDirection, auroraPixelAngle));
+		psout.Color.xyz += aurora;
 	}
-#				endif
-
-#				if defined(PROCEDURAL_NIGHT_SKY)
-	float3 auroraView = normalize(input.WorldPosition.xyz);
-	bool proceduralAuroraActive = SharedData::proceduralNightSkySettings.auroraIntensity > 0.0 && auroraView.z > 0.0 && (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InReflection);
-	[branch] if (proceduralAuroraActive)
-		psout.Color.xyz += ProceduralNightSky::EvaluateAurora(auroraView, Random::InterleavedGradientNoise(input.Position.xy, SharedData::FrameCount));
 #				endif
 
 #				if defined(EFFECTS11)
@@ -558,28 +480,6 @@ PS_OUTPUT main(PS_INPUT input)
 	psout.Color.w = input.Color.w * baseColor.w;
 	psout.Color.xyz = input.Color.xyz * baseColor.xyz + skyScale;
 
-#			if defined(CLOUD_SELF_SHADOW)
-	bool selfShadowFromENB = false;
-#				if defined(EFFECTS11)
-	// ENB's cloud scattering already marches the same cubemap for its own shading.
-	selfShadowFromENB = SharedData::enbSettings.Enable && SharedData::enbSettings.EnableCloudsScattering;
-#				endif
-	if (!selfShadowFromENB && SharedData::cloudShadowsSettings.SelfShadowStrength > 0.0) {
-		psout.Color.xyz *= CloudShadows::GetCloudSelfShadow(
-			normalize(input.WorldPosition.xyz),
-			SharedData::DirLightDirection.xyz,
-			SharedData::cloudShadowsSettings.SelfShadowStrength,
-			SampBaseSampler);
-	}
-#			endif
-
-	// Kept alongside the self shadow above rather than in place of it: that one needs
-	// CLOUD_SELF_SHADOW and this one needs !CLOUDS, so no permutation compiles both.
-#			if defined(PROCEDURAL_SUN) && defined(TEX) && defined(DEFERRED) && !defined(DITHER) && !defined(CLOUDS) && !defined(MOONMASK)
-	[branch] if (proceduralSunActive)
-		psout.Color = ProceduralSun::ToAdditiveBlend(psout.Color, SharedData::proceduralSunSettings.radianceLimit);
-#			endif
-
 #			if defined(CLOUDS) && defined(EFFECTS11)
 	[branch] if (SharedData::enbSettings.Enable)
 	{
@@ -618,23 +518,64 @@ PS_OUTPUT main(PS_INPUT input)
 		float3 skyViewDir = normalize(input.WorldPosition.xyz);
 		float skyShadow = GetPhysSkyCloudShadow(skyViewDir, input.Position.xy);
 		float2 physSkyScreenUV = input.Position.xy * SharedData::BufferDim.zw * FrameBuffer::DynamicResolutionParams2.xy;  // adjust for dynamic res
-		float3 physSkyColor = PhysSky::SampleSky(skyViewDir, skyShadow, PhysSky::SampSv);
+		float3 physSkyColor = inReflection ? PhysSky::SampleSky(skyViewDir, skyShadow, PhysSky::SampSv) : PhysSky::SampleViewSky(skyViewDir, skyShadow, PhysSky::SampSv);
 		float3 skyColor = physSkyColor;
-		if (SharedData::physSkyData.enableVolumetricClouds && (inReflection || !SharedData::PostWaterComposite))
+		if (inReflection && ViewAtmosphere::ReflectionEnabled()) {
+			uint tailWidth, tailHeight;
+			PhysSky::TexSkyTail.GetDimensions(tailWidth, tailHeight);
+			const float3 tail = PhysSky::TexSkyTail.SampleLevel(PhysSky::SampSv, PhysSky::SkyViewLutUv(skyViewDir, tailHeight), 0).rgb;
+			skyColor = PhysSky::CompositeReflectionMedium(tail, skyViewDir, PhysSky::AP_MAX_DIST, PhysSky::SampSv, true);
+		} else if (SharedData::physSkyData.enableVolumetricClouds && (inReflection || !SharedData::PostWaterComposite))
 			skyColor = inReflection ? PhysSky::CompositeVolumetricCloudsCube(physSkyColor, skyViewDir, PhysSky::SampSv) : PhysSky::CompositeVolumetricCloudsUv(physSkyColor, physSkyScreenUV, PhysSky::SampSv);
 		psout.Color = lerp(float4(skyColor, 1.0f), psout.Color, SharedData::physSkyData.vanillaMix);
 
 #		elif defined(PS_CLOUDS)
 		float apShadow = GetPhysSkyCloudShadow(viewDir, input.Position.xy);
 		float4 apColor = PhysSky::SampleAp(viewDir, psCloudDist, apShadow, PhysSky::SampSv);
-		psout.Color.xyz = psout.Color.xyz * apColor.a + apColor.rgb;
+		if (inReflection && ViewAtmosphere::ReflectionEnabled()) {
+			const ViewAtmosphere::Medium medium = ViewAtmosphere::SampleReflection(PhysSky::SkyViewLutUv(viewDir, 32u), psCloudDist, PhysSky::SampSv);
+			psout.Color.xyz = ColorManagement::SceneColor::ScaleAndAddLinear(psout.Color.xyz, medium.transmittance, medium.luminance);
+		} else
+			psout.Color.xyz = psout.Color.xyz * apColor.a + apColor.rgb;
 #		elif defined(TEX) && defined(DEFERRED)
+		float3 sunDir = normalize(SharedData::physSkyData.sunDir);
+		float cosTheta = saturate(dot(normalize(input.WorldPosition.xyz), sunDir));
+		if (enableProceduralSun && cosTheta > SharedData::physSkyData.sunDiskCos && (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::InWorld)) {
+			float sunDiskSin = sqrt(1.0 - SharedData::physSkyData.sunDiskCos * SharedData::physSkyData.sunDiskCos);
+			float tanTheta = sqrt(1.0 - cosTheta * cosTheta) / cosTheta;
+			float normDist = tanTheta * SharedData::physSkyData.sunDiskCos * rcp(sunDiskSin);
+			float3 limbFactor = Color::LinearSRGBToWorking(PhysSky::LimbDarkenHestroffer(normDist));
+
+			const float softEdge = saturate(8.0f * (cosTheta - SharedData::physSkyData.sunDiskCos) / (1.0f - SharedData::physSkyData.sunDiskCos));
+			const float sunSolidAngle = Math::TAU * (1.0f - SharedData::physSkyData.sunDiskCos);
+			const float3 transmittance = PhysSky::SampleViewCelestialTr(normalize(input.WorldPosition.xyz), SampBlendSampler);
+			float3 sunDiskRadiance = (SharedData::physSkyData.sunlightColor / max(sunSolidAngle, 1e-6f)) * transmittance;
+#			if !defined(ENABLE_LL)
+			sunDiskRadiance = min(sunDiskRadiance, 62250.0f);
+#			endif
+
+			float3 sunDiskColor = sunDiskRadiance * limbFactor * softEdge;
+			psout.Color.xyz = sunDiskColor;
+			psout.Color.w = 1.0;
+		} else if (enableProceduralSun) {
+			psout.Color = 0.0f;
+		} else {
+			psout.Color.xyz *= PhysSky::SampleViewCelestialTr(normalize(input.WorldPosition.xyz), PhysSky::SampSv);
+		}
 		if (SharedData::physSkyData.enableVolumetricClouds && (inReflection || !SharedData::PostWaterComposite)) {
 			float2 physSkyScreenUV = input.Position.xy * SharedData::BufferDim.zw * FrameBuffer::DynamicResolutionParams2.xy;  // adjust for dynamic res
-			psout.Color.xyz = PhysSky::ApplyVolumetricCloudTransmittanceUv(psout.Color.xyz, physSkyScreenUV, PhysSky::SampSv);
+			psout.Color.xyz = inReflection ? ColorManagement::SceneColor::ScaleByLinear(psout.Color.xyz, PhysSky::TexVolCubeTr.SampleLevel(PhysSky::SampSv, normalize(input.WorldPosition.xyz), 0)) : PhysSky::ApplyVolumetricCloudTransmittanceUv(psout.Color.xyz, physSkyScreenUV, PhysSky::SampSv);
 		}
 #		else
-		if (SharedData::physSkyData.enableVolumetricClouds && (inReflection || !SharedData::PostWaterComposite)) {
+#			if defined(HORIZFADE) || (defined(TEX) && !defined(MOONMASK))
+		psout.Color.xyz *= PhysSky::SampleViewCelestialTr(normalize(input.WorldPosition.xyz), PhysSky::SampSv);
+#			endif
+#			ifndef OCCLUSION
+		if (enableProceduralSun) {
+			psout.Color = 0.0f;
+		} else
+#			endif
+			if (SharedData::physSkyData.enableVolumetricClouds && (inReflection || !SharedData::PostWaterComposite)) {
 			float2 physSkyScreenUV = input.Position.xy * SharedData::BufferDim.zw * FrameBuffer::DynamicResolutionParams2.xy;  // adjust for dynamic res
 			float3 physSkyViewDir = normalize(input.WorldPosition.xyz);
 			psout.Color.xyz = inReflection ? PhysSky::CompositeVolumetricCloudsCube(psout.Color.xyz, physSkyViewDir, PhysSky::SampSv) : PhysSky::CompositeVolumetricCloudsUv(psout.Color.xyz, physSkyScreenUV, PhysSky::SampSv);
@@ -692,10 +633,7 @@ PS_OUTPUT main(PS_INPUT input)
 
 #	if defined(ENABLE_LL)
 #		if (defined(TEX) || defined(HORIZFADE)) && !defined(MOONMASK) && !defined(CLOUDS)
-	bool linearizeAlpha = !Permutation::RenderToUI || inReflection;
-#			if defined(PROCEDURAL_SUN) && defined(TEX) && defined(DEFERRED) && !defined(DITHER) && !defined(OCCLUSION)
-	linearizeAlpha = linearizeAlpha && !proceduralSunActive;
-#			endif
+	bool linearizeAlpha = (!Permutation::RenderToUI || inReflection) && !SharedData::physSkyData.enabled;
 #			if defined(PROCEDURAL_NIGHT_SKY) && defined(HORIZFADE)
 	linearizeAlpha = linearizeAlpha && !proceduralNightSkyActive;
 #			endif
@@ -707,6 +645,9 @@ PS_OUTPUT main(PS_INPUT input)
 		psout.Color.rgb = ColorManagement::WorkingToUI(psout.Color.rgb);
 #	endif
 	psout.Color.w *= alphaTransmittance;
+#	if !defined(OCCLUSION)
+	psout.Color.rgb = PreExposure::EncodeScene(psout.Color.rgb);
+#	endif
 	return psout;
 }
 #endif

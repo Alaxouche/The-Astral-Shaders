@@ -70,6 +70,7 @@ namespace Util
 		// Distance conversions
 		inline float GameUnitsToMeters(float gameUnits) { return gameUnits * GAME_UNIT_TO_M; }
 		inline float GameUnitsToCm(float gameUnits) { return gameUnits * GAME_UNIT_TO_CM; }
+		inline float GameUnitsToKm(float gameUnits) { return gameUnits * GAME_UNIT_TO_KM; }
 		inline float GameUnitsToFeet(float gameUnits) { return gameUnits * GAME_UNIT_TO_FEET; }
 		inline float GameUnitsToInches(float gameUnits) { return gameUnits * GAME_UNIT_TO_INCHES; }
 

@@ -17,12 +17,11 @@
 #include "Features/LightLimitFix.h"
 #include "Features/LinearLighting.h"
 #include "Features/NightEye.h"
+#include "Features/PhysicalSky.h"
 #include "Features/PostProcessing.h"
 #include "Features/LivingWindows.h"
-#include "Features/PhysicalSky.h"
-#include "Features/ProceduralNightSky.h"
-#include "Features/ProceduralSun.h"
 #include "Features/ProceduralAurora.h"
+#include "Features/ProceduralNightSky.h"
 #include "Features/RainRefraction.h"
 #include "Features/ScreenSpaceGI.h"
 #include "Features/ScreenSpaceReflections.h"
@@ -33,6 +32,7 @@
 #include "Features/TerrainShadows.h"
 #include "Features/TerrainVariation.h"
 #include "Features/VanillaFresnel.h"
+#include "Features/ViewAtmosphere.h"
 #include "Features/VolumetricLighting.h"
 #include "Features/WetnessEffects.h"
 #include "TruePBR.h"
@@ -79,7 +79,6 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 		globals::features::wetnessEffects.GetCommonBufferData(),
 		globals::features::skylighting.GetCommonBufferData(a_inWorld),
 		globals::features::cloudShadows.GetCommonBufferData(),
-		globals::features::proceduralSun.GetCommonBufferData(),
 		globals::features::lodBlending.settings,
 		globals::features::hairSpecular.settings,
 		globals::features::terrainVariation.settings,
@@ -93,16 +92,17 @@ std::pair<unsigned char*, size_t> GetFeatureBufferData(bool a_inWorld)
 		globals::features::skin.GetCommonBufferData(),
 		globals::features::vanillaFresnel.settings,
 		globals::features::snowCover.GetCommonBufferData(),
-		globals::features::physicalSky.cbData,
-		globals::features::livingWindows.GetCommonBufferData(),
 		globals::features::volumetricLighting.GetCommonBufferData(),
 		globals::features::horizonFix.GetCommonBufferData(),
 		globals::features::hairBacklighting.settings,
 		globals::features::rainRefraction.GetCommonBufferData(),
 		globals::features::nightEye.GetCommonBufferData(),
-		globals::features::proceduralAurora.GetCommonBufferData(),
 		globals::features::proceduralNightSky.GetCommonBufferData(),
 		globals::features::screenSpaceGI.GetCommonBufferData(),
 		globals::features::screenSpaceReflections.GetCommonBufferData(),
-		globals::features::postProcessing.GetCommonBufferData());
+		globals::features::postProcessing.GetCommonBufferData(),
+		globals::features::proceduralAurora.GetCommonBufferData(),
+		globals::features::physicalSky.cbData,
+		globals::features::viewAtmosphere.settings,
+		globals::features::livingWindows.GetCommonBufferData());  // fork: Living Windows last
 }

@@ -28,8 +28,9 @@ namespace LandscapeSeams
 	static const float QuadSize = 2048.0;
 	static const float GridCells = 16.0;
 
-	// Registers differ from upstream (t104-t121): this fork's Living Windows, Physical Sky and
-	// ViewMedium own most of that block in Lighting. LandscapeSeams::PSTextureSlots binds the same numbers.
+	// Registers differ from upstream (t104-t121): this fork's Living Windows and Physical Sky own most of
+	// that block in Lighting, and Physical Sky / View Atmosphere take t54, t56, t125 and t126 in pixel
+	// shaders. LandscapeSeams::PSTextureSlots binds the same numbers.
 	Texture2DArray<float4> Weights : register(t46);
 	StructuredBuffer<QuadData> Quad : register(t47);
 
@@ -38,8 +39,8 @@ namespace LandscapeSeams
 	Texture2D<float4> Aux0 : register(t51);
 	Texture2D<float4> Displacement0 : register(t52);
 
-	Texture2D<float4> Color1 : register(t54);
-	Texture2D<float4> Normal1 : register(t56);
+	Texture2D<float4> Color1 : register(t16);
+	Texture2D<float4> Normal1 : register(t29);
 	Texture2D<float4> Aux1 : register(t57);
 	Texture2D<float4> Displacement1 : register(t58);
 
@@ -50,8 +51,8 @@ namespace LandscapeSeams
 
 	Texture2D<float4> Color3 : register(t118);  // t123 is Fur Shells' depth
 	Texture2D<float4> Normal3 : register(t124);
-	Texture2D<float4> Aux3 : register(t125);
-	Texture2D<float4> Displacement3 : register(t126);
+	Texture2D<float4> Aux3 : register(t100);  // t100 is Grass Collision's, vertex shader only
+	Texture2D<float4> Displacement3 : register(t68);
 
 	static QuadData Data;
 	static float4 ExtraWeights = 0;

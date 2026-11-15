@@ -1,19 +1,31 @@
 #pragma once
 
 #include "Buffer.h"
+#include "Utils/SceneBlend.h"
+#include "Utils/Serialize.h"
+
+namespace Util
+{
+	class AsyncShaderSet;
+}
 
 struct TextureManager
 {
 	std::string name;
 	uint64_t revision = 0;
 	ankerl::unordered_dense::map<std::string, winrt::com_ptr<ID3D11ShaderResourceView>> texList;
+	ankerl::unordered_dense::map<std::string, HRESULT> loadResults;
 
 	bool LoadTexture(std::filesystem::path path);
+	void EnsureLoaded(const std::string& path);
+	void Reload();
+	static std::string Key(const std::filesystem::path& path);
 
 	inline ID3D11ShaderResourceView* Query(const std::string& path) const
 	{
-		if (texList.contains(path))
-			return texList.at(path).get();
+		const auto key = Key(std::filesystem::u8path(path));
+		if (texList.contains(key))
+			return texList.at(key).get();
 		return nullptr;
 	}
 
@@ -21,6 +33,7 @@ struct TextureManager
 	{
 		std::vector<std::string> retval;
 		std::ranges::transform(texList, std::back_inserter(retval), [](auto& pair) { return pair.first; });
+		std::ranges::sort(retval);
 		return retval;
 	}
 
@@ -79,9 +92,10 @@ struct NdfGenerationParameters
 	NdfNoiseLayer primary = { .noise = 3, .exponent = 1.4f, .range = { -0.4f, 0.65f, 0.f, 0.65f } };
 	NdfNoiseLayer secondary = { .noise = 1, .range = { -0.2f, 0.8f, 0.f, 0.4f } };
 	NdfNoiseLayer coverageGain = { .range = { -1.f, 1.f, 1.f, 1.f } };
-	NdfNoiseLayer modeling = { .range = { -0.5f, 0.6f, 0.05f, 0.85f } };
+	NdfNoiseLayer modeling = { .exponent = 1.6f, .range = { -0.5f, 0.6f, 0.f, 0.5f } };
 	NdfNoiseLayer modelingGain = { .range = { -1.f, 1.f, 1.f, 1.f } };
 	NdfNoiseLayer heightVariation = { .range = { 0.f, 1.f, 0.f, 0.02f } };
+	float4 heightAuxiliaryRange = { 0.f, 1.f, 0.f, 0.f };
 	float4 bottomTypeRange = { -0.4f, 0.5f, 0.f, 0.25f };
 	float2 baseHeight = { 0.f, 0.95f };
 	float bottomTypeExponent = 1.f;
@@ -92,14 +106,16 @@ struct NdfGenerationParameters
 	float localWindScale = 1.f;
 	float2 windOffset = {};
 	uint32_t hasLocalMask = 0;
-	float padding = 0.f;
+	uint32_t imported = 0;
+	uint32_t preview = 0;
+	float3 padding = {};
 };
-static_assert(sizeof(NdfGenerationParameters) == 352);
+static_assert(sizeof(NdfGenerationParameters) == 384);
 
 struct ProceduralNdfSettings
 {
 	NdfGenerationParameters parameters;
-	std::array<NdfNoiseInput, 4> noise = { { { { .type = 0, .frequency = 12 } },
+	std::array<NdfNoiseInput, 4> noise = { { { { .type = 0, .frequency = 4, .octaves = 4, .persistence = 0.5f, .lacunarity = 2, .contrast = 1.f, .bias = 0.f } },
 		{ { .type = 1, .frequency = 4, .octaves = 6, .persistence = 0.6f, .contrast = 1.6f, .bias = -0.02f, .repetitions = 2, .responseExponent = 1.8f } },
 		{ { .type = 1, .frequency = 32 } },
 		{ { .type = 2, .frequency = 12, .contrast = 1.1f, .bias = -0.05f, .responseExponent = 2.f } } } };
@@ -113,11 +129,42 @@ enum class NdfType : uint32_t
 	Procedural = 1
 };
 
+enum class LocalNdfBlendMode : uint32_t
+{
+	Interpolate = 0,
+	Maximum = 1
+};
+
+struct LocalNdfState
+{
+	std::string asset;
+	std::string worldspace;
+	bool enabled = true;
+	float2 center = {};
+	float2 size = { 16384.f, 16384.f };
+	float rotation = 0.f;
+	float altitude = 256.f;
+	float heightSpan = 1792.f;
+	float strength = 1.f;
+	float modelingWeight = 1.f;
+	float heightWeight = 1.f;
+	float feather = 200.f;
+	bool modelingAlpha = true;
+	LocalNdfBlendMode modelingBlend = LocalNdfBlendMode::Interpolate;
+};
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
+	LocalNdfState,
+	asset, worldspace, enabled, center, size, rotation, altitude, heightSpan,
+	strength, modelingWeight, heightWeight, feather, modelingAlpha, modelingBlend)
+
 struct NdfSettings
 {
 	NdfType type = NdfType::Procedural;
 	TexNdfSettings texture;
 	ProceduralNdfSettings procedural;
+	SceneBlend localCloud;
+	float localTexelSize = 32.f;
 };
 
 struct NdfTextureSet
@@ -136,14 +183,39 @@ struct NdfManager
 	winrt::com_ptr<ID3D11ComputeShader> noiseProgram = nullptr;
 
 	void SetupResources();
-	void CompileShaders();
+	void CompileShaders(Util::AsyncShaderSet& a_shaders);
 	static const char* GetSettingsTypeName(const NdfSettings& settings);
 	static const char* GetSettingsHint(const NdfSettings& settings);
-	static void DrawNdfSettings(NdfSettings& settings, TextureManager& textures);
+
+	/// Global map source: procedural versus texture pair, plus the texture pair slots.
+	static void DrawNdfSource(NdfSettings& settings, TextureManager& textures);
+
+	/// Scene-authorable weather shape: coverage, types, heights and remap intervals.
+	static void DrawNdfShape(NdfGenerationParameters& parameters);
+
+	/// The repeating global overlay and the scene-authorable local influence weights.
+	static void DrawNdfOverlay(NdfSettings& settings, TextureManager& textures);
+
+	/// Global noise slots that feed the weather shape.
+	static void DrawNdfNoise(NdfSettings& settings, TextureManager& textures);
+
 	bool UpdateNdf(const NdfSettings& settings, TextureManager& textures);
 	NdfTextureSet GetNdf(const NdfSettings& settings, TextureManager& textures);
 
+	const std::array<ID3D11ShaderResourceView*, 4>& GetNoiseInputs() const { return noiseInputs; }
+	uint64_t GetRevision() const { return generatedRevision; }
+	/// Tracks noise input changes independently of weather-field advection.
+	uint64_t GetNoiseRevision() const { return noiseRevision; }
+	/// Tracks every shared weather-noise slot, excluding low-cloud advection.
+	uint64_t GetWeatherNoiseRevision() const { return weatherNoiseRevision; }
+	float2 GetWeatherOffset() const { return generatedData.windOffset; }
+	float4 GetHeightAuxiliaryRange() const { return generatedData.heightAuxiliaryRange; }
+	/// Channel picker plus a preview of the generated weather map. Debug and the Clouds page share it.
+	void DrawPreview(float a_size = 384.0f);
+
 	static bool IsTextureNdf(ID3D11ShaderResourceView* srv, uint32_t channels);
+	static bool IsLinearFormat(DXGI_FORMAT format, uint32_t channels);
+	static bool IsTexturePair(NdfTextureSet maps);
 
 private:
 	static NdfTextureSet QueryTextures(const TexNdfSettings& settings, TextureManager& textures);
@@ -157,7 +229,13 @@ private:
 	std::array<ID3D11ShaderResourceView*, 7> generatedSources = {};
 	std::array<std::string, 9> sourcePaths = {};
 	uint64_t generatedRevision = 0;
-	uint64_t importedRevision = 0;
+	uint64_t noiseRevision = 0;
+	uint64_t weatherNoiseRevision = 0;
+	uint64_t textureRevision = 0;
+	std::array<ID3D11ShaderResourceView*, 4> noiseInputs = {};
+	std::array<winrt::com_ptr<ID3D11ShaderResourceView>, 4> noiseInputResources;
+	eastl::unique_ptr<Texture2D> texPreview;
+	int preview = 0;
 	bool generatedValid = false;
 };
 
@@ -165,83 +243,179 @@ struct LowCloudSettings
 {
 	float ndfAltitudeOffset = 256.f;
 	float ndfAltitudeScale = 1792.f;
+	float curvatureRadius = 74.946f;
 	float2 ndfScale = { 16.f, 16.f };
-	float coverageBottomPower = 0.39f;
-	float coverageHeightRange = 0.30f;
-	float bottomDensityPower = 6.f;
-	float bottomDensityWidth = 6.8f;
-	float topExpansion = 1.f;
-	float2 windDirection = { 0.f, 0.f };
-	float windSpeed = 0.f;
-	float shapeShear = 0.f;
-	float densityScale = 0.125f;
-
-	/** @brief Drive coverage, density and drift from the current weather instead of the fixed values above. */
-	bool weatherDriven = true;
-	/** @brief Coverage per weather class (x clear, y cloudy, z rain, w snow). 1 keeps the cloud map, lower removes the thinnest clouds, higher fills the gaps. */
-	float4 weatherCoverage = { 0.45f, 0.95f, 1.35f, 1.2f };
-	/** @brief Density multiplier per weather class, same order. */
-	float4 weatherDensity = { 0.75f, 1.0f, 1.5f, 1.25f };
-	/** @brief Drift speed for the weather's calmest and windiest settings (m/s). */
-	float2 weatherWindSpeedRange = { 4.f, 30.f };
-	/** @brief Seconds for coverage, density and wind to follow a weather change. */
-	float weatherResponseTime = 30.f;
-	/** @brief Cloud type multiplier per weather class (x clear, y cloudy, z rain, w snow): 1 keeps the map's cumulus tops, lower flattens toward stratus. */
-	float4 weatherCloudType = { 1.0f, 0.75f, 0.3f, 0.4f };
-	/** @brief Vertical extent per weather class, as a share of the map's cloud height. */
-	float4 weatherCloudHeight = { 1.0f, 0.85f, 0.55f, 0.6f };
-	/** @brief Lightning flashes light storm clouds from inside. */
-	bool lightningLighting = true;
-	float lightningBrightness = 6.f;
-	float lightningRadiusKm = 2.5f;
+	float bottomSpreadScale = (1.f - 0.39f) / 0.75f;
+	float bottomSpreadHeight = 0.30f;
+	float bottomSoftness = 1.f;
+	float bottomSoftnessHeight = 0.68f;
+	float topExpansionScale = 1.f;
+	float densityScale = 0.75f;
 
 	float2 GetNdfAltitudeRangeKm() const;
+	float GetCurvatureRadiusKm() const;
+	float GetShadowBottomKm(float bottomKm, float rangeKm, uint32_t resolution) const;
 };
+
+struct CirrusNoiseLayer
+{
+	uint32_t noise = 2;
+	float frequency = 1.f;
+	float2 offset = {};
+	float4 range = { -1.f, 1.f, 0.f, 1.f };
+};
+static_assert(sizeof(CirrusNoiseLayer) == 32);
+
+struct CirrusWeatherState
+{
+	std::array<CirrusNoiseLayer, 2> layers = { { { .noise = 1, .range = { -0.7f, 0.7f, 0.f, 0.6f } }, {} } };
+	std::string localMap;
+	float localWeight = 0.f;
+	float localWindScale = 1.f;
+	uint32_t localBlendMode = 0;
+};
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
+	CirrusNoiseLayer,
+	noise, frequency, offset, range)
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
+	CirrusWeatherState,
+	layers, localMap, localWeight, localWindScale, localBlendMode)
+
+struct MidCloudWeatherState
+{
+	// Retain the old coverage/type keys. Missing new fields are neutral so
+	// existing scene endpoints and RGB maps keep their authored appearance.
+	std::array<CirrusNoiseLayer, 2> layers = { { { .noise = 1, .range = { -0.7f, 0.7f, 0.f, 0.6f } },
+		{ .range = { -1.f, 1.f, 0.65f, 0.65f } } } };
+	CirrusNoiseLayer secondaryCoverage{ .noise = 3, .range = { -1.f, 1.f, 0.f, 0.f } };
+	CirrusNoiseLayer coverageGain{ .range = { -1.f, 1.f, 1.f, 1.f } };
+	CirrusNoiseLayer thicknessVariation{ .noise = 0, .range = { -1.f, 1.f, 0.f, 0.f } };
+	std::string localMap;
+	float localWeight = 0.f;
+	float localWindScale = 1.f;
+	uint32_t localBlendMode = 0;
+};
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
+	MidCloudWeatherState,
+	layers, secondaryCoverage, coverageGain, thicknessVariation, localMap, localWeight, localWindScale, localBlendMode)
 
 struct CirrusSettings
 {
+	CirrusSettings();
 	bool enabled = true;
-	float altitude = 2048.f;
-	float patternScale = 1.f / 0.0002331f;
+	float altitude = 8000.f;
+	float uvSize = 1.f;
 	float densityScale = 1.f;
-	float lightingScale = 0.5f;
-	std::string weatherPath;
-	std::string patternsPath;
-	std::array<NdfNoiseInput, 2> noise = { { { { .type = 1, .frequency = 4 } }, { { .type = 1, .seed = 7331, .frequency = 8 } } } };
-	std::array<NdfNoiseLayer, 2> weather = { { { .noise = 0, .range = { -0.7f, 0.7f, 0.f, 0.6f } }, { .noise = 1 } } };
-	uint32_t patternSeed = 1337;
-	float patternWarp = 0.15f;
-	float patternDetail = 0.35f;
+	SceneBlend weather;
 
 	float GetAltitudeKm() const;
+	float GetUvSize() const;
 };
 
 struct CloudLightingSettings
 {
-	float lightingScale = 0.36f;
+	float brightness = 1.f;
 	float sunExtinction = 1.f;
-	float phaseForwardG = 0.2f;
-	float phaseBackwardG = 0.9f;
-	float phaseForwardWeight = 1.f;
-	float phaseBackwardWeight = 0.25f;
-	float scatterVolumeStrength = 0.5f;
-	float scatterVolumeDepth = 0.04f;
-	float scatterVolumeHeight = 0.29f;
-	float softScatteringStrength = 1.f;
-	float powderStrength = 0.5f;
-	float ambientStrength = 3.6f;
-	float ambientFloor = 0.23f;
-	float ambientDensity = 0.5f;
-	float ambientBase = 1.f;
-	/** @brief Share of the moons' own irradiance that lights the clouds at night. A deck lit at the full moon irradiance still reads as a bright overcast once the game's exposure has adapted to the dark. */
-	float moonlightScale = 0.25f;
+	float viewExtinction = 1.f;
+	float dropletDiameter = 20.f;
+	float phaseForwardG = 0.85f;
+	float phaseBackwardG = -0.3f;
+	float msStrength = 1.f;
+	float msAlbedo = 0.999f;
+	float msBoundaryWidth = 100.f;
+	float ambientStrength = 1.f;
+	float scatterDensityThreshold = 0.001f;
+	float scatterDensityPower = 1.f;
+	float cirrusLightThickness = 200.f;
+};
+
+struct CloudWindSettings
+{
+	float2 lowVelocity = { 5.f, 0.f };
+	float2 highVelocity = { 10.f, 0.f };
+	float development = 0.25f;
+	float disturbance = 0.2f;
+
+	static CloudWindSettings Interpolate(const CloudWindSettings& from, const CloudWindSettings& to, float weight);
+};
+
+struct MidCloudBands
+{
+	float direction = 0.f;
+	float wavelength = 2000.f;
+	float warp = 0.25f;
+	float coverage = 0.f;
+	float thickness = 0.f;
+	float displacement = 0.f;
+};
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(MidCloudBands, direction, wavelength, warp, coverage, thickness, displacement)
+
+struct MidCloudSettings
+{
+	MidCloudSettings();
+	bool enabled = false;
+	float altitude = 3500.f;
+	float thickness = 800.f;
+	float densityScale = 0.02f;
+	float uvSize = 1.f;
+	float edgeSoftness = 0.1f;
+	float cellFrequency = 2.f;
+	float cellStrength = 0.9f;
+	float stratusCellStrength = 0.1f;
+	float warpStrength = 0.1f;
+	float detailScale = 256.f;
+	uint32_t detailMode = 1;
+	float heightPower = 1.f;
+	MidCloudBands bands;
+	SceneBlend weather;
+	/// Conservative curved-layer support, in metres above the atmosphere base.
+	float2 GetAltitudeRange() const;
+};
+
+struct MidCloudMapManager
+{
+	/// Allocate the weather-map accumulation pair and generation constants.
+	void SetupResources();
+	/// Queue the generation shader and invalidate the cached output.
+	void CompileShaders(Util::AsyncShaderSet& a_shaders);
+	/// Regenerate changed scene/noise inputs; returns true when the map changes.
+	bool Update(const MidCloudSettings& settings, TextureManager& textures, const NdfManager& ndf);
+	/// Draw middle-layer and scene weather controls.
+	static void DrawSettings(MidCloudSettings& settings, TextureManager& textures);
+	/// Return the generated map, or null when generation is unavailable.
+	ID3D11ShaderResourceView* Weather() const { return valid ? output.get() : nullptr; }
+
+private:
+	struct Parameters
+	{
+		std::array<CirrusNoiseLayer, 5> weather;
+		float localWeight;
+		uint32_t localBlendMode;
+		float weight;
+		uint32_t hasPrevious;
+		float4 shape;
+	};
+	static_assert(sizeof(Parameters) == 192);
+	std::array<eastl::unique_ptr<Texture2D>, 2> maps;
+	eastl::unique_ptr<ConstantBuffer> parameters;
+	winrt::com_ptr<ID3D11ComputeShader> shader;
+	winrt::com_ptr<ID3D11SamplerState> sampler;
+	winrt::com_ptr<ID3D11ShaderResourceView> output;
+	std::string key;
+	uint64_t textureRevision = 0, noiseRevision = 0;
+	bool valid = false;
 };
 
 struct CloudLayer
 {
 	LowCloudSettings low;
+	MidCloudSettings middle;
 	CirrusSettings cirrus;
 	CloudLightingSettings lighting;
+	CloudWindSettings wind;
 };
 
 struct CirrusTextureSet
@@ -254,40 +428,35 @@ struct CirrusTextureSet
 struct CirrusMapManager
 {
 	void SetupResources();
-	void CompileShaders();
+	void CompileShaders(Util::AsyncShaderSet& a_shaders);
 	bool ShadersReady(const CirrusSettings& settings) const;
-	static void DrawSettings(CirrusSettings& settings, TextureManager& textures);
-	bool Update(const CirrusSettings& settings, TextureManager& textures);
+	static void DrawSettings(CirrusSettings& settings, CloudLightingSettings& lighting, TextureManager& textures);
+	bool Update(const CirrusSettings& settings, TextureManager& textures, const NdfManager& ndf);
 	CirrusTextureSet GetTextures() const;
-	Texture2D* GetWeatherTexture() { return texWeather.get(); }
-	Texture2D* GetPatternsTexture() { return texPatterns.get(); }
 
 private:
 	static constexpr uint32_t kDimension = 512;
 	struct GenerationParameters
 	{
-		std::array<NdfNoiseLayer, 2> weather;
-		uint32_t seed;
-		float warp;
-		float detail;
+		std::array<CirrusNoiseLayer, 2> weather;
+		float2 windOffset = {};
+		float localWeight = 0.f;
+		float localWindScale = 1.f;
+		uint32_t localBlendMode = 0;
+		float weight = 1.f;
+		uint32_t hasPrevious = 0;
 		float padding = 0.f;
 	};
-	static_assert(sizeof(GenerationParameters) == 112);
-	eastl::unique_ptr<Texture2D> texWeather;
-	eastl::unique_ptr<Texture2D> texPatterns;
-	std::array<eastl::unique_ptr<Texture2D>, 2> noiseTextures;
+	static_assert(sizeof(GenerationParameters) == 96);
+	std::array<eastl::unique_ptr<Texture2D>, 2> texWeather;
 	eastl::unique_ptr<ConstantBuffer> generationCb;
-	eastl::unique_ptr<ConstantBuffer> noiseCb;
 	winrt::com_ptr<ID3D11ComputeShader> weatherProgram;
-	winrt::com_ptr<ID3D11ComputeShader> patternsProgram;
-	winrt::com_ptr<ID3D11ComputeShader> noiseProgram;
 	winrt::com_ptr<ID3D11SamplerState> sampler;
-	std::array<NdfNoiseParameters, 2> generatedNoise = {};
-	std::array<bool, 2> noiseValid = {};
-	std::array<std::string, 4> sourcePaths = {};
-	GenerationParameters generatedData = {};
-	std::array<ID3D11ShaderResourceView*, 4> generatedSources = {};
+	std::string generatedKey;
+	float2 generatedWind = {};
 	uint64_t generatedRevision = 0;
+	uint64_t noiseRevision = 0;
 	bool generatedValid = false;
 	CirrusTextureSet outputs;
+	std::array<winrt::com_ptr<ID3D11ShaderResourceView>, 2> outputResources;
 };

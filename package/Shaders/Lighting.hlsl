@@ -180,17 +180,16 @@ float2 GetTreeShiftVector(float4 position, float4 color)
 }
 #	endif  // TREE_ANIM
 
-// Fur Shells' per-pass data shares cbuffer bank b13 with Tree LOD Wind; billboard tree LOD never carries fur.
-#	if defined(TREE_LOD_WIND) && defined(VC) && !defined(TREE_ANIM) && !defined(LOD) && !defined(LODLANDSCAPE) && !defined(LANDSCAPE) && !defined(SKINNED) && !defined(EYE) && !defined(FUR_SHELLS)
-#		define TREE_LOD_WIND_VS
-#		include "TreeLODWind/TreeLODWind.hlsli"
+#	if defined(TREE_WIND) && defined(VC) && !defined(TREE_ANIM) && !defined(LOD) && !defined(LODLANDSCAPE) && !defined(LANDSCAPE) && !defined(SKINNED) && !defined(EYE)
+#		define TREE_WIND_VS
+#		include "TreeWind/TreeWind.hlsli"
 #	endif
 
-#	if defined(FUR_SHELLS) && defined(TREE_LOD_WIND_VS)
+#	if defined(FUR_SHELLS) && defined(TREE_WIND_VS)
 VS_OUTPUT main(VS_INPUT input, uint instanceID : SV_InstanceID, uint vertexID : SV_VertexID)
 #	elif defined(FUR_SHELLS)
 VS_OUTPUT main(VS_INPUT input, uint instanceID : SV_InstanceID)
-#	elif defined(TREE_LOD_WIND_VS)
+#	elif defined(TREE_WIND_VS)
 VS_OUTPUT main(VS_INPUT input, uint vertexID : SV_VertexID)
 #	else
 VS_OUTPUT main(VS_INPUT input)
@@ -227,11 +226,11 @@ VS_OUTPUT main(VS_INPUT input)
 	previousInputPosition.xyz += normal.xyz * treeShiftVector.y;
 #	endif
 
-#	if defined(TREE_LOD_WIND_VS)
-	if (TreeLODWind::IsEnabled()) {
-		float nearScale = TreeLODWind::GetNearScale(World, input.Position.xyz);
-		inputPosition.xy += TreeLODWind::GetOffset(input.Position.xyz, TreeLODWind::Wind.x, vertexID, nearScale);
-		previousInputPosition.xy += TreeLODWind::GetOffset(input.Position.xyz, TreeLODWind::Wind.y, vertexID, nearScale);
+#	if defined(TREE_WIND_VS)
+	if (TreeWind::IsEnabled()) {
+		float nearScale = TreeWind::GetNearScale(World, input.Position.xyz);
+		inputPosition.xy += TreeWind::GetOffset(input.Position.xyz, TreeWind::Wind.x, vertexID, nearScale);
+		previousInputPosition.xy += TreeWind::GetOffset(input.Position.xyz, TreeWind::Wind.y, vertexID, nearScale);
 	}
 #	endif
 
@@ -262,8 +261,8 @@ VS_OUTPUT main(VS_INPUT input)
 #		endif
 
 	float4 viewPos = mul(ViewProj, worldPosition);
-#	else   // !SKINNED
-#		if defined(TREE_LOD_WIND_VS)
+#	else  // !SKINNED
+#		if defined(TREE_WIND_VS)
 	precise float4 previousWorldPosition = float4(mul(PreviousWorld, previousInputPosition), 1);
 #		else
 	precise float4 previousWorldPosition = float4(mul(PreviousWorld, inputPosition), 1);
@@ -1136,11 +1135,6 @@ bool UseSkylightingShadowVisibility()
 
 #	if defined(EXP_HEIGHT_FOG)
 #		include "ExponentialHeightFog/ExponentialHeightFog.hlsli"
-#	endif
-
-#	if defined(OIT)
-#		define OIT_WRITE_DEPTH 1
-#		include "OIT/OITCapture.hlsli"
 #	endif
 
 #	if defined(PHYSICAL_SKY) || defined(EXP_HEIGHT_FOG)
@@ -2979,9 +2973,10 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	if defined(PHYSICAL_SKY)
 	if (SharedData::physSkyData.enabled) {
 		dirLightColor *= PhysSky::SampleTr(normalize(DirLightDirection.xyz), SampShadowMaskSampler);
-		dirLightColor *= PhysSky::GetDirlightTransmittance(input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz, SampColorSampler);
+		dirLightColor *= PhysSky::GetDirlightTransmittance(input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz, SampColorSampler, true);
 	}
 #	endif
+
 	float3 cloudScatterColor = dirLightColor;
 	float cloudScatter = 0.0;
 
@@ -3300,6 +3295,11 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		float3 lightColor = Color::PointLight(light.color.xyz) * intensityMultiplier * light.fade;
 		float lightShadow = 1.0;
 		float3 normalizedLightDirection = normalize(lightDirection);
+
+#			if defined(SKYLIGHTING)
+		if (light.lightFlags & LightLimitFix::LightFlags::Lightning)
+			lightColor *= Skylighting::EvaluateDiffuse(skylightingSH, normalizedLightDirection, Skylighting::GetFadeOutFactor(positionMSSkylight));
+#			endif
 
 		float shadowComponent = 1.0;
 		[branch] if (light.lightFlags & LightLimitFix::LightFlags::LocalShadow)
@@ -3844,9 +3844,12 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		endif
 	color.xyz = ColorManagement::LinearToScene(color.xyz);
 #		if defined(PHYSICAL_SKY)
-	if (SharedData::physSkyData.enabled && inWorld) {
+	if (SharedData::physSkyData.enabled && (inWorld || inReflection)) {
 		const float3 physSkyViewDir = normalize(input.WorldPosition.xyz);
-		if (inReflection)
+		if (inReflection && ViewAtmosphere::ReflectionEnabled() && (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::AdditiveLighting)) {
+			const ViewAtmosphere::Medium medium = PhysSky::SampleReflectionMedium(physSkyViewDir, length(input.WorldPosition.xyz), SampColorSampler, false);
+			color.xyz = ColorManagement::SceneColor::ScaleByLinear(color.xyz, medium.transmittance);
+		} else if (inReflection)
 			color.xyz = PhysSky::CompositeAerialPerspectiveReflection(color.xyz, physSkyViewDir, length(input.WorldPosition.xyz), SampColorSampler);
 		else
 			color.xyz = PhysSky::CompositeAerialPerspective(color.xyz, physSkyViewDir, input.Position.xy, screenUV, length(input.WorldPosition.xyz), SampColorSampler);
@@ -3855,9 +3858,9 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 
 #		if defined(PHYSICAL_SKY) || defined(EXP_HEIGHT_FOG)
 	if (SharedData::PostWaterComposite && inWorld && !inReflection) {
-		const float4 medium = ViewMedium::SampleViewMedium(input.WorldPosition.xyz, screenUV, SampColorSampler);
+		const ViewAtmosphere::Medium medium = ViewMedium::SampleViewMedium(input.WorldPosition.xyz, screenUV, SampColorSampler);
 		const bool additive = (Permutation::ExtraShaderDescriptor & Permutation::ExtraFlags::AdditiveLighting) != 0;
-		color.xyz = ColorManagement::LinearToScene(ColorManagement::SceneToLinear(color.xyz) * medium.a + (additive ? 0.0.xxx : medium.rgb));
+		color.xyz = ColorManagement::SceneColor::ScaleAndAddLinear(color.xyz, medium.transmittance, additive ? 0.0.xxx : medium.luminance);
 	} else
 #		endif
 	{
@@ -4191,16 +4194,13 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #		undef LANDSCAPE_PARALLAX_ENABLED
 #	endif
 
-#if defined(OIT)
-#if OIT == 3 && !defined(DEFERRED)
-	WBOITResult oit = OIT_CaptureWBOIT(int2(input.Position.xy), psout.Diffuse, input.Position.z);
-	psout.OITFrontAccumalation = oit.accumFront;
-	psout.OITAccumalation = oit.accumAll;
-	psout.OITRevealage = oit.revealage;
-#else
-	psout.Diffuse = OIT_Capture(int2(input.Position.xy), psout.Diffuse, input.Position.z);
-#endif
-#endif
+	psout.Diffuse.rgb = PreExposure::EncodeScene(psout.Diffuse.rgb);
+#	if defined(DEFERRED)
+	psout.Specular.rgb = PreExposure::EncodeScene(psout.Specular.rgb);
+#	else
+	if (outputColorToAuxiliaryTarget)
+		psout.NormalGlossiness.rgb = PreExposure::EncodeScene(psout.NormalGlossiness.rgb);
+#	endif
 #	if defined(FUR_SHELLS_DEPTH)
 	psout = (PS_OUTPUT)0;
 #	endif

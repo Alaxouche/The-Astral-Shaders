@@ -245,17 +245,6 @@ void SkySync::OnSkyUpdateColors(RE::Sky* sky)
 	const float casterFade = moonsHidden ? 0.0f : shadowFader.casterFade;
 
 	auto& dirLight = sky->skyColor[static_cast<uint>(RE::TESWeather::ColorTypes::kSunlight)];
-	// Physical Sky drives the directional light's colour from its atmosphere: use the colour of the
-	// body that currently casts, scaled by its intensity; the zenith fallback has no body to colour it.
-	if (lightColors) {
-		const auto target = shadowFader.target;
-		if (target == Caster::Zenith) {
-			dirLight = RE::NiColor{ 0.0f, 0.0f, 0.0f };
-		} else {
-			const auto index = static_cast<size_t>(target);
-			dirLight = (*lightColors)[index] * casterIntensities[index];
-		}
-	}
 	// Lightning strikes from overhead rather than the caster, so only the light under the flash is dimmed
 	const float flash = GetDirectionalFlash(sky);
 	const RE::NiColor flashLight{ std::min(flash, dirLight.red), std::min(flash, dirLight.green), std::min(flash, dirLight.blue) };
@@ -308,6 +297,8 @@ void SkySync::ApplyMoonlightColors(RE::Sky* sky)
 
 float SkySync::GetDirectionalFlash(const RE::Sky* sky)
 {
+	if (globals::features::physicalSky.lightning.OwnsWeather())
+		return 0.f;
 	// Sky::SetColor caps the added flash at 1
 	return !sky->lastWeather && gWeatherFlashDirectional ? std::min(gWeatherFlashDirectional->GetFloat() * sky->flash, 1.0f) : 0.0f;
 }
@@ -362,7 +353,10 @@ RE::BSVolumetricLightingRenderData SkySync::BlendNightVolumetricLighting(const R
 
 void SkySync::Sky_Update::thunk(RE::Sky* sky, float deltaTime)
 {
+	auto& lightning = globals::features::physicalSky.lightning;
+	lightning.SuppressVanilla(sky);
 	func(sky, deltaTime);
+	lightning.SuppressVanilla(sky);
 	auto& skySync = globals::features::skySync;
 	if (sky && sky->sun)
 		globals::features::linearLighting.ClearSunlightColor(sky->sun->light.get());
@@ -424,12 +418,12 @@ bool SkySync::Update(const RE::Sky* sky)
 			currentCell = nullptr;  // keep the cache in sync so a cell-less frame doesn't reset every frame
 		if (resetFaderForCellChange)
 			shadowFader.Reset();
+		lastGameHour = -1.0f;
 		UpdateWorldspaceDisabled();
 	}
 
-	// Physical Sky's "all interior cells" mode lights interiors from the sky, so they follow the sun too.
 	auto& physicalSky = globals::features::physicalSky;
-	const bool physicalSkyInteriorOverride = physicalSky.loaded && physicalSky.settings.enabled && physicalSky.settings.forceEnableAllInteriorCells;
+	bool physicalSkyInteriorOverride = physicalSky.loaded && physicalSky.settings.enabled && physicalSky.settings.forceEnableAllInteriorCells;
 	// Exterior worldspaces run unless listed as disabled; interior cells require the sunlight-shadows flag.
 	if (worldspaceDisabled || (cell && cell->IsInteriorCell() && !cell->cellFlags.all(static_cast<RE::TESObjectCELL::Flag>(CellFlagExt::kSunlightShadows)) && !physicalSkyInteriorOverride)) {
 		// Vanilla drives the sun in a disabled worldspace, so a pending transition has nothing to wait for
@@ -468,25 +462,12 @@ bool SkySync::Update(const RE::Sky* sky)
 	lastGameHour = hour;
 
 	const bool transitionCompleted = std::exchange(immediateTransitionReady, false);
-	std::copy(std::begin(intensities), std::end(intensities), std::begin(casterIntensities));
 	const bool wasTransitioning = shadowFader.transitioning;
 	const Caster previousTarget = shadowFader.target;
 	shadowFader.Update(sky, directions, intensities, workingLightColors, settings.ShadowTransitionDuration, fadeAdvance, transitionCompleted || resetTransition);
 	// A finished caster fade counts as a completed transition, so cached shadows (terrain) refresh to the new caster.
 	// A swap can also start and finish in one update (zero duration), so a changed target counts too.
 	const bool casterSettled = (wasTransitioning || shadowFader.target != previousTarget) && !shadowFader.transitioning;
-
-	// Physical Sky's light colours are linear already and OnSkyUpdateColors has dimmed them into the
-	// sunlight colour: hand that to Linear Lighting as the working colour so it is not linearised again.
-	if (lightColors && sky->sun && sky->sun->light) {
-		auto& linearLighting = globals::features::linearLighting;
-		if (linearLighting.IsLinearLightingActive()) {
-			auto color = sky->skyColor[static_cast<uint>(RE::TESWeather::ColorTypes::kSunlight)];
-			if (linearLighting.IsACEScgActive())
-				Util::ColorSpace::SRGBGamutToAP1(&color.red);
-			linearLighting.SetSunlightColor(sky->sun->light.get(), color);
-		}
-	}
 
 	twilightCap = GetTwilightCap(climate->timing, hour, sunHeight);
 	UpdateMoonlightFade(fadeAdvance / SecondsPerGameHour, transitionCompleted);

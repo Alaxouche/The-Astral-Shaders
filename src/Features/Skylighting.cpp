@@ -352,8 +352,11 @@ void Skylighting::Prepass()
 		srv = texShadowVisibility->srv.get();
 		context->PSSetShaderResources(53, 1, &srv);
 
-		std::array<ID3D11ShaderResourceView*, 2> coverageSrvs = { texProbeCoverage->srv.get(), texZenithOcclusion->srv.get() };
-		context->PSSetShaderResources(67, (uint)coverageSrvs.size(), coverageSrvs.data());  // t67/t68, see Skylighting.hlsli
+		// t119/t121, see Skylighting.hlsli
+		srv = texProbeCoverage->srv.get();
+		context->PSSetShaderResources(119, 1, &srv);
+		srv = texZenithOcclusion->srv.get();
+		context->PSSetShaderResources(121, 1, &srv);
 	}
 }
 
@@ -672,7 +675,7 @@ void Skylighting::RenderOcclusion()
 				if (zenithFrame) {
 					// Bound to pixel shaders since the last Prepass; unbind before writing it as depth
 					ID3D11ShaderResourceView* nullSrv = nullptr;
-					globals::d3d::context->PSSetShaderResources(68, 1, &nullSrv);
+					globals::d3d::context->PSSetShaderResources(121, 1, &nullSrv);
 				}
 				precipitation.depthSRV = target->srv.get();
 				precipitation.texture = target->resource.get();

@@ -37,8 +37,7 @@ TextureCube<float3> EnvReflectionsTexture : register(t7);
 #endif
 
 #if defined(CAPSULE_SHADOWS)
-// t16-t21 belong to Physical Sky and t22 to Caustic Light in this composite.
-Texture2D<unorm float2> CapsuleOcclusionTexture : register(t23);
+Texture2D<unorm float2> CapsuleOcclusionTexture : register(t16);
 
 float2 UpsampleCapsuleOcclusion(uint2 pixel)
 {
@@ -68,9 +67,8 @@ float2 UpsampleCapsuleOcclusion(uint2 pixel)
 
 #if defined(SKYLIGHTING)
 #	define SKYLIGHTING_PROBE_REGISTER t8
-// t15/t24, not upstream's t18/t19: Physical Sky holds t16-t21 in this composite
-#	define SKYLIGHTING_COVERAGE_REGISTER t15
-#	define SKYLIGHTING_ZENITH_REGISTER t24
+#	define SKYLIGHTING_COVERAGE_REGISTER t18
+#	define SKYLIGHTING_ZENITH_REGISTER t19
 #	include "Skylighting/Skylighting.hlsli"
 #endif
 
@@ -133,13 +131,16 @@ void SampleSSRTracedSpecular(uint2 pixCoord, out float3 specularRadiance, out fl
 
 #if defined(CAUSTIC_LIGHT)
 // Water light reflected and refracted onto the scene (Caustic Light), in the units of the forward diffuse light.
-Texture2D<float3> CausticTexture : register(t22);
+// t15 here: Physical Sky holds t20-t24 in this composite.
+Texture2D<float3> CausticTexture : register(t15);
 #endif
 
 #if defined(PHYSICAL_SKY)
 #	define PS_DEFERRED_RSRCS
 #	define PS_DEFERRED_SAMPLERS
 #	include "PhysicalSky/Common.hlsli"
+// Texture3D<float4> TexApLut : register(t15);
+// SamplerState SampSv : register(s2);
 #endif
 
 [numthreads(8, 8, 1)] void main(uint3 dispatchID : SV_DispatchThreadID) {
@@ -156,8 +157,8 @@ Texture2D<float3> CausticTexture : register(t22);
 	float3 normalGlossiness = NormalRoughnessTexture[dispatchID.xy];
 	float3 normalVS = GBuffer::DecodeNormal(normalGlossiness.xy);
 
-	float3 diffuseColor = MainRW[dispatchID.xy].xyz;
-	float3 specularColor = SpecularTexture[dispatchID.xy];
+	float3 diffuseColor = PreExposure::Decode(MainRW[dispatchID.xy].xyz);
+	float3 specularColor = PreExposure::Decode(SpecularTexture[dispatchID.xy]);
 #if defined(CAPSULE_SHADOWS)
 	specularColor *= capsuleVisibility.y;
 #endif
@@ -485,6 +486,6 @@ Texture2D<float3> CausticTexture : register(t22);
 
 #endif
 
-	MainRW[dispatchID.xy] = float4(color, 1.0);
+	MainRW[dispatchID.xy] = float4(PreExposure::Encode(color), 1.0);
 	NormalTAAMaskSpecularMaskRW[dispatchID.xy] = float4(GBuffer::EncodeNormalVanilla(normalVS), 0.0, 0.0);
 }

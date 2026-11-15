@@ -1,11 +1,13 @@
-#ifndef COMMON_PHYS_SKY_HLSLI
-#define COMMON_PHYS_SKY_HLSLI
+#ifndef COMMON_HLSLI
+#define COMMON_HLSLI
 
+#include "Common/Color.hlsli"
 #include "Common/ColorManagement.hlsli"
 #include "Common/Game.hlsli"
 #include "Common/Math.hlsli"
 #include "Common/Random.hlsli"
 #include "Common/SharedData.hlsli"
+#include "Common/ViewAtmosphere.hlsli"
 #include "PhysicalSky/ShadowVolume.hlsli"
 
 #if defined(CLOUD_SHADOWS)
@@ -44,15 +46,14 @@ namespace PhysSky
 	Texture3D<float4> TexApLut : register(t3);
 #	endif
 #elif defined(PS_DEFERRED_RSRCS)
-Texture3D<float4> TexApLut : register(t16);
-Texture2D<unorm float> TexApShadow : register(t17);
-Texture3D<float4> TexApSunLut : register(t21);
+Texture3D<float4> TexApLut : register(t20);
+Texture2D<unorm float> TexApShadow : register(t21);
 #else
 Texture2D<float4> TexTrLut : register(t61);
 Texture2D<float4> TexSvLut : register(t62);
 Texture3D<float4> TexApLut : register(t63);
 Texture2D<unorm float> TexApShadow : register(t64);
-Texture3D<float4> TexApSunLut : register(t113);
+Texture2D<float4> TexSkyTail : register(t66);
 #endif
 
 	static const float RCP_PI = 1 / Math::PI;  // PI
@@ -145,7 +146,10 @@ Texture3D<float4> TexApSunLut : register(t113);
 		float2 uv = float2(
 			saturate((cosSunZenith - cosHorZenith) / (1 - cosHorZenith)),
 			saturate((r - data.rPlanet) / (data.rAtmosphere - data.rPlanet)));
-		uv = clamp(uv, float2(0.5 / 256.0, 0.5 / 64.0), float2(1.0 - 0.5 / 256.0, 1.0 - 0.5 / 64.0));
+		// Match PhysicalSky::kMsLutW/H (32x32), not the transmittance LUT.
+		// The reflection sampler wraps azimuth: keep its linear filter footprint
+		// inside this non-periodic LUT so night never blends with the midday edge.
+		uv = clamp(uv, 0.5 / 32.0, 1.0 - 0.5 / 32.0);
 		return uv;
 	}
 
@@ -203,15 +207,23 @@ Texture3D<float4> TexApSunLut : register(t113);
 		return TrLutUv(r, dot(sunDir, up));
 	}
 
-	// cylinder map
-	float2 SkyViewLutUv(float3 rayDir)
+	float SkyViewHorizonZenith()
 	{
-		float azimuth = atan2(rayDir.y, rayDir.x);
-		float u = azimuth * .5 * RCP_PI;  // sampler wraps around so ok
-		float zenith = asin(rayDir.z);
-		float v = 0.5 - 0.5 * sign(zenith) * sqrt(abs(zenith) * 2 * RCP_PI);
-		v = max(v, 0.01);
-		return frac(float2(u, v));
+		const float radius = SharedData::physSkyData.rPlanet;
+		const float viewRadius = max(SharedData::physSkyData.zCameraPlanet, radius);
+		const float horizonDistance = sqrt(max(0.0, (viewRadius - radius) * (viewRadius + radius)));
+		return acos(clamp(-horizonDistance / viewRadius, -1.0, 0.0));
+	}
+
+	float2 SkyViewLutUv(float3 rayDir, uint lutHeight)
+	{
+		const float u = atan2(rayDir.y, rayDir.x) * 0.5 * RCP_PI;
+		const float zenith = acos(clamp(rayDir.z, -1.0, 1.0));
+		const float horizon = SkyViewHorizonZenith();
+		const float v = zenith <= horizon ?
+		                    0.5 * (1.0 - sqrt(saturate(1.0 - zenith / horizon))) :
+		                    0.5 + 0.5 * sqrt(saturate((zenith - horizon) / (Math::PI - horizon)));
+		return float2(frac(u), (0.5 + v * (lutHeight - 1.0)) / lutHeight);
 	}
 
 	// url: http://www.physics.hmc.edu/faculty/esin/a101/limbdarkening.pdf
@@ -236,11 +248,14 @@ Texture3D<float4> TexApSunLut : register(t113);
 		return factor;
 	}
 
-	float3 InvSkyViewLutUv(float2 uv)
+	float3 InvSkyViewLutUv(float2 uv, uint lutHeight)
 	{
-		float azimuth = uv.x * 2 * Math::PI;
-		float vm = 1 - 2 * uv.y;
-		float zenith = Math::PI * .5 * (1 - sign(vm) * vm * vm);
+		const float azimuth = uv.x * 2.0 * Math::PI;
+		const float v = saturate((uv.y * lutHeight - 0.5) / (lutHeight - 1.0));
+		const float horizon = SkyViewHorizonZenith();
+		const float vm = 1.0 - 2.0 * v;
+		const float zenith = v <= 0.5 ? horizon * (1.0 - vm * vm) :
+		                                horizon + (Math::PI - horizon) * vm * vm;
 		return SphericalDir(azimuth, zenith);
 	}
 
@@ -306,13 +321,13 @@ Texture3D<float4> TexApSunLut : register(t113);
 			float x2 = max(0., x - 2.45) / (Math::PI - 2.15);
 			float x3 = max(0., x - 2.95) / (Math::PI - 2.95);
 			float y = (exp(-max(x * 1.5 + 0.0, 0.0) * 30.0)         // front peak
-					   + smoothstep(1.7, 0., x) * 0.45 * 0.8        // front ramp
-					   + smoothbump(0.4, 0.5, cos_theta) * 0.02     // front bump middle
-					   - smoothstep(1., 0.2, x) * 0.06              // front ramp damp wave
-					   + smoothbump(2.18, 0.20, x) * 0.06           // first trail wave
-					   + smoothstep(2.28, 2.45, x) * 0.18           // trailing piece
-					   - powerful_scurve(x2 * 4.0, 3.5, 8.) * 0.04  // trail
-					   + x2 * -0.085 + x3 * x3 * 0.1);              // trail peak
+			           + smoothstep(1.7, 0., x) * 0.45 * 0.8        // front ramp
+			           + smoothbump(0.4, 0.5, cos_theta) * 0.02     // front bump middle
+			           - smoothstep(1., 0.2, x) * 0.06              // front ramp damp wave
+			           + smoothbump(2.18, 0.20, x) * 0.06           // first trail wave
+			           + smoothstep(2.28, 2.45, x) * 0.18           // trailing piece
+			           - powerful_scurve(x2 * 4.0, 3.5, 8.) * 0.04  // trail
+			           + x2 * -0.085 + x3 * x3 * 0.1);              // trail peak
 
 			float3 ret = y;
 			// spectralize a bit
@@ -359,53 +374,20 @@ Texture3D<float4> TexApSunLut : register(t113);
 
 	float GetApShadow(uint2 pxCoord)
 	{
+		if (ViewAtmosphere::Enabled())
+			return 0.0;
 		return TexApShadow[pxCoord];
 	}
 
 #	ifndef PS_DEFERRED_RSRCS
-	/**
-	 * @brief Primary and secondary rainbow around the anti-solar point while rain falls.
-	 */
-	float3 RainbowRadiance(float3 viewDir)
-	{
-		SharedData::PhysSkyData data = SharedData::physSkyData;
-		if (data.enableRainbow == 0 || data.rainbowIntensity <= 1e-4 || data.rainAmount <= 1e-3)
-			return 0.0;
-
-		// The bow is centred on the anti-solar point and only forms with the sun low and up.
-		const float3 sunDir = normalize(data.sunDir);
-		if (sunDir.z <= 0.02 || sunDir.z >= 0.72)
-			return 0.0;
-		const float sunLow = saturate((0.72 - sunDir.z) * 3.0) * saturate(sunDir.z * 20.0);
-
-		const float scatterAngle = degrees(acos(clamp(dot(normalize(viewDir), -sunDir), -1.0, 1.0)));
-		// Primary bow at 40-42 degrees, red outermost; the fainter secondary at 51-54 reverses.
-		const float3 primaryAngles = float3(42.4, 41.2, 40.2);   // red, green, blue
-		const float3 secondaryAngles = float3(50.4, 52.0, 53.6);
-		const float3 primary = exp(-pow((scatterAngle - primaryAngles) / 0.55, 2.0));
-		const float3 secondary = exp(-pow((scatterAngle - secondaryAngles) / 0.9, 2.0)) * 0.22;
-
-		// Above the horizon only, and fading out as the ray approaches it.
-		const float horizon = saturate(viewDir.z * 8.0);
-		return (primary + secondary) * (data.rainAmount * sunLow * horizon * data.rainbowIntensity * 0.35);
-	}
-
 	float3 SampleSky(float3 viewDir, float shadow, SamplerState sampSv)
 	{
-		SharedData::PhysSkyData data = SharedData::physSkyData;
-
-		const float2 skyLutUv = SkyViewLutUv(viewDir);
+		uint2 skyDims;
+		TexSvLut.GetDimensions(skyDims.x, skyDims.y);
+		const float2 skyLutUv = SkyViewLutUv(viewDir, skyDims.y);
 		float3 skyColor = TexSvLut.SampleLevel(sampSv, skyLutUv, 0).rgb;
 
 		skyColor *= 1 - shadow;
-
-		// Emission added after the shadow term: it is not occluded by cloud shadows on the ground.
-		skyColor += RainbowRadiance(viewDir);
-
-		if (data.tonemapper == 1)
-			skyColor = TransferFunctions::LinearToGameGamma(skyColor);
-		else if (data.tonemapper == 2)
-			skyColor = skyColor / (1 + skyColor);
 
 		return skyColor;
 	}
@@ -415,17 +397,40 @@ Texture3D<float4> TexApSunLut : register(t113);
 		return SampleSky(viewDir, GetApShadow(pxCoord), sampSv);
 	}
 
-	float3 SampleTr(float3 sunDir, SamplerState sampSv)
+	float3 SampleViewSky(float3 viewDir, float shadow, SamplerState samp)
+	{
+		if (!ViewAtmosphere::Enabled())
+			return SampleSky(viewDir, shadow, samp);
+		uint width, height;
+		TexSkyTail.GetDimensions(width, height);
+		return TexSkyTail.SampleLevel(samp, SkyViewLutUv(viewDir, height), 0).rgb;
+	}
+
+	float3 SampleTr(float3 lightDir, SamplerState sampSv)
 	{
 		SharedData::PhysSkyData data = SharedData::physSkyData;
 
 		if (data.trMix < 1e-8)
 			return 1;
 
-		float3 tr = SampleAtmosphereLightTr(TexTrLut, sampSv, float3(0, 0, data.zCameraPlanet), sunDir);
+		float3 tr = SampleAtmosphereLightTr(TexTrLut, sampSv, float3(0, 0, data.zCameraPlanet), lightDir);
 		tr = lerp(1, tr, data.trMix);
 
 		return tr;
+	}
+
+	float3 SampleViewCelestialTr(float3 direction, SamplerState samp)
+	{
+		if (ViewAtmosphere::ReflectionEnabled()) {
+			const ViewAtmosphere::Medium medium = ViewAtmosphere::SampleReflection(SkyViewLutUv(direction, 32u), AP_MAX_DIST, samp);
+			const float3 origin = float3(0, 0, max(SharedData::physSkyData.zCameraPlanet, SharedData::physSkyData.rPlanet));
+			return medium.transmittance * lerp(1.0, SampleAtmosphereLightTr(TexTrLut, samp, origin + direction * AP_MAX_DIST, direction), SharedData::physSkyData.trMix);
+		}
+		if (!ViewAtmosphere::Enabled())
+			return SampleTr(direction, samp);
+		const SharedData::PhysSkyData data = SharedData::physSkyData;
+		const float3 origin = float3(0, 0, max(data.zCameraPlanet, data.rPlanet));
+		return lerp(1.0, SampleAtmosphereLightTr(TexTrLut, samp, origin + direction * AP_MAX_DIST, direction), data.trMix);
 	}
 
 #		if defined(CLOUD_SHADOWS) && defined(PS_SKY_SAMPLERS)
@@ -506,8 +511,9 @@ Texture3D<float4> TexApSunLut : register(t113);
 					linIblAmbient += ColorManagement::SceneToLinear(vanillaAmbient * SharedData::iblSettings.DALCAmount);
 				else
 					linIblAmbient += ImageBasedLighting::GetEnvIBLColor(cloudAmbientDir);
-				// Sky term dimmed by cloud visibility, as ImageBasedLighting::GetIBLColorOccluded does.
-				linIblAmbient += ImageBasedLighting::GetSkyIBLColor(cloudAmbientDir) * skyVisibility;
+				float3 linReflectionAmbient = ImageBasedLighting::GetSkyIBLColorOccluded(cloudAmbientDir, skyVisibility);
+				linIblAmbient += linReflectionAmbient;
+				linIblAmbient = ImageBasedLighting::ApplyIBLReflectionFallback(linIblAmbient, linReflectionAmbient, cloudPosWS);
 
 				float3 iblAmbient = ColorManagement::LinearToScene(linIblAmbient);
 				float iblFill = baseColor.a * exp(-0.35 * cloudOpticalDepth) * lerp(0.25, 1.0, 1.0 - directVisibility);
@@ -525,22 +531,16 @@ Texture3D<float4> TexApSunLut : register(t113);
 
 	float4 SampleAp(float3 viewDir, float dist, float shadow, SamplerState sampSv)
 	{
+		if (ViewAtmosphere::Enabled())
+			return float4(0, 0, 0, 1);
 		SharedData::PhysSkyData data = SharedData::physSkyData;
-
-		const float2 skyLutUv = SkyViewLutUv(viewDir);
 
 		uint3 apDims;
 		TexApLut.GetDimensions(apDims.x, apDims.y, apDims.z);
+		const float2 skyLutUv = SkyViewLutUv(viewDir, apDims.y);
 		const float depth_slice = ApDepthUv(dist, apDims.z);
 		float4 apColor = TexApLut.SampleLevel(sampSv, float3(skyLutUv, depth_slice), 0);
-		const float3 apSun = TexApSunLut.SampleLevel(sampSv, float3(skyLutUv, depth_slice), 0).rgb;
-
-		apColor.rgb += apSun * (1.0 - saturate(shadow));
-
-		if (data.tonemapper == 1)
-			apColor.rgb = TransferFunctions::LinearToGameGamma(apColor.rgb);
-		else if (data.tonemapper == 2)
-			apColor.rgb = apColor.rgb / (1 + apColor.rgb);
+		apColor.rgb *= 1.0 - saturate(shadow);
 
 		apColor.rgb = lerp(0, apColor.rgb, data.apLumMix);
 		apColor.a = lerp(1, apColor.a, data.apTrMix);
@@ -550,33 +550,53 @@ Texture3D<float4> TexApSunLut : register(t113);
 
 	float4 SampleAp(float3 viewDir, uint2 pxCoord, float dist, SamplerState sampSv)
 	{
+		if (ViewAtmosphere::Enabled())
+			return float4(0, 0, 0, 1);
 		return SampleAp(viewDir, dist, GetApShadow(pxCoord), sampSv);
 	}
 
 #	ifndef PS_PREPASS_RSRCS
+#		if defined(PSHADER)
+	Texture2D<float4> TexLightningChannels : register(t54);
+	TextureCube<float4> TexLightningReflection : register(t24);
+#		else
+	Texture2D<float4> TexLightningChannels : register(t113);
+	TextureCube<float4> TexLightningReflection : register(t109);
+#		endif
 	// Volumetric cloud main-view result and shadow volume. Pixel shaders use t110-t112 to avoid feature texture conflicts.
 #		if defined(PS_DEFERRED_RSRCS)
-	Texture2D<float> TexVolTr : register(t18);
-	Texture2D<float4> TexVolLum : register(t19);
-	Texture3D<float> TexShadowVolume : register(t20);
+	Texture2D<float> TexVolTr : register(t22);
+	Texture2D<float4> TexVolLum : register(t23);
+	Texture3D<float> TexShadowVolume : register(t24);
 #		else
+#			if defined(PSHADER)
+	Texture2D<float> TexVolTr : register(t32);
+	Texture2D<float4> TexVolLum : register(t33);
+	Texture3D<float> TexShadowVolume : register(t34);
+	TextureCube<float> TexVolCubeTr : register(t27);
+	TextureCube<float4> TexVolCubeLum : register(t28);
+#			else
 	Texture2D<float> TexVolTr : register(t110);
 	Texture2D<float4> TexVolLum : register(t111);
 	Texture3D<float> TexShadowVolume : register(t112);
 	TextureCube<float> TexVolCubeTr : register(t114);
 	TextureCube<float4> TexVolCubeLum : register(t115);
+#			endif
+	TextureCube<float4> TexVolCubeDepth : register(t67);
 #		endif
 
 	float3 CompositeVolumetricClouds(float3 color, uint2 pxCoord)
 	{
 		const float4 cloud = TexVolLum[pxCoord];
-		return ColorManagement::LinearToScene(ColorManagement::SceneToLinear(color) * (1.0 - cloud.a) + cloud.rgb);
+		const float3 channel = !ViewAtmosphere::Enabled() && SharedData::physSkyData.lightningColorIntensity.w > 0.0 ? TexLightningChannels[pxCoord].rgb : 0.0;
+		return ColorManagement::SceneColor::ScaleAndAddLinear(color, TexVolTr[pxCoord], cloud.rgb + channel);
 	}
 
 	float3 CompositeVolumetricCloudsUvDr(float3 color, float2 screenUvDr, SamplerState samp)
 	{
 		const float4 cloud = TexVolLum.SampleLevel(samp, screenUvDr, 0);
-		return ColorManagement::LinearToScene(ColorManagement::SceneToLinear(color) * (1.0 - cloud.a) + cloud.rgb);
+		const float3 channel = !ViewAtmosphere::Enabled() && SharedData::physSkyData.lightningColorIntensity.w > 0.0 ? TexLightningChannels.SampleLevel(samp, screenUvDr, 0).rgb : 0.0;
+		return ColorManagement::SceneColor::ScaleAndAddLinear(color, TexVolTr.SampleLevel(samp, screenUvDr, 0), cloud.rgb + channel);
 	}
 
 	float3 CompositeVolumetricCloudsUv(float3 color, float2 screenUv, SamplerState samp)
@@ -586,20 +606,57 @@ Texture3D<float4> TexApSunLut : register(t113);
 
 	float3 ApplyVolumetricCloudTransmittanceUv(float3 color, float2 screenUv, SamplerState samp)
 	{
-		const float3 volTr = 1.0 - TexVolLum.SampleLevel(samp, FrameBuffer::GetDynamicResolutionAdjustedScreenPosition(screenUv), 0).a;
-		return ColorManagement::LinearToScene(ColorManagement::SceneToLinear(color) * volTr);
+		const float3 volTr = TexVolTr.SampleLevel(samp, FrameBuffer::GetDynamicResolutionAdjustedScreenPosition(screenUv), 0);
+		return ColorManagement::SceneColor::ScaleByLinear(color, volTr);
 	}
 
 #		ifndef PS_DEFERRED_RSRCS
 	float3 CompositeVolumetricCloudsCube(float3 color, float3 viewDir, SamplerState samp)
 	{
+		// Celestial layers are drawn over the already-composited sky. Only occlude
+		// their emission; adding the cloud source again would duplicate its energy.
+		if (ViewAtmosphere::ReflectionEnabled())
+			return ColorManagement::SceneColor::ScaleByLinear(color, TexVolCubeTr.SampleLevel(samp, viewDir, 0));
 		const float4 cloud = TexVolCubeLum.SampleLevel(samp, viewDir, 0);
-		return ColorManagement::LinearToScene(ColorManagement::SceneToLinear(color) * (1.0 - cloud.a) + cloud.rgb);
+		const float3 flash = SharedData::physSkyData.lightningColorIntensity.w > 0.0 ?
+		                         TexLightningReflection.SampleLevel(samp, viewDir, 0).rgb * SharedData::physSkyData.lightningColorIntensity.w :
+		                         0.0;
+		const float cloudT = TexVolCubeTr.SampleLevel(samp, viewDir, 0);
+		const float depth = TexVolCubeDepth.SampleLevel(samp, viewDir, 0).x * 1000.0 / GAME_UNIT_TO_M;
+		const float4 air = SampleAp(viewDir, depth, 0.0, samp);
+		return ColorManagement::SceneColor::ScaleAndAddLinear(color, cloudT, (cloud.rgb + flash) * air.a + air.rgb * (1.0 - cloudT));
+	}
+
+	ViewAtmosphere::Medium SampleReflectionMedium(float3 viewDir, float distance, SamplerState samp, bool skyRay)
+	{
+		const float2 uv = SkyViewLutUv(viewDir, 32u);
+		ViewAtmosphere::Medium medium = ViewAtmosphere::SampleReflection(uv, distance, samp);
+		if (SharedData::physSkyData.enableVolumetricClouds) {
+			const float depth = TexVolCubeDepth.SampleLevel(samp, viewDir, 0).x * 1000.0 / GAME_UNIT_TO_M;
+			const float visibility = skyRay ? 1.0 : saturate((distance - depth) * GAME_UNIT_TO_M * 0.025);
+			const float cloudT = lerp(1.0, TexVolCubeTr.SampleLevel(samp, viewDir, 0), visibility);
+			const ViewAtmosphere::Medium front = ViewAtmosphere::SampleReflection(uv, min(depth, distance), samp);
+			const float3 flash = SharedData::physSkyData.lightningColorIntensity.w > 0.0 ?
+			                         TexLightningReflection.SampleLevel(samp, viewDir, 0).rgb * SharedData::physSkyData.lightningColorIntensity.w :
+			                         0.0;
+			const float3 cloudL = (TexVolCubeLum.SampleLevel(samp, viewDir, 0).rgb + flash) * visibility;
+			medium.luminance = lerp(front.luminance, medium.luminance, cloudT) + front.transmittance * cloudL;
+			medium.transmittance *= cloudT;
+		}
+		return medium;
+	}
+
+	float3 CompositeReflectionMedium(float3 color, float3 viewDir, float distance, SamplerState samp, bool skyRay)
+	{
+		const ViewAtmosphere::Medium medium = SampleReflectionMedium(viewDir, distance, samp, skyRay);
+		return ColorManagement::SceneColor::ScaleAndAddLinear(color, medium.transmittance, medium.luminance);
 	}
 #		endif
 
 	float3 CompositeAerialPerspective(float3 color, float3 viewDir, uint2 pxCoord, float dist, SamplerState sampSv)
 	{
+		if (ViewAtmosphere::Enabled())
+			return color;
 		const float4 apSample = SampleAp(viewDir, pxCoord, dist, sampSv);
 		color = color * apSample.w + apSample.xyz;
 
@@ -611,6 +668,8 @@ Texture3D<float4> TexApSunLut : register(t113);
 
 	float3 CompositeAerialPerspective(float3 color, float3 viewDir, float2 screenPos, float2 screenUv, float dist, SamplerState sampSv)
 	{
+		if (ViewAtmosphere::Enabled())
+			return color;
 		const float4 apSample = SampleAp(viewDir, uint2(screenPos), dist, sampSv);
 		color = color * apSample.w + apSample.xyz;
 
@@ -623,6 +682,8 @@ Texture3D<float4> TexApSunLut : register(t113);
 #		ifndef PS_DEFERRED_RSRCS
 	float3 CompositeAerialPerspectiveReflection(float3 color, float3 viewDir, float dist, SamplerState sampSv)
 	{
+		if (ViewAtmosphere::ReflectionEnabled())
+			return CompositeReflectionMedium(color, viewDir, dist, sampSv, false);
 		const float4 apSample = SampleAp(viewDir, dist, 0.0, sampSv);
 		color = color * apSample.w + apSample.xyz;
 
@@ -646,8 +707,24 @@ Texture3D<float4> TexApSunLut : register(t113);
 		return lengthSq > 1e-6 ? direction * rsqrt(lengthSq) : SharedData::physSkyData.sunDir;
 	}
 
+	// Clouded / clear incident radiance, computed before reflection fog. This
+	// diffuse transport estimate is independent of the finite direct-shadow box.
+	Texture2D<float4> TexCloudDiffuseTransport : register(t70);
+	float3 GetCloudDiffuseTransmittance(float3 worldPosAbs)
+	{
+		const SharedData::PhysSkyData data = SharedData::physSkyData;
+		if (!data.enableVolumetricClouds || data.volCloudLowThickness <= 0.0)
+			return 1.0;
+		const float4 transport = TexCloudDiffuseTransport.Load(int3(0, 1, 0));
+		if (transport.w == 0.0)
+			return 1.0;
+		const float altitude = worldPosAbs.z - data.zBottom;
+		const float aboveCloud = smoothstep(data.volCloudLowBottom, data.volCloudLowBottom + data.volCloudLowThickness, altitude);
+		return lerp(saturate(transport.rgb), 1.0, aboveCloud);
+	}
+
 #if !defined(PS_DEFERRED_RSRCS) && (!defined(PS_PREPASS_RSRCS) || defined(PS_ENABLE_DIRLIGHT_TRANSMITTANCE))
-	float3 GetShadowVolumeUvw(float3 posRelative, float3 sunDir)
+	float4 GetShadowVolumeSample(float3 posRelative, float3 sunDir)
 	{
 		SharedData::PhysSkyData data = SharedData::physSkyData;
 		uint3 dimensions;
@@ -658,10 +735,10 @@ Texture3D<float4> TexApSunLut : register(t113);
 		float3 boundsMin = float3(center - 0.5 * data.shadowVolumeRange, data.volCloudLowBottom);
 		float3 boundsMax = float3(center + 0.5 * data.shadowVolumeRange, data.volCloudLowBottom + data.volCloudLowThickness);
 
-		return CloudShadowVolume::GetSampleUvw(posRelative, sunDir, boundsMin, boundsMax);
+		return CloudShadowVolume::GetSample(posRelative, sunDir, boundsMin, boundsMax, dimensions.xy);
 	}
 
-	float3 GetDirlightTransmittance(float3 worldPosAbs, SamplerState samp)
+	float3 GetDirlightTransmittance(float3 worldPosAbs, SamplerState samp, bool useFarField = false)
 	{
 		SharedData::PhysSkyData data = SharedData::physSkyData;
 		float3 transmittance = 1.0;
@@ -672,21 +749,48 @@ Texture3D<float4> TexApSunLut : register(t113);
 		float3 posRelative = worldPosAbs;
 		posRelative.z -= data.zBottom;
 
-		float3 uvw = GetShadowVolumeUvw(posRelative, GetCloudShadowLightDirection());
-		// The shadow volume has finite support. A ray outside it has no known cloud
-		// occluder; treating the missing path as an average-density cloud shell
-		// creates false full extinction for long, low-angle light paths.
+		float4 shadowSample = GetShadowVolumeSample(posRelative, GetCloudShadowLightDirection());
+		float meanTransmittance = 1.0;
+		float localWeight = 1.0;
+		if (useFarField) {
+			uint3 dimensions;
+			TexShadowVolume.GetDimensions(dimensions.x, dimensions.y, dimensions.z);
+			meanTransmittance = CloudShadowVolume::FarTransmittance(posRelative, GetCloudShadowLightDirection(), shadowSample, dimensions.xy, localWeight);
+			shadowSample.w *= localWeight;
+		}
 #	ifdef PS_LINEAR_SHADOW_SAMPLER
-		const float cloudTransmittance = CloudShadowVolume::SampleTransmittance(TexShadowVolume, samp, uvw);
+		const float cloudTransmittance = CloudShadowVolume::SampleTransmittance(TexShadowVolume, samp, shadowSample, meanTransmittance);
 #	else
-		const float cloudTransmittance = CloudShadowVolume::SampleTransmittance(TexShadowVolume, uvw);
+		const float cloudTransmittance = CloudShadowVolume::SampleTransmittance(TexShadowVolume, shadowSample, meanTransmittance);
 #	endif
 
 		return cloudTransmittance.xxx;
 	}
 #endif
 
+	float3 GetMediumPlanetPosition(float3 position)
+	{
+		return position + float3(0, 0, max(SharedData::physSkyData.zCameraPlanet, SharedData::physSkyData.rPlanet));
+	}
+
+	void GetMediumCoefficients(float3 position, out float3 rayleigh, out float3 mie, out float3 extinction)
+	{
+		const SharedData::PhysSkyData data = SharedData::physSkyData;
+		const float radius = length(GetMediumPlanetPosition(position));
+		if (radius < data.rPlanet || radius > data.rAtmosphere) {
+			rayleigh = mie = extinction = 0.0;
+			return;
+		}
+		float r, m, o;
+		SampleAtmosphere(max(radius - data.rPlanet, 0.0), r, m, o);
+		// Per-kilometre coefficients preserve weak sources in half precision.
+		rayleigh = r * data.rayleighScatter * (1000.0 / GAME_UNIT_TO_M);
+		mie = m * data.aerosolScatter * (1000.0 / GAME_UNIT_TO_M);
+		extinction = rayleigh + mie + (m * data.aerosolAbsorption + o * data.ozoneAbsorption) * (1000.0 / GAME_UNIT_TO_M);
+	}
+
 #ifndef OMIT_PS_NAMESPACE
 }
 #endif
+
 #endif

@@ -45,6 +45,10 @@ namespace SharedData
 		float4 AmbientSHG;
 		float4 AmbientSHB;
 		float4 HDRData;
+		float PreExposure;
+		float RcpPreExposure;
+		float PreviousPreExposure;
+		float PreExposureHistoryRatio;
 	};
 
 	struct GrassLightingSettings
@@ -202,24 +206,6 @@ namespace SharedData
 		float Opacity;
 		float Scattering;
 		float2 pad0;
-	};
-
-	struct ProceduralSunSettings
-	{
-		uint enabled;
-		float sunDiskCos;
-		float diskIntensity;
-		float edgeSoftness;
-
-		uint haloEnabled;
-		float sunHaloCos;
-		float haloIntensity;
-		float haloFalloff;
-
-		float cloudExtinction;
-		float sunVisibility;
-		float radianceLimit;
-		float pad0;
 	};
 
 	struct LODBlendingSettings
@@ -477,6 +463,26 @@ namespace SharedData
 		float3 pad0;
 	};
 
+	struct ViewAtmosphereSettings
+	{
+		uint enabled;
+		uint nearPixelSize;
+		uint nearSlices;
+		uint middlePixelSize;
+		uint middleSlices;
+		uint distantPixelSize;
+		uint distantSlices;
+		uint historyMissSamples;
+		float nearRange;
+		float localRange;
+		float historyWeight;
+		float sampleJitter;
+		float shadowBias;
+		float depthDistribution;
+		float lookupJitter;
+		float padding;
+	};
+
 	struct ExponentialHeightFogSettings
 	{
 		uint enabled;
@@ -499,26 +505,14 @@ namespace SharedData
 		float4 fogInscatteringColor;
 		float originalFogColorAmount;
 		uint volumetricFogEnabled;
-		uint volumetricGridPixelSize;
-		uint volumetricGridSizeZ;
-		float volumetricFogDistance;
 		float volumetricFogStartDistance;
 		float volumetricFogNearFadeInDistance;
-		float volumetricFogExtinctionScale;
 		float4 volumetricFogAlbedo;
 		float4 volumetricFogEmissive;
 		float volumetricDirectionalScatteringIntensity;
-		float volumetricShadowBias;
-		float volumetricDepthDistributionScale;
 		float volumetricSkyLightingIntensity;
 		float volumetricFogScatteringDistribution;
-		float volumetricHistoryWeight;
-		uint volumetricHistoryMissSampleCount;
-		float volumetricSampleJitterMultiplier;
-		float volumetricUpsampleJitterMultiplier;
-		float volumetricNearGridDistance;
-		uint volumetricFarGridPixelSize;
-		uint volumetricFarGridSizeZ;
+		float volumetricFogExtinctionScale;
 		float volumetricLocalLightScatteringIntensity;
 		float volumetricFogNoiseScale;
 		float volumetricFogNoiseThreshold;
@@ -644,82 +638,6 @@ namespace SharedData
 		float4 FireMeltSpheres[8];
 	};
 
-	struct PhysSkyData
-	{
-		// DYNAMIC
-		float2 texDim;
-		float2 rcpTexDim;  //
-		float2 frameDim;
-		float2 rcpFrameDim;  //
-
-		float zCameraPlanet;
-		float3 sunDir;  //
-		float3 sunlightColor;
-		float trMix;  //
-		float3 masserDir;
-		float apLumMix;  //
-		float3 masserColor;
-		float apTrMix;  //
-		float3 secundaDir;
-		float padSunDisk;  // was the Physical Sky sun disc, now drawn by Procedural Sun
-		float3 secundaColor;
-
-		// GENERAL
-		uint enabled;  //
-		int tonemapper;
-		float vanillaMix;
-
-		// WORLD
-		float zBottom;
-		float rPlanet;  //
-		float rAtmosphere;
-		float3 groundAlbedo;  //
-
-		// ATMOSPHERE
-		float2 cloudShadowRemapRange;
-
-		float aerosolFalloff;
-		float aerosolPhaseG;  //
-		float3 aerosolScatter;
-		uint halfResApShadow;  //
-		float3 aerosolAbsorption;
-
-		float rayleighFalloff;
-		float3 rayleighScatter;  //
-
-		float ozoneAltitude;  //
-		float ozoneThickness;
-		float3 ozoneAbsorption;  //
-
-		// CLOUDS (VANILLA)
-		uint enableVanillaClouds;
-		float cloudRelightMix;
-		float cloudOriginalMix;
-		float silverLiningMix;  //
-		float silverLiningSpread;
-
-		// VOLUMETRIC CLOUDS
-		uint enableVolumetricClouds;
-		float shadowVolumeRange;
-		float lowestCloudAltitude;  //
-		float highestCloudAltitude;
-		float3 volCloudScatter;  //
-		uint volCloudUseSun;
-		float3 volCloudAbsorption;  //
-		float volCloudLowBottom;
-		float volCloudLowThickness;
-
-		// SETTINGS
-		uint lightSkyStatics;
-		float skyStaticsBrightness;  //
-
-		// RAINBOW (the aurora moved to the Night Sky feature)
-		float rainbowIntensity;
-		uint enableRainbow;
-		float rainAmount;
-		float padRainbow;  //
-	};
-
 	struct LivingWindowsSettings
 	{
 		uint Enabled;
@@ -786,6 +704,85 @@ namespace SharedData
 		uint3 pad;
 	};
 
+	struct PhysSkyData
+	{
+		// DYNAMIC
+		float2 texDim;
+		float2 rcpTexDim;  //
+		float2 frameDim;
+		float2 rcpFrameDim;  //
+
+		float zCameraPlanet;
+		float3 sunDir;  //
+		float3 sunlightColor;
+		float trMix;  //
+		float3 masserDir;
+		float apLumMix;  //
+		float3 masserColor;
+		float apTrMix;  //
+		float3 secundaDir;
+		float sunDiskCos;  //
+		float3 secundaColor;
+
+		// GENERAL
+		uint enabled;  //
+		float pad;
+		float vanillaMix;
+
+		// WORLD
+		float zBottom;
+		float rPlanet;  //
+		float rAtmosphere;
+		float3 groundAlbedo;  //
+
+		// ATMOSPHERE
+		float2 cloudShadowRemapRange;
+
+		float aerosolFalloff;
+		float aerosolPhaseG;  //
+		float3 aerosolScatter;
+		uint halfResApShadow;  //
+		float3 aerosolAbsorption;
+
+		float rayleighFalloff;
+		float3 rayleighScatter;  //
+
+		float ozoneAltitude;  //
+		float ozoneThickness;
+		float3 ozoneAbsorption;  //
+
+		// CLOUDS (VANILLA)
+		uint enableVanillaClouds;
+		float cloudRelightMix;
+		float cloudOriginalMix;
+		float silverLiningMix;  //
+		float silverLiningSpread;
+
+		// VOLUMETRIC CLOUDS
+		uint enableVolumetricClouds;
+		float shadowVolumeRange;
+		float lowestCloudAltitude;  //
+		float highestCloudAltitude;
+		float3 volCloudScatter;  //
+		uint volCloudUseSun;
+		float3 volCloudAbsorption;  //
+		float volCloudLowBottom;
+		float volCloudLowThickness;
+
+		// SETTINGS
+		uint lightSkyStatics;
+		float skyStaticsBrightness;  //
+		float4 lightningPositionRadius;
+		float4 lightningEndPosition;
+		float4 lightningColorIntensity;
+		float4 lightningControl;
+		float4 lightningPhotometry;
+		float4 lightningPlacement;
+		float4 lightningChannelEmitter;
+		float4 lightningPreparationPositionRadius;
+		float4 lightningPreparationControl;  // base mode, history valid, active mask lane, preparing
+	};
+
 	struct RainRefractionSettings
 	{
 		uint Enable;
@@ -807,15 +804,6 @@ namespace SharedData
 		float starIntensity;
 		float starTwinkle;
 		float radianceLimit;
-
-		float3 auroraLowColor;
-		float auroraIntensity;
-
-		float3 auroraHighColor;
-		float auroraSpeed;
-
-		float auroraLighting;
-		float3 pad0;
 
 		float3 shootingStarHead;
 		float shootingStarIntensity;
@@ -846,9 +834,9 @@ namespace SharedData
 		float RayStrength;
 		float Seed;
 		uint Enabled;
-		float3 Atmosphere;  // x: vanilla aurora visibility (0..1), y: haze amount, z: nebula glow
-		float CurtainSize;  // curtain width and height relative to the default
-		float CurtainCount;  // curtains drawn, 1 .. 7; a fraction fades the last one in or out
+		float3 Atmosphere;        // x: vanilla aurora visibility (0..1), y: haze amount, z: nebula glow
+		float CurtainSize;        // curtain width and height relative to the default
+		float CurtainCount;       // curtains drawn, 1 .. 7; a fraction fades the last one in or out
 		float3 BodyDisplayColor;  // main curtain color in display space
 	};
 
@@ -862,7 +850,6 @@ namespace SharedData
 		WetnessEffectsSettings wetnessEffectsSettings;
 		SkylightingSettings skylightingSettings;
 		CloudShadowsSettings cloudShadowsSettings;
-		ProceduralSunSettings proceduralSunSettings;
 		LODBlendingSettings lodBlendingSettings;
 		HairSpecularSettings hairSpecularSettings;
 		TerrainVariationSettings terrainVariationSettings;
@@ -876,18 +863,19 @@ namespace SharedData
 		SkinData skinData;
 		VanillaFresnelSettings vanillaFresnelSettings;
 		SnowCoverSettings snowCoverSettings;
-		PhysSkyData physSkyData;
-		LivingWindowsSettings livingWindowsSettings;
 		VolumetricLightingSettings volumetricLightingSettings;
 		HorizonFixSettings horizonFixSettings;
 		HairBacklightingSettings hairBacklightingSettings;
 		RainRefractionSettings rainRefractionSettings;
 		NightEyeSettings nightEyeSettings;
-		ProceduralAuroraSettings proceduralAuroraSettings;
 		ProceduralNightSkySettings proceduralNightSkySettings;
 		SSGISettings ssgiSettings;
 		SSRSettings ssrSettings;
 		PostProcessingSettings postProcessingSettings;
+		ProceduralAuroraSettings proceduralAuroraSettings;
+		PhysSkyData physSkyData;
+		ViewAtmosphereSettings viewAtmosphereSettings;
+		LivingWindowsSettings livingWindowsSettings;  // fork: Living Windows last, as in FeatureBuffer.cpp
 	};
 
 	Texture2D<float4> DepthTexture : register(t17);

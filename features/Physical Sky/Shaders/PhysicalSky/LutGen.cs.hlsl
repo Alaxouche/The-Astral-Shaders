@@ -8,11 +8,15 @@
 #define PS_PREPASS_SAMPLERS
 #define PS_PREPASS_RSRCS
 #define OMIT_PS_NAMESPACE
+#ifdef SKY_TAIL
+#	define PS_ENABLE_DIRLIGHT_TRANSMITTANCE
+#	define PS_LINEAR_SHADOW_SAMPLER
+Texture3D<float> TexShadowVolume : register(t112);
+#endif
 #include "PhysicalSky/Common.hlsli"
 
 #if LUTGEN == 3
 RWTexture3D<float4> RWTexOutput : register(u0);
-RWTexture3D<float4> RWTexSunOutput : register(u1);
 #else
 RWTexture2D<float4> RWTexOutput : register(u0);
 #endif
@@ -44,9 +48,9 @@ void rayMarch(
 	inout float3 tr,
 	inout float3 lum
 #elif LUTGEN == 3
-	uint2 tid, uint depth,
+	uint sliceIndex, uint depth,
 	inout float3 tr,
-	inout float3 lum, inout float3 lumSun
+	inout float3 lum
 #endif
 )
 {
@@ -66,21 +70,30 @@ void rayMarch(
 	const float3 sunDir = data.sunDir;
 #endif
 
-	float tGround = RayIntersectSphere(pos, rayDir, 0, data.rPlanet);
+	const float originRadius = length(pos);
+	const float projectedOrigin = dot(pos, rayDir);
+	const float groundOffset = (originRadius - data.rPlanet) * (originRadius + data.rPlanet);
+	const float groundDiscriminant = projectedOrigin * projectedOrigin - groundOffset;
+	const bool hitGround = projectedOrigin < 0.0 && groundOffset >= 0.0 && groundDiscriminant >= 0.0;
+	const float tGround = hitGround ? groundOffset / max(-projectedOrigin + sqrt(max(groundDiscriminant, 0.0)), 1e-6) : -1.0;
 
 	float tAtmos = RayIntersectSphere(pos, rayDir, 0, data.rAtmosphere);
 #if LUTGEN == 0
 	// All transmittance texels describe unoccluded paths to the outer boundary.
 	// Planet visibility is evaluated analytically when sampling the LUT.
-	const float originRadius = length(pos);
-	const float projectedOrigin = dot(pos, rayDir);
 	float tMax = max(0.0, -projectedOrigin + sqrt(max(0.0, projectedOrigin * projectedOrigin +
 															   (data.rAtmosphere - originRadius) * (data.rAtmosphere + originRadius))));
 	const float tClosest = clamp(-projectedOrigin, 0.0, tMax);
 #elif LUTGEN != 3
-	float tMax = tGround > 0 ? tGround : tAtmos;
+	float tMax = hitGround ? tGround : tAtmos;
 #endif
 #if LUTGEN != 3 && LUTGEN != 0
+#	ifdef SKY_TAIL
+	if (tMax <= AP_MAX_DIST)
+		return;
+	pos += rayDir * AP_MAX_DIST;
+	tMax -= AP_MAX_DIST;
+#	endif
 	float dt = tMax / float(nsteps);
 	float3 stride = dt * rayDir;
 #endif
@@ -108,7 +121,11 @@ void rayMarch(
 #endif
 
 	float3 curr_pos = pos;
+#if LUTGEN == 3
+	for (uint i = sliceIndex; i < min(sliceIndex + 1u, nsteps); ++i)
+#else
 	[loop] for (uint i = 0; i < nsteps; ++i)
+#endif
 	{
 #if LUTGEN == 3
 		const float tNear = ApSliceDistance(i, depth);
@@ -121,6 +138,8 @@ void rayMarch(
 		const float tFar = TransmittanceRayDistance(float(i + 1) / nsteps, tMax, tClosest);
 		const float dt = tFar - tNear;
 		curr_pos = pos + (0.5 * (tNear + tFar)) * rayDir;
+#elif LUTGEN == 2
+		curr_pos = pos + (i + 0.5) * stride;
 #else
 		curr_pos += stride;
 #endif
@@ -138,7 +157,7 @@ void rayMarch(
 		float3 trSample = exp(-dt * extinction);
 
 #if LUTGEN != 0
-		float3 scatterFactor = (1 - trSample) / extinction;
+		float3 scatterFactor = (1 - trSample) / max(extinction, 1e-20);
 
 		float3 scatterNoPhase = muSRayleigh + muSAerosol;
 #	if LUTGEN == 1  // multiscatter
@@ -165,28 +184,23 @@ void rayMarch(
 		float3 inscatter = (muSRayleigh * phaseRayleighSun + muSAerosol * phaseAerosolSun) * trSun;
 #	if LUTGEN != 1
 		inscatter *= data.sunlightColor;
-#		if LUTGEN == 3
-		const float3 inscatterSun = inscatter;
-		inscatter = 0.0;
-#		endif
 		inscatter += (muSRayleigh * phaseRayleighMasser + muSAerosol * phaseAerosolMasser) * trMasser * data.masserColor;
 		inscatter += (muSRayleigh * phaseRayleighSecunda + muSAerosol * phaseAerosolSecunda) * trSecunda * data.secundaColor;
-		inscatter += scatterNoPhase * psiMs;
 #	endif
 
+#	ifdef SKY_TAIL
+		const float3 cloudPosition = curr_pos - float3(0, 0, max(data.zCameraPlanet, data.rPlanet)) +
+		                             FrameBuffer::CameraPosAdjust.xyz;
+		inscatter *= GetDirlightTransmittance(cloudPosition, SampTr, true);
+		inscatter += scatterNoPhase * psiMs * GetCloudDiffuseTransmittance(cloudPosition);
+#	elif LUTGEN != 1
+		inscatter += scatterNoPhase * psiMs;
+#	endif
 		float3 scatterIntegeral = inscatter * scatterFactor;
 
 		lum += scatterIntegeral * tr;
-#	if LUTGEN == 3
-		lumSun += inscatterSun * scatterFactor * tr;
-#	endif
 #endif
 		tr *= trSample;
-
-#if LUTGEN == 3
-		RWTexOutput[uint3(tid.xy, i + 1)] = float4(lum, dot(tr, float3(0.2126, 0.7152, 0.0722)));
-		RWTexSunOutput[uint3(tid.xy, i + 1)] = float4(lumSun, 1.0);
-#endif
 	}
 
 #if LUTGEN == 1  // multiscatter
@@ -200,19 +214,42 @@ void rayMarch(
 #endif
 }
 
+#if LUTGEN == 1
+// Four texels per group, with the original sixteen angular samples in parallel.
+groupshared float3 MsRadiance[64];
+groupshared float3 MsFeedback[64];
+[numthreads(16, 2, 2)] void main(uint3 thread : SV_GroupThreadID, uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
+	const uint3 tid = uint3(group.xy * 2u + thread.yz, 0u);
+#elif LUTGEN == 3
+// Two rays per group; evaluate the original 31 intervals concurrently.
+groupshared float3 ApRadiance[128];
+groupshared float3 ApTransmission[128];
+[numthreads(32, 2, 1)] void main(uint3 thread : SV_GroupThreadID, uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
+	const uint3 tid = uint3(group.x * 2u + thread.y, group.y, 0u);
+#else
 [numthreads(8, 8, 1)] void main(uint3 tid : SV_DispatchThreadID) {
-	const SharedData::PhysSkyData data = SharedData::physSkyData;
-
-#if LUTGEN == 3
-	RWTexOutput[uint3(tid.xy, 0)] = float4(0, 0, 0, 1);
-	RWTexSunOutput[uint3(tid.xy, 0)] = float4(0, 0, 0, 1);
 #endif
+	const SharedData::PhysSkyData data = SharedData::physSkyData;
 
 	uint3 outDims;
 #if LUTGEN == 3
 	RWTexOutput.GetDimensions(outDims.x, outDims.y, outDims.z);
 #else
 	RWTexOutput.GetDimensions(outDims.x, outDims.y);
+#endif
+#if LUTGEN == 1
+	if (any(group.xy * 2u >= outDims.xy))
+		return;
+#elif LUTGEN == 3
+	if (group.x * 2u >= outDims.x || group.y >= outDims.y)
+		return;
+#else
+	if (any(tid.xy >= outDims.xy))
+		return;
+#endif
+#if LUTGEN == 3
+	if (thread.x == 0u && all(tid.xy < outDims.xy))
+		RWTexOutput[uint3(tid.xy, 0)] = float4(0, 0, 0, 1);
 #endif
 	float2 uv = (tid.xy + 0.5) / outDims.xy;
 
@@ -230,9 +267,9 @@ void rayMarch(
 	float zenithCos = lerp(horZenithCos, 1, uv.x);
 	float3 sunDir = float3(0, sqrt(1 - zenithCos * zenithCos), zenithCos);
 #else
-	float3 rayDir = InvSkyViewLutUv(uv);
+	float3 rayDir = InvSkyViewLutUv(uv, outDims.y);
 	float3 sunDir = data.sunDir;
-	float3 pos = float3(0, 0, data.zCameraPlanet);
+	float3 pos = float3(0, 0, max(data.zCameraPlanet, data.rPlanet));
 #endif
 
 	float3 tr = 1.0;
@@ -244,24 +281,28 @@ void rayMarch(
 	const uint sqrtSamples = 4;
 	const float rcpSqrtSamples = rcp(sqrtSamples);
 	const float rcpSamples = rcpSqrtSamples * rcpSqrtSamples;
-
-	float3 lumTotal = 0;
-	float3 fMs = 0;
-	for (uint i = 0; i < sqrtSamples; ++i)
-		for (uint j = 0; j < sqrtSamples; ++j) {
-			const float theta = (i + 0.5) * (2.0 * Math::PI) * rcpSqrtSamples;
-			const float phi = acos(1.0 - 2.0 * (j + 0.5) * rcpSqrtSamples);
-			const float3 rayDir = SphericalDir(theta, phi);
-
-			tr = 1;
-			float3 lum = 0;
-			float3 lumFactor = 0;
-			rayMarch(pos, rayDir, sunDir, tr, lum, lumFactor);
-
-			fMs += lumFactor;
-			lumTotal += lum;
+	const uint i = thread.x / sqrtSamples;
+	const uint j = thread.x % sqrtSamples;
+	const float theta = (i + 0.5) * (2.0 * Math::PI) * rcpSqrtSamples;
+	const float phi = acos(1.0 - 2.0 * (j + 0.5) * rcpSqrtSamples);
+	const float3 rayDir = SphericalDir(theta, phi);
+	float3 lum = 0.0;
+	float3 lumFactor = 0.0;
+	rayMarch(pos, rayDir, sunDir, tr, lum, lumFactor);
+	MsRadiance[lane] = lum;
+	MsFeedback[lane] = lumFactor;
+	GroupMemoryBarrierWithGroupSync();
+	if (thread.x == 0u && all(tid.xy < outDims.xy)) {
+		// Preserve the original angular accumulation order and FP32 arithmetic.
+		precise float3 lumTotal = 0.0;
+		precise float3 fMs = 0.0;
+		[unroll] for (uint sampleIndex = 0u; sampleIndex < 16u; ++sampleIndex)
+		{
+			fMs += MsFeedback[lane + sampleIndex];
+			lumTotal += MsRadiance[lane + sampleIndex];
 		}
-	RWTexOutput[tid.xy] = float4(lumTotal * rcpSamples / (1 - fMs * rcpSamples), 1.0);
+		RWTexOutput[tid.xy] = float4(lumTotal * rcpSamples / (1 - fMs * rcpSamples), 1.0);
+	}
 
 #elif LUTGEN == 2
 	float3 lum = 0;
@@ -269,8 +310,24 @@ void rayMarch(
 	RWTexOutput[tid.xy] = float4(lum, 1.0);
 
 #elif LUTGEN == 3
-	float3 lum = 0;
-	float3 lumSun = 0;
-	rayMarch(pos, rayDir, tid.xy, outDims.z, tr, lum, lumSun);
+float3 lum = 0;
+rayMarch(pos, rayDir, thread.x, outDims.z, tr, lum);
+// Ordered front-to-back transport: (L0 + T0*L1, T0*T1).
+// Ping-pong storage needs one barrier per prefix stage.
+uint bank = 0u;
+[unroll] for (uint stride = 1u; stride < 32u; stride <<= 1u)
+{
+	ApRadiance[bank + lane] = lum;
+	ApTransmission[bank + lane] = tr;
+	GroupMemoryBarrierWithGroupSync();
+	if (thread.x >= stride) {
+		const float3 prefixTr = ApTransmission[bank + lane - stride];
+		lum = ApRadiance[bank + lane - stride] + prefixTr * lum;
+		tr = prefixTr * tr;
+	}
+	bank = 64u - bank;
+}
+if (thread.x + 1u < outDims.z && all(tid.xy < outDims.xy))
+	RWTexOutput[uint3(tid.xy, thread.x + 1u)] = float4(lum, dot(tr, float3(0.2126, 0.7152, 0.0722)));
 #endif
 }

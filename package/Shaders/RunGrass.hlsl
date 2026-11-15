@@ -379,16 +379,15 @@ struct PS_OUTPUT
 #ifdef PSHADER
 SamplerState SampBaseSampler : register(s0);
 SamplerState SampShadowMaskSampler : register(s1);
+#	if defined(PHYSICAL_SKY)
+SamplerState SampPhysicalSkyWrapSampler : register(s7);
+#	endif
 #	if defined(GRASS_LIGHTING) && defined(TRUE_PBR)
 SamplerState SampNormalSampler : register(s2);
 SamplerState SampRMAOSSampler : register(s3);
 SamplerState SampSubsurfaceSampler : register(s4);
 SamplerState SampFuzzSampler : register(s5);
 SamplerState SampEmissiveSampler : register(s6);
-#	endif
-#	if defined(PHYSICAL_SKY)
-// Bound by Physical Sky around grass draws; s2-s6 belong to PBR grass.
-SamplerState SampPhysicalSkyWrapSampler : register(s7);
 #	endif
 
 Texture2D<float4> TexBaseSampler : register(t0);
@@ -508,6 +507,12 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	psout.PS.xyz = input.Depth.xxx / input.Depth.yyy;
 #				endif
 	psout.PS.w = diffuseAlpha;
+#				if !defined(RENDER_DEPTH)
+	psout.Diffuse.rgb = PreExposure::EncodeScene(psout.Diffuse.rgb);
+#					if defined(GRASS_LIGHTING)
+	psout.Specular.rgb = PreExposure::EncodeScene(psout.Specular.rgb);
+#					endif
+#				endif
 	return psout;
 #			else
 	if (SharedData::lodBlendingSettings.DisableTerrainVertexColors)
@@ -608,9 +613,10 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #				if defined(PHYSICAL_SKY)
 	if (SharedData::physSkyData.enabled) {
 		dirLightColor *= PhysSky::SampleTr(normalize(SharedData::DirLightDirection.xyz), SampShadowMaskSampler);
-		dirLightColor *= PhysSky::GetDirlightTransmittance(input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz, SampPhysicalSkyWrapSampler);
+		dirLightColor *= PhysSky::GetDirlightTransmittance(input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz, SampPhysicalSkyWrapSampler, true);
 	}
 #				endif
+
 	float3 cloudScatterColor = dirLightColor;
 	float cloudScatter = 0.0;
 	if (!SharedData::InInterior)
@@ -847,6 +853,12 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	psout.Reflectance = float4(indirectLobes.specular + wetnessReflectance, 1);
 	psout.Masks = float4(0, 0, Color::RGBToYCoCg(directionalAmbientColor).x, 0);
 	psout.Masks2 = float4(1.0 - vertexAO, NeuralRenderingCategory::Encode(NeuralRenderingCategory::Foliage), 0, 1);
+#				if !defined(RENDER_DEPTH)
+	psout.Diffuse.rgb = PreExposure::EncodeScene(psout.Diffuse.rgb);
+#					if defined(GRASS_LIGHTING)
+	psout.Specular.rgb = PreExposure::EncodeScene(psout.Specular.rgb);
+#					endif
+#				endif
 	return psout;
 #			endif
 }
@@ -1022,7 +1034,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #				if defined(PHYSICAL_SKY)
 	if (SharedData::physSkyData.enabled) {
 		dirLightColorMultiplier *= PhysSky::SampleTr(normalize(SharedData::DirLightDirection.xyz), SampShadowMaskSampler);
-		dirLightColorMultiplier *= PhysSky::GetDirlightTransmittance(input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz, SampPhysicalSkyWrapSampler);
+		dirLightColorMultiplier *= PhysSky::GetDirlightTransmittance(input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz, SampPhysicalSkyWrapSampler, true);
 	}
 #				endif
 
@@ -1284,6 +1296,12 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	psout.Masks = float4(0, 0, Color::RGBToYCoCg(directionalAmbientColor).x, 0);
 	psout.Masks2 = float4(1.0 - vertexAO, NeuralRenderingCategory::Encode(NeuralRenderingCategory::Foliage), 0, 0);
 #			endif
+#			if !defined(RENDER_DEPTH)
+	psout.Diffuse.rgb = PreExposure::EncodeScene(psout.Diffuse.rgb);
+#				if defined(GRASS_LIGHTING)
+	psout.Specular.rgb = PreExposure::EncodeScene(psout.Specular.rgb);
+#				endif
+#			endif
 	return psout;
 }
 #		endif  // TRUE_PBR
@@ -1473,6 +1491,12 @@ PS_OUTPUT main(PS_INPUT input)
 	psout.Masks2 = float4(1.0 - vertexAO, NeuralRenderingCategory::Encode(NeuralRenderingCategory::Foliage), 0, 0);
 #		endif
 
+#		if !defined(RENDER_DEPTH)
+	psout.Diffuse.rgb = PreExposure::EncodeScene(psout.Diffuse.rgb);
+#			if defined(GRASS_LIGHTING)
+	psout.Specular.rgb = PreExposure::EncodeScene(psout.Specular.rgb);
+#			endif
+#		endif
 	return psout;
 }
 #	endif

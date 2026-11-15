@@ -20,9 +20,9 @@ namespace Skylighting
 	Texture2D<float> SkylightingZenithDepth : register(SKYLIGHTING_ZENITH_REGISTER);
 #	define SKYLIGHTING_COVERAGE
 #elif defined(PSHADER)
-	// t67/t68 here, not upstream's t51/t52: this fork's Landscape Seams binds those in Lighting
-	Texture3D<uint> SkylightingProbeCoverage : register(t67);
-	Texture2D<float> SkylightingZenithDepth : register(t68);
+	// t119/t121 here, not upstream's t51/t52: this fork's Landscape Seams binds those in Lighting
+	Texture3D<uint> SkylightingProbeCoverage : register(t119);
+	Texture2D<float> SkylightingZenithDepth : register(t121);
 #	define SKYLIGHTING_COVERAGE
 #endif
 
