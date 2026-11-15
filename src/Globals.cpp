@@ -36,7 +36,6 @@
 #include "Features/PerformanceOverlay.h"
 #include "Features/PhysicalSky.h"
 #include "Features/PostProcessing.h"
-#include "Features/ProceduralAurora.h"
 #include "Features/ProceduralLightning.h"
 #include "Features/ProceduralNightSky.h"
 #include "Features/RainRefraction.h"
@@ -148,7 +147,6 @@ namespace globals
 		LandscapeSeams landscapeSeams{};
 		SnowDeformation snowDeformation{};
 		SceneManager sceneManager{};
-		ProceduralAurora proceduralAurora{};
 
 		namespace llf
 		{
