@@ -268,7 +268,6 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::hdrDisplay,
 		&globals::features::physicalSky,
 		&globals::features::postProcessing,
-		&globals::features::physicalSky,
 		&globals::features::livingWindows,
 		&globals::features::skin,
 		&globals::features::snowCover,
