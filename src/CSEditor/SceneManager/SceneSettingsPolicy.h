@@ -53,6 +53,8 @@ namespace SceneSettingsPolicy
 		// Debug visualisation, never a look
 		{ "LightLimitFix", "EnableLightsVisualisation" },
 		{ "LightLimitFix", "LightsVisualisationMode" },
+		{ "LinearLighting", "enableACEScg" },
+		{ "LinearLighting", "useWithEffects11" },
 		{ "PostProcessing", "Border" },
 		// Auto-enabled each frame from its inputs, so a scene value would never be retained.
 		{ "PostProcessing", "Composite" },
@@ -81,6 +83,7 @@ namespace SceneSettingsPolicy
 		{ "ExponentialHeightFog" },
 		{ "HorizonFix" },
 		{ "ImageBasedLighting" },
+		{ "LinearLighting" },
 		{ "PhysicalSky" },
 		{ "PostProcessing" },
 		{ "ScreenSpaceGI" },
