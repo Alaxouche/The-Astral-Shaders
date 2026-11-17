@@ -48,9 +48,6 @@
 
 #if defined(DETAIL_MAPS)
 #	include "DetailMaps/DetailMaps.hlsli"
-#	if defined(ICE)
-#		include "Ice/Ice.hlsli"
-#	endif
 #endif
 
 #if defined(VSHADER)
@@ -1830,21 +1827,6 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	rawRMAOS.x = saturate(rawRMAOS.x + detailSample.Roughness);
 #		else
 	glossiness = saturate(glossiness * (1.0 - detailSample.Roughness));
-#		endif
-
-#		if defined(ICE)
-#			if defined(TRUE_PBR)
-	const float iceRoughness = rawRMAOS.x;
-#			else
-	const float iceRoughness = 0.0;  // Vanilla specular masks are not roughness
-#			endif
-	Ice::Volume iceVolume = Ice::Trace(uv, diffuseUv, normal.xyz, mul(viewDirection, tbn), iceRoughness, viewPosition.z);
-	[branch] if (iceVolume.Clear > 0.0)
-	{
-		float4 iceBody = Ice::SampleBody(TexColorSampler, SampColorSampler, iceVolume);
-		iceBody = Permutation::BaseTextureIsWorking ? iceBody : ColorManagement::DiffuseToWorking(iceBody, PBRTextures);
-		baseColor.rgb = Ice::Compose(baseColor.rgb, Color::Albedo(iceBody.rgb), iceVolume, SampColorSampler);
-	}
 #		endif
 #	endif
 

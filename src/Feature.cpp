@@ -8,7 +8,6 @@
 #include "Features/CapsuleShadows.h"
 #include "Features/CloudShadows.h"
 #include "Features/DetailMaps.h"
-#include "Features/Ice.h"
 #include "Features/DeveloperTools.h"
 #include "Features/DynamicCubemaps.h"
 #include "Features/Effects11.h"
@@ -280,7 +279,6 @@ const std::vector<Feature*>& Feature::GetFeatureList()
 		&globals::features::nightEye,
 		&globals::features::furShells,
 		&globals::features::detailMaps,
-		&globals::features::ice,
 		&globals::features::landscapeSeams,
 		&globals::features::snowDeformation
 	};

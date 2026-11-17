@@ -33,28 +33,22 @@ struct DetailMaps : Feature
 	virtual void SetupResources() override;
 	virtual void Reset() override;
 
-	/** Descriptors whose draws can take the per-draw material permutation (shared with Ice). */
-	static bool IsMaterialDescriptor(uint32_t a_descriptor);
-	static bool IsFirstPersonPass();
-
 	bool ShouldPrecompile(uint32_t a_descriptor) const;
 	bool IsEligible(uint32_t a_descriptor) const;
 	bool BindPass(RE::BSRenderPass* a_pass);
-	/** Binds a no-op detail for a draw that uses the permutation only for Ice. */
-	void BindNeutral();
 	void InvalidateBindings() { bindingValid = false; }
 
 private:
 	struct PerDraw
 	{
-		float Scale = 0.0f;
-		float Albedo = 0.0f;
-		float Normal = 0.0f;
-		float Roughness = 0.0f;
-		float FadeEnd = 0.0f;
-		float FadeInvRange = 0.0f;
-		float Transpose = 0.0f;
-		float Pad = 0.0f;
+		float Scale;
+		float Albedo;
+		float Normal;
+		float Roughness;
+		float FadeEnd;
+		float FadeInvRange;
+		float Transpose;
+		float Pad;
 	};
 	static_assert(sizeof(PerDraw) == 32);
 

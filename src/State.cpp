@@ -20,7 +20,6 @@
 #include "Features/Effects11.h"
 #include "Features/ExponentialHeightFog.h"
 #include "Features/HDRDisplay.h"
-#include "Features/Ice.h"
 #include "Features/InteriorSun.h"
 #include "Features/LinearLighting.h"
 #include "Features/PerformanceOverlay.h"
@@ -82,13 +81,9 @@ void State::BeginLightingVariants(RE::BSShader* a_shader, bool a_skipPixelShader
 		return;
 
 	auto& detailMaps = globals::features::detailMaps;
-	auto& ice = globals::features::ice;
 	detailMaps.InvalidateBindings();
-	ice.InvalidateBindings();
 	const auto liteDescriptor = SIE::ShaderCache::GetLiteLightingDescriptor(modifiedPixelDescriptor);
-	const bool detailMapsEligible = detailMaps.IsEligible(modifiedPixelDescriptor);
-	const bool iceEligible = ice.IsEligible(modifiedPixelDescriptor);
-	const bool detailEligible = detailMapsEligible || iceEligible;
+	const bool detailEligible = detailMaps.IsEligible(modifiedPixelDescriptor);
 	if (!liteDescriptor && !detailEligible)
 		return;
 
@@ -97,8 +92,6 @@ void State::BeginLightingVariants(RE::BSShader* a_shader, bool a_skipPixelShader
 	lightingVariant.vanillaDescriptor = currentPixelDescriptor;
 	lightingVariant.liteDescriptor = liteDescriptor;
 	lightingVariant.detailEligible = detailEligible;
-	lightingVariant.detailMapsEligible = detailMapsEligible;
-	lightingVariant.iceEligible = iceEligible;
 }
 
 void State::UpdateLightingVariant(RE::BSRenderPass* a_pass)
@@ -119,14 +112,7 @@ void State::UpdateLightingVariant(RE::BSRenderPass* a_pass)
 		return;
 
 	ID3D11PixelShader* target = variant.full;
-	// Detail Maps and Ice share one permutation; a draw that wants only one binds the other's no-op.
-	const bool detailBound = variant.detailMapsEligible && globals::features::detailMaps.BindPass(a_pass);
-	const bool iceBound = variant.iceEligible && globals::features::ice.BindPass(a_pass);
-	if (detailBound || iceBound) {
-		if (!detailBound)
-			globals::features::detailMaps.BindNeutral();
-		if (!iceBound)
-			globals::features::ice.BindNeutral();
+	if (variant.detailEligible && globals::features::detailMaps.BindPass(a_pass)) {
 		if (!variant.detailResolved) {
 			variant.detailResolved = true;
 			auto* detail = shaderCache->GetPixelShader(*variant.shader, variant.descriptor | static_cast<uint>(SIE::ShaderCache::LightingShaderFlags::DetailMaps));

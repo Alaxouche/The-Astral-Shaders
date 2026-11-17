@@ -61,7 +61,6 @@ struct HairBacklighting;
 struct NightEye;
 struct FurShells;
 struct DetailMaps;
-struct Ice;
 struct LandscapeSeams;
 struct SnowDeformation;
 struct SceneManager;
@@ -181,7 +180,6 @@ namespace globals
 		extern NightEye nightEye;
 		extern FurShells furShells;
 		extern DetailMaps detailMaps;
-		extern Ice ice;
 		extern LandscapeSeams landscapeSeams;
 		extern SnowDeformation snowDeformation;
 		extern SceneManager sceneManager;

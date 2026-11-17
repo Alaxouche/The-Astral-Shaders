@@ -16,7 +16,6 @@
 
 #include "Features/DetailMaps.h"
 #include "Features/DynamicCubemaps.h"
-#include "Features/Ice.h"
 #include "Features/LandscapeSeams.h"
 #include "Features/LightLimitFix.h"
 #include "Features/RenderDoc.h"
@@ -214,8 +213,6 @@ namespace SIE
 			}
 			if ((descriptor & static_cast<uint32_t>(ShaderCache::LightingShaderFlags::DetailMaps)) != 0) {
 				defines[lastIndex++] = { "DETAIL_MAPS", nullptr };
-				if (globals::features::ice.loaded)
-					defines[lastIndex++] = { "ICE", nullptr };
 			}
 
 			const bool noSnowCover = (descriptor & static_cast<uint32_t>(ShaderCache::LightingShaderFlags::NoSnowCover)) != 0;
