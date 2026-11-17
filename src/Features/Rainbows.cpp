@@ -42,6 +42,7 @@ namespace
 	constexpr float kRainHeight = 70000.0f;
 	constexpr float kRainExtent = 350000.0f;
 	constexpr float kRainDensity = 1.0f / 105000.0f;
+	constexpr float kDepartedRainStart = 35000.0f;
 
 	constexpr float kShowerStart = 0.05f;
 	constexpr float kShowerEnd = 0.01f;
@@ -268,6 +269,9 @@ void Rainbows::UpdateWeather(float a_deltaTime)
 	if (showerActive && showerRain < kShowerEnd)
 		EndShower();
 
+	const float rainHere = showerRain > 0.0f ? std::clamp(rain / showerRain, 0.0f, 1.0f) : 0.0f;
+	rainStart = (1.0f - rainHere) * kDepartedRainStart;
+
 	if (!exterior) {
 		visibility = 0.0f;
 		return;
@@ -377,6 +381,7 @@ void Rainbows::Draw()
 	frameData.RainHeight = kRainHeight;
 	frameData.RainExtent = kRainExtent;
 	frameData.RainDensity = kRainDensity;
+	frameData.RainStart = rainStart;
 	frameConstants->Update(frameData);
 
 	Effects11Util::D3D11FullStateBackup backup;

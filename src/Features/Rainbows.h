@@ -45,7 +45,8 @@ struct Rainbows : Feature
 		float RainHeight;
 		float RainExtent;
 		float RainDensity;
-		float pad[3];
+		float RainStart;
+		float pad[2];
 	};
 	static_assert(sizeof(FrameData) == 64);
 
@@ -90,6 +91,7 @@ private:
 
 	// Shower state: the rain that can hold a bow, decaying in game time once it stops falling.
 	float showerRain = 0.0f;
+	float rainStart = 0.0f;
 	bool showerActive = false;
 	bool showerHasBow = false;
 	float lastGameHours = -1.0f;

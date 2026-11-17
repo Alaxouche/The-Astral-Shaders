@@ -37,7 +37,8 @@ cbuffer RainbowFrame : register(b0)
 	float RainHeight;
 	float RainExtent;
 	float RainDensity;
-	float3 Padding;
+	float RainStart;
+	float2 Padding;
 };
 
 // Moonlight reads nearly white to night-adapted eyes.
@@ -84,15 +85,16 @@ float4 main(Rainbows::Interpolants input) :
 	float rainPath = RainExtent;
 	if (direction.z > 1e-4)
 		rainPath = min(rainPath, RainHeight / direction.z);
-	float path = clamp(distance, 0.0, rainPath);
+	float path = max(min(distance, rainPath) - RainStart, 0.0);
 	float curtain = 1.0 - exp(-path * RainDensity);
+	float scatterDistance = RainStart + path * 0.5;
 
 	// The light reaches us from the rain about halfway in, through whatever haze lies in front of it.
-	float3 transmittance = 1.0 - FogAbsorption * GetFogFactor(path * 0.5);
+	float3 transmittance = 1.0 - FogAbsorption * GetFogFactor(scatterDistance);
 #if defined(PHYSICAL_SKY) || defined(EXP_HEIGHT_FOG)
 	if (SharedData::PostWaterComposite) {
 		float2 uv = input.Position.xy / RenderSize;
-		float3 medium = ViewMedium::SampleViewMedium(direction * max(path * 0.5, 1.0), uv, LinearSampler).transmittance;
+		float3 medium = ViewMedium::SampleViewMedium(direction * max(scatterDistance, 1.0), uv, LinearSampler).transmittance;
 		transmittance = lerp(1.0, medium, FogAbsorption);
 	}
 #endif
