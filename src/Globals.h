@@ -61,6 +61,7 @@ struct HairBacklighting;
 struct NightEye;
 struct FurShells;
 struct DetailMaps;
+struct Ice;
 struct LandscapeSeams;
 struct SnowDeformation;
 struct SceneManager;
@@ -166,7 +167,7 @@ namespace globals
 		extern CSEditor csEditor;
 		extern ExponentialHeightFog exponentialHeightFog;
 		extern TruePBR truePBR;
-	extern PostProcessing postProcessing;
+		extern PostProcessing postProcessing;
 		extern Skin skin;
 		extern SnowCover snowCover;
 		extern FootstepParticles footstepParticles;
@@ -180,6 +181,7 @@ namespace globals
 		extern NightEye nightEye;
 		extern FurShells furShells;
 		extern DetailMaps detailMaps;
+		extern Ice ice;
 		extern LandscapeSeams landscapeSeams;
 		extern SnowDeformation snowDeformation;
 		extern SceneManager sceneManager;

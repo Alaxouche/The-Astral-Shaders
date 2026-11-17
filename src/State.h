@@ -396,7 +396,9 @@ public:
 		ID3D11PixelShader* detail = nullptr;
 		ID3D11PixelShader* bound = nullptr;
 		bool resolved = false;
-		bool detailEligible = false;
+		bool detailEligible = false;  // Detail Maps or Ice can take the per-draw material permutation
+		bool detailMapsEligible = false;
+		bool iceEligible = false;
 		bool detailResolved = false;
 	};
 	LightingVariantState lightingVariant;

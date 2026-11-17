@@ -8,6 +8,7 @@
 #include "Features/CapsuleShadows.h"
 #include "Features/CloudShadows.h"
 #include "Features/DetailMaps.h"
+#include "Features/Ice.h"
 #include "Features/DeveloperTools.h"
 #include "Features/DynamicCubemaps.h"
 #include "Features/Effects11.h"
@@ -146,6 +147,7 @@ namespace globals
 		NightEye nightEye{};
 		FurShells furShells{};
 		DetailMaps detailMaps{};
+		Ice ice{};
 		LandscapeSeams landscapeSeams{};
 		SnowDeformation snowDeformation{};
 		SceneManager sceneManager{};

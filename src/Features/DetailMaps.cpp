@@ -8,9 +8,12 @@
 #include "Utils/D3D.h"
 #include "Utils/FileSystem.h"
 #include "Utils/Game.h"
+#include "Utils/TextureRules.h"
 #include "Utils/UI.h"
 
 #define I18N_KEY_PREFIX "feature.detail_maps."
+
+using namespace Util::TextureRules;
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	DetailMaps::Settings,
@@ -36,13 +39,13 @@ namespace
 	constexpr std::string_view SetsPath = "Data\\Shaders\\DetailMaps\\Sets";
 	constexpr std::string_view RulesPath = "Data\\Shaders\\DetailMaps\\Rules";
 
-	bool IsFirstPersonPass()
+	bool IsFirstPersonPassImpl()
 	{
 		auto* accumulator = *globals::game::currentAccumulator.get();
 		return accumulator && accumulator->GetRuntimeData().renderMode == FirstPersonRenderMode;
 	}
 
-	bool IsDetailDescriptor(uint32_t a_descriptor, bool a_allowForward)
+	bool IsDetailDescriptorImpl(uint32_t a_descriptor, bool a_allowForward)
 	{
 		using Flags = SIE::ShaderCache::LightingShaderFlags;
 		using enum SIE::ShaderCache::LightingShaderTechniques;
@@ -65,101 +68,6 @@ namespace
 		default:
 			return false;
 		}
-	}
-
-	std::string ToLower(std::string_view a_text)
-	{
-		std::string text(a_text);
-		std::ranges::transform(text, text.begin(), [](char a_char) {
-			return a_char == '/' ? '\\' : static_cast<char>(std::tolower(static_cast<unsigned char>(a_char)));
-		});
-		return text;
-	}
-
-	std::string NormalizePath(const char* a_path)
-	{
-		std::string path = ToLower(a_path);
-		if (path.starts_with("data\\"))
-			path.erase(0, 5);
-		if (!path.starts_with("textures\\"))
-			path.insert(0, "textures\\");
-		if (path.starts_with("textures\\pbr\\"))
-			path.erase(9, 4);
-		return path;
-	}
-
-	bool WildcardMatch(std::string_view a_text, std::string_view a_pattern)
-	{
-		while (!a_pattern.empty()) {
-			if (a_pattern.starts_with("**")) {
-				a_pattern.remove_prefix(2);
-				if (a_pattern.empty())
-					return true;
-				if (a_pattern.front() == '\\' && WildcardMatch(a_text, a_pattern.substr(1)))
-					return true;
-				for (size_t index = 0; index <= a_text.size(); ++index)
-					if (WildcardMatch(a_text.substr(index), a_pattern))
-						return true;
-				return false;
-			}
-			if (a_pattern.front() == '*') {
-				a_pattern.remove_prefix(1);
-				for (size_t index = 0; index <= a_text.size(); ++index) {
-					if (WildcardMatch(a_text.substr(index), a_pattern))
-						return true;
-					if (index < a_text.size() && a_text[index] == '\\')
-						break;
-				}
-				return false;
-			}
-			if (a_text.empty() || (a_pattern.front() == '?' ? a_text.front() == '\\' : a_pattern.front() != a_text.front()))
-				return false;
-			a_pattern.remove_prefix(1);
-			a_text.remove_prefix(1);
-		}
-		return a_text.empty();
-	}
-
-	bool MatchesAny(std::string_view a_path, const std::vector<std::string>& a_patterns)
-	{
-		return std::ranges::any_of(a_patterns, [&](const std::string& a_pattern) { return WildcardMatch(a_path, a_pattern); });
-	}
-
-	std::vector<std::string> ReadPatterns(const json& a_object, const char* a_key)
-	{
-		std::vector<std::string> patterns;
-		const auto it = a_object.find(a_key);
-		if (it == a_object.end())
-			return patterns;
-		if (it->is_string()) {
-			patterns.push_back(ToLower(it->get<std::string>()));
-		} else if (it->is_array()) {
-			for (const auto& value : *it)
-				if (value.is_string() && !value.get<std::string>().empty())
-					patterns.push_back(ToLower(value.get<std::string>()));
-		}
-		return patterns;
-	}
-
-	float ReadNumber(const json& a_object, const char* a_key, float a_default, float a_min, float a_max)
-	{
-		const auto it = a_object.find(a_key);
-		const float value = it != a_object.end() && it->is_number() ? it->get<float>() : a_default;
-		return std::isfinite(value) ? std::clamp(value, a_min, a_max) : a_default;
-	}
-
-	std::vector<std::filesystem::path> ListFiles(std::string_view a_folder, std::string_view a_extension)
-	{
-		std::vector<std::filesystem::path> files;
-		std::error_code error;
-		std::filesystem::directory_iterator it(std::filesystem::path(a_folder), error);
-		for (const std::filesystem::directory_iterator end; !error && it != end; it.increment(error)) {
-			std::error_code fileError;
-			if (it->is_regular_file(fileError) && ToLower(Util::PathHelpers::ToUtf8(it->path().extension())) == a_extension)
-				files.push_back(it->path());
-		}
-		std::ranges::sort(files);
-		return files;
 	}
 }
 
@@ -369,14 +277,24 @@ int32_t DetailMaps::FindRule(RE::BSRenderPass* a_pass)
 	return lastRule;
 }
 
+bool DetailMaps::IsFirstPersonPass()
+{
+	return IsFirstPersonPassImpl();
+}
+
+bool DetailMaps::IsMaterialDescriptor(uint32_t a_descriptor)
+{
+	return IsDetailDescriptorImpl(a_descriptor, IsFirstPersonPassImpl());
+}
+
 bool DetailMaps::ShouldPrecompile(uint32_t a_descriptor) const
 {
-	return loaded && settings.Enabled && HasContent() && IsDetailDescriptor(a_descriptor, false);
+	return loaded && settings.Enabled && HasContent() && IsDetailDescriptorImpl(a_descriptor, false);
 }
 
 bool DetailMaps::IsEligible(uint32_t a_descriptor) const
 {
-	return loaded && settings.Enabled && perDrawCB && HasContent() && IsDetailDescriptor(a_descriptor, IsFirstPersonPass());
+	return loaded && settings.Enabled && perDrawCB && HasContent() && IsMaterialDescriptor(a_descriptor);
 }
 
 bool DetailMaps::BindPass(RE::BSRenderPass* a_pass)
@@ -391,7 +309,7 @@ bool DetailMaps::BindPass(RE::BSRenderPass* a_pass)
 		return false;
 
 	auto* geometry = a_pass->geometry;
-	const float distance = IsFirstPersonPass() ? 0.0f : std::max(0.0f, geometry->worldBound.center.GetDistance(Util::GetEyePosition()) - geometry->worldBound.radius);
+	const float distance = IsFirstPersonPassImpl() ? 0.0f : std::max(0.0f, geometry->worldBound.center.GetDistance(Util::GetEyePosition()) - geometry->worldBound.radius);
 	if (distance >= settings.FadeEnd)
 		return false;
 
@@ -431,6 +349,24 @@ bool DetailMaps::BindPass(RE::BSRenderPass* a_pass)
 	bindingValid = true;
 	++passCount;
 	return true;
+}
+
+void DetailMaps::BindNeutral()
+{
+	if (!perDrawCB)
+		return;
+	// FadeEnd 0 fades the detail out everywhere, so the shader skips its sample.
+	const PerDraw neutral{};
+	auto* context = globals::d3d::context;
+	if (!bindingValid || std::memcmp(&neutral, &lastPerDraw, sizeof(PerDraw)) != 0) {
+		perDrawCB->Update(neutral);
+		lastPerDraw = neutral;
+	}
+	if (!bindingValid) {
+		ID3D11Buffer* buffer = perDrawCB->CB();
+		context->PSSetConstantBuffers(PerDrawSlot, 1, &buffer);
+	}
+	bindingValid = true;
 }
 
 void DetailMaps::Reset()

@@ -1,0 +1,47 @@
+{
+	// Ice rules: diffuse texture paths, matched like Detail Maps rules ("*" within a folder, "**" across folders).
+	// "textures\pbr\" is folded into "textures\", so one pattern covers vanilla and PBR replacers.
+	// Per rule: strength 0-1, depth (UV units the interior lies below the surface), scale (crack tiling per UV),
+	// cracks and bubbles (multipliers), priority (higher wins). Later files win ties.
+	"exclude": [
+		"textures\\**\\*snow*",
+		"textures\\lod\\**",
+		"textures\\**\\lod\\**",
+		"textures\\**\\*parallax*",
+		"textures\\**\\*subsurface*"
+	],
+	"rules": [
+		{
+			// Glaciers, icebergs and the Forgotten Vale's ice walls: thick, old ice.
+			"match": [ "textures\\landscape\\glacierslab*", "textures\\dlc01\\landscape\\icewall*" ],
+			"depth": 0.08,
+			"scale": 1.5,
+			"cracks": 1.0,
+			"bubbles": 0.7
+		},
+		{
+			// Icicles: thin, clear and full of air.
+			"match": [ "textures\\landscape\\icicle*" ],
+			"depth": 0.03,
+			"scale": 3.0,
+			"cracks": 0.6,
+			"bubbles": 1.6
+		},
+		{
+			// Floes and frozen lakes: a thin sheet over dark water.
+			"match": [ "textures\\landscape\\icefloes*", "textures\\landscape\\frozenmarshice*", "textures\\dlc01\\landscape\\icelake*" ],
+			"depth": 0.04,
+			"scale": 2.0,
+			"cracks": 1.2,
+			"bubbles": 0.8
+		},
+		{
+			// Ice caves.
+			"match": [ "textures\\dungeons\\caves\\icecavewall*", "textures\\dungeons\\caves\\icefrozen*", "textures\\dungeons\\caves\\icerock*" ],
+			"depth": 0.06,
+			"scale": 2.0,
+			"cracks": 1.0,
+			"bubbles": 0.8
+		}
+	]
+}
