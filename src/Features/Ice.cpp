@@ -34,7 +34,7 @@ namespace
 {
 	constexpr uint32_t ReflectionsFlag = static_cast<uint32_t>(State::ExtraShaderDescriptors::IsReflections);
 	constexpr uint32_t TextureSlot = 59;
-	constexpr uint32_t PerDrawSlot = 13;
+	constexpr uint32_t PerDrawSlot = 9;
 	constexpr size_t MaxEntries = 8192;
 	constexpr int32_t NoMatch = -1;
 	constexpr int32_t Excluded = -2;

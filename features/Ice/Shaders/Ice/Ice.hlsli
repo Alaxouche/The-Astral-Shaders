@@ -8,7 +8,7 @@
 namespace Ice
 {
 #if defined(PSHADER)
-	cbuffer IcePerDraw : register(b13)
+	cbuffer IcePerDraw : register(b9)
 	{
 		float Strength;  // 0 on draws that take the permutation only for Detail Maps
 		float Depth;     // Body depth in UV units
