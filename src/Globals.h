@@ -54,6 +54,7 @@ struct FootstepParticles;
 struct ProceduralLightning;
 struct ProceduralNightSky;
 struct HeatHaze;
+struct Rainbows;
 struct CameraFX;
 struct CapsuleShadows;
 struct HairBacklighting;
@@ -172,6 +173,7 @@ namespace globals
 		extern ProceduralLightning proceduralLightning;
 		extern ProceduralNightSky proceduralNightSky;
 		extern HeatHaze heatHaze;
+		extern Rainbows rainbows;
 		extern CameraFX cameraFX;
 		extern CapsuleShadows capsuleShadows;
 		extern HairBacklighting hairBacklighting;
