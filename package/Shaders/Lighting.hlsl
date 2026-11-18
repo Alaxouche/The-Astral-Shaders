@@ -3012,11 +3012,10 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	DirectLightingOutput dirLightOutput;
 #	if defined(TRUE_PBR)
 	dirLightContext = CreateDirectLightingContext(worldNormal.xyz, coatWorldNormal, vertexNormal.xyz, refractedViewDirection, viewDirection, refractedDirLightDirection, DirLightDirection, dirLightColor, dirDetailedShadow, dirSoftShadow);
-	material.SpecularMultiScatter = SharedData::truePBRSettings.EnableMultiScatter != 0 ? PBR::SpecularMultiScatter(material.F0, material.Roughness, saturate(abs(dot(dirLightContext.worldNormal, dirLightContext.viewDir)) + EPSILON_DOT_CLAMP)) : 1.0;
 	dirLightContext.lightDisk = LightDisk::DirectionalSource();
 	float directNdotV = dot(dirLightContext.worldNormal, dirLightContext.viewDir);
 	if (!isThinSurface)
-		material.DirectSpecularEnergyCompensation = BRDF::GGXEnergyCompensation(material.Roughness, PBR::GetDirectSpecularNdotV(directNdotV), material.F0);
+		material.DirectSpecularEnergyCompensation = SharedData::truePBRSettings.EnableMultiScatter != 0 ? BRDF::GGXEnergyCompensation(material.Roughness, PBR::GetDirectSpecularNdotV(directNdotV), material.F0) : 1.0;
 	float directFuzzNdotV = clamp(abs(directNdotV), isThinSurface ? 0.0f : EPSILON_DOT_CLAMP, 1.0f);
 	material.Fuzz = PBR::CreateFuzzLayer(material, directFuzzNdotV);
 	PBR::CacheFuzzLTC(material.Fuzz, dirLightContext.worldNormal, dirLightContext.viewDir, directFuzzNdotV);

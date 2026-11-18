@@ -340,7 +340,6 @@ namespace PBR
 #else
 			float3 Fr = SpecularMicrofacet(material.Roughness, material.F0, max(specularNdotL, EPSILON_DOT_CLAMP), specularNdotV, diskNdotH, diskVdotH, F);
 #endif
-			Fr *= material.SpecularMultiScatter;
 			Fr *= LightDisk::GGXNormalization(material.Roughness, context.lightDisk);
 #if defined(TREE_ANIM)
 			float3 kD = 1.0f - saturate(SpecularDirectionalAlbedo(material.F0, material.Roughness, saturate(abs(NdotV))));

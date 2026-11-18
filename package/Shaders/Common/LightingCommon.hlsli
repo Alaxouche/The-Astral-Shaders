@@ -119,7 +119,6 @@ struct MaterialProperties
 	float GlintDensityRandomization;
 	Glints::GlintCachedVars GlintCache;
 	float Noise;
-	float3 SpecularMultiScatter;
 	PBR::FuzzLayer Fuzz;
 #endif
 };
