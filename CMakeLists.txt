@@ -180,6 +180,10 @@ set(NRD_NORMAL_ENCODING "2" CACHE STRING "" FORCE)
 set(NRD_ROUGHNESS_ENCODING "1" CACHE STRING "" FORCE)
 set(REBLUR_PERFORMANCE_MODE ON CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_SOURCE_DIR}/extern/NRD EXCLUDE_FROM_ALL)
+# NRD builds with warnings as errors; newer MSVC flags C4834 in its fetched MathLib, which is not ours to fix.
+if(TARGET NRD)
+    target_compile_options(NRD PRIVATE /WX-)
+endif()
 
 find_path(DETOURS_INCLUDE_DIRS "detours/detours.h")
 find_library(DETOURS_LIBRARY detours REQUIRED)

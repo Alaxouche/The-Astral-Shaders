@@ -188,7 +188,9 @@ public:
 	/** @brief Sets the runtime handoff flag; UnifiedPresetCatalog owns persisting it to the manifest. */
 	void SetHandedOff(E11Handoff::Feature feature, bool value) { handedOff[static_cast<size_t>(feature)] = value; }
 	/** @brief Whether Effects 11 drives a feature it can hand to CS. */
-	bool OwnsFeature(E11Handoff::Feature feature) const { return loaded && enableEffect && !IsHandedOff(feature); }
+	// Astral: Effects 11 never takes Physical Sky over. E11 replaces none of its settings, so owning it only
+	// switched the sky off whenever a preset was active, unless the preset's manifest handed it back.
+	bool OwnsFeature(E11Handoff::Feature feature) const { return loaded && enableEffect && feature != E11Handoff::Feature::PhysicalSky && !IsHandedOff(feature); }
 
 	ID3D11PixelShader* raymarchVolumetricRaysPS = nullptr;
 	ID3D11PixelShader* applyVolumetricRaysPS = nullptr;

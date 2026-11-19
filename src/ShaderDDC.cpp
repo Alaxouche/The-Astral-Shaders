@@ -24,13 +24,15 @@ namespace ShaderDDC
 {
 	namespace
 	{
-		constexpr uint32_t kFormatVersion = 1;
+		// 2: keys no longer carry the d3dcompiler_47.dll identity (see Entry::Entry)
+		constexpr uint32_t kFormatVersion = 2;
 		constexpr std::wstring_view kCacheRoot = L"Data/ShaderCache";
 		constexpr std::wstring_view kRoot = L"Data/ShaderCache/DDC";
 		constexpr std::wstring_view kRootName = L"DDC";
-		constexpr uintmax_t kMaxBytes = 1ull << 30;
+		// A full Astral cache is over 1 GiB; a lower cap evicted part of a shipped cache on every launch.
+		constexpr uintmax_t kMaxBytes = 4ull << 30;
 		constexpr LONGLONG kMaxEntryBytes = 64ll << 20;
-		constexpr std::chrono::hours kMaxUnusedAge{ 24 * 30 };
+		constexpr std::chrono::hours kMaxUnusedAge{ 24 * 120 };
 		constexpr std::chrono::hours kStaleTempAge{ 1 };
 
 		BCRYPT_ALG_HANDLE GetSha256Algorithm()
@@ -220,21 +222,6 @@ namespace ShaderDDC
 			return digest;
 		}
 
-		std::array<uint32_t, 3> GetCompilerIdentity()
-		{
-			static const auto identity = [] {
-				std::array<uint32_t, 3> result{};
-				if (const auto module = GetModuleHandleW(L"d3dcompiler_47.dll")) {
-					const auto base = reinterpret_cast<const uint8_t*>(module);
-					const auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-					const auto nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
-					result = { nt->FileHeader.TimeDateStamp, nt->OptionalHeader.SizeOfImage, nt->OptionalHeader.CheckSum };
-				}
-				return result;
-			}();
-			return identity;
-		}
-
 		std::wstring ToHex(std::span<const uint8_t> a_bytes)
 		{
 			static constexpr wchar_t kDigits[] = L"0123456789abcdef";
@@ -270,7 +257,9 @@ namespace ShaderDDC
 
 		Sha256 key;
 		key.UpdateValue(kFormatVersion);
-		key.UpdateValue(GetCompilerIdentity());
+		// No compiler identity in the key: d3dcompiler_47.dll is a Windows system file whose build differs
+		// between Windows versions, so keying on it made a cache built on one machine miss on every other one.
+		// Its bytecode runs on any D3D11 runtime, so a blob from another build of it is just as valid.
 		key.UpdateText(a_profile);
 		key.UpdateText(a_entryPoint);
 		key.UpdateValue(a_flags);
