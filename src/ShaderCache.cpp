@@ -2312,7 +2312,7 @@ namespace SIE
 
 		if (!entries.empty()) {
 			logger::debug("Marked {} entries for recompile due to change to {}", entries.size(), a_path);
-			compilationSet.Clear();
+			compilationSet.Clear(true);
 		}
 
 		return true;
@@ -2344,7 +2344,7 @@ namespace SIE
 			computeShaders[static_cast<size_t>(a_type)].clear();
 		}
 		ClearShaderMap(a_type);
-		compilationSet.Clear();
+		compilationSet.Clear(true);
 	}
 
 	bool ShaderCache::AddCompletedShader(ShaderClass shaderClass, const RE::BSShader& shader, uint32_t descriptor, winrt::com_ptr<ID3DBlob> a_blob, bool fromDisk, std::wstring diskPath)
@@ -3752,7 +3752,10 @@ namespace SIE
 	{
 		const auto* shaderCache = globals::shaderCache;
 		const int32_t budget = !shaderCache->backgroundCompilation ? shaderCache->compilationThreadCount : shaderCache->backgroundCompilationThreadCount;
-		return static_cast<uint32_t>(std::max(budget / 2, 1));
+		// With three background threads, half the budget left Physical Sky's ~60 cloud shaders on one thread for most
+		// of an hour on a cold cache. Permutations only need the slots while some are queued.
+		const bool matrixQueued = !availableTasks.empty() || !demandedTasks.empty();
+		return static_cast<uint32_t>(std::max(matrixQueued ? budget / 2 : budget - 1, 1));
 	}
 
 	void CompilationSet::ReleaseAuxSlot()
@@ -3964,12 +3967,13 @@ namespace SIE
 		conditionVariable.notify_one();
 	}
 
-	void CompilationSet::Clear()
+	void CompilationSet::Clear(bool a_keepAux)
 	{
 		std::scoped_lock lock(compilationMutex);
 		availableTasks.clear();
 		demandedTasks.clear();
-		pendingAuxTasks.clear();
+		if (!a_keepAux)
+			pendingAuxTasks.clear();
 		tasksInProgress.clear();
 		processedTasks.clear();
 		totalTasks = 0;

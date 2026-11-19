@@ -276,15 +276,21 @@ namespace SIE
 		void ReleaseDispatchSlot();
 		/** @brief Frees the dispatch slot of an aux task (see EnqueueAux). */
 		void ReleaseAuxSlot();
-		/** @brief Aux tasks allowed in flight at once: half the dispatch budget, at least one, so permutations keep slots. */
+		/** @brief Aux tasks allowed in flight at once. Half the dispatch budget while permutations are queued, so they keep
+		 *  slots; otherwise all but one slot, kept for a permutation the game starts drawing. Always at least one.
+		 *  Call with compilationMutex held. */
 		uint32_t GetAuxBudget() const;
 		/** @brief Queues a compile closure that isn't a ShaderCompilationTask (currently:
 		 *  standalone compute-shader compiles from PostProcessFeature::CompileComputeShadersAsync)
 		 *  to share the same dispatchedTasksInFlight budget as the main permutation matrix,
 		 *  instead of being submitted to compilationPool independently of it. Wakes TryTakeNext(). */
 		void EnqueueAux(std::function<void()> work);
-		/** @brief Resets all task queues and counters for a fresh compilation pass. */
-		void Clear();
+		/**
+		 * @brief Resets all task queues and counters for a fresh compilation pass.
+		 * @param a_keepAux Keeps the queued aux compiles. Their owners count on a callback for each one and only requeue
+		 *  on a full cache clear, so a partial clear that dropped them left those shaders missing for the session.
+		 */
+		void Clear(bool a_keepAux = false);
 		/** @brief Formats a millisecond duration into a human-readable time string. */
 		static std::string GetHumanTime(double a_totalMs);
 		/** @brief Estimates remaining compilation time based on completed task throughput. */
