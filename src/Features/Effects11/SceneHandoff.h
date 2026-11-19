@@ -15,7 +15,7 @@ namespace E11Handoff
 		HeightFog,
 		SSGI,
 		SSR,
-		ProceduralAurora,
+		PhysicalSky,
 		Count
 	};
 

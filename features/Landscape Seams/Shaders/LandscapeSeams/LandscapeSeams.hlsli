@@ -41,7 +41,7 @@ namespace LandscapeSeams
 
 	Texture2D<float4> Color1 : register(t16);
 	Texture2D<float4> Normal1 : register(t29);
-	Texture2D<float4> Aux1 : register(t57);
+	Texture2D<float4> Aux1 : register(t75);  // t57 is Physical Sky's disk phase LUT, bound for every pixel shader
 	Texture2D<float4> Displacement1 : register(t58);
 
 	Texture2D<float4> Color2 : register(t59);

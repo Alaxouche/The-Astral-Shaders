@@ -1443,6 +1443,7 @@ void Menu::ProcessInputEventQueue()
 						h.action(combo);
 						unsavedChanges = true;
 						toggleKeyRebound = toggleKeyRebind.exchange(ToggleKeyRebind::kOff) != ToggleKeyRebind::kOff;
+						globals::state->CheckCoreSettingsChanged();  // capture bypasses the ImGui edit flag the draw loop watches
 						handled = true;
 						break;
 					}

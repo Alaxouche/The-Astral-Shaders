@@ -92,7 +92,8 @@ namespace Permutation
 		static const uint NightEyeEnemy = (1 << 19);
 		static const uint NightEyeAlly = (1 << 20);
 		static const uint ProjectedTextureIsSRGB = (1 << 21);
-		static const uint GrassPBR = (1 << 22);  // upstream uses 13, taken here by SnowRooftop
+		static const uint GrassPBR = (1 << 22);
+		static const uint IsSecunda = (1 << 23);
 		// Character rain flags reserve the high end so upstream's next sequential flag never collides.
 		static const uint IsCharacterRainSurface = (1u << 30);
 		static const uint IsHeldWeapon = (1u << 29);

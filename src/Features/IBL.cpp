@@ -36,8 +36,10 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 
 void IBL::DrawSettings()
 {
-	const Util::LockedSection enbLock(IsManagedByENB(),
+	const bool managedByENB = IsManagedByENB();
+	const Util::LockedSection enbLock(managedByENB,
 		T("common.settings_managed_by_enb", "This setting is managed by Effects 11."));
+	const Util::DefaultsWhileActive<Settings> shownDefaults(settings, managedByENB);
 
 	ImGui::Checkbox(T(TKEY("enable_ibl"), "Enable IBL"), (bool*)&settings.EnableIBL);
 	if (auto _tt = Util::HoverTooltipWrapper()) {
@@ -147,25 +149,27 @@ void IBL::RestoreDefaultSettings()
 IBL::PerFrame IBL::GetCommonBufferData() const
 {
 	const bool sceneDisabled = IsDisabledForCurrentScene();
+	const bool managedByENB = IsManagedByENB();
+	const Settings source = managedByENB ? Settings{} : settings;
 	PerFrame data = {
-		.EnableIBL = sceneDisabled ? 0u : settings.EnableIBL,
-		.PreserveFogLuminance = settings.PreserveFogLuminance,
-		.UseStaticIBL = settings.UseStaticIBL,
-		.DALCAmount = settings.DALCAmount,
-		.EnvIBLScale = settings.EnvIBLScale,
-		.SkyIBLScale = settings.SkyIBLScale,
-		.EnvIBLSaturation = settings.EnvIBLSaturation,
-		.SkyIBLSaturation = settings.SkyIBLSaturation,
-		.FogAmount = settings.FogAmount,
-		.DALCMode = settings.DALCMode,
+		.EnableIBL = sceneDisabled ? 0u : source.EnableIBL,
+		.PreserveFogLuminance = source.PreserveFogLuminance,
+		.UseStaticIBL = source.UseStaticIBL,
+		.DALCAmount = source.DALCAmount,
+		.EnvIBLScale = source.EnvIBLScale,
+		.SkyIBLScale = source.SkyIBLScale,
+		.EnvIBLSaturation = source.EnvIBLSaturation,
+		.SkyIBLSaturation = source.SkyIBLSaturation,
+		.FogAmount = source.FogAmount,
+		.DALCMode = source.DALCMode,
 		.ENBSkyFalloff = globals::features::effects11.OwnsFeature(E11Handoff::Feature::IBL),
-		.SkySpecularIBLScale = settings.SkyIBLScale,
-		.SkylightingAffectsEnv = settings.SkylightingAffectsEnv,
-		.EnableReflectionFallback = settings.EnableReflectionFallback,
-		.ReflectionFallbackDistance = settings.ReflectionFallbackDistance
+		.SkySpecularIBLScale = source.SkyIBLScale,
+		.SkylightingAffectsEnv = source.SkylightingAffectsEnv,
+		.EnableReflectionFallback = source.EnableReflectionFallback,
+		.ReflectionFallbackDistance = source.ReflectionFallbackDistance
 	};
 
-	if (!sceneDisabled && IsManagedByENB()) {
+	if (!sceneDisabled && managedByENB) {
 		auto& settingManager = SettingManager::GetSingleton();
 		data.EnableIBL = Util::IsInterior() ? 0u : 1u;
 		data.EnvIBLScale = 0.0f;
@@ -270,6 +274,13 @@ void IBL::Prepass()
 		srvs.at(0) = reflections.SRV;
 		uavs.at(0) = skyIBLTexture->uav.get();
 
+		auto* auroraCS = globals::features::proceduralNightSky.HasAuroraLight() ? GetAuroraIBLCS() : nullptr;
+		if (auroraCS) {
+			ID3D11Buffer* sharedBuffers[2] = { globals::state->sharedDataCB->CB(), globals::state->featureDataCB->CB() };
+			context->CSSetConstantBuffers(5, 2, sharedBuffers);
+			context->CSSetShader(auroraCS, nullptr, 0);
+		}
+
 		context->CSSetShaderResources(0, (uint)srvs.size(), srvs.data());
 		context->CSSetUnorderedAccessViews(0, (uint)uavs.size(), uavs.data(), nullptr);
 		globals::profiler->BeginPass("ImageBasedLighting::SkyDiffuseIBL");
@@ -299,6 +310,7 @@ void IBL::Prepass()
 void IBL::SetupResources()
 {
 	GetDiffuseIBLCS();
+	GetAuroraIBLCS();
 
 	{
 		D3D11_TEXTURE2D_DESC texDesc{
@@ -414,6 +426,9 @@ void IBL::ClearShaderCache()
 	if (diffuseIBLCS)
 		diffuseIBLCS->Release();
 	diffuseIBLCS = nullptr;
+	if (auroraIBLCS)
+		auroraIBLCS->Release();
+	auroraIBLCS = nullptr;
 }
 
 ID3D11ComputeShader* IBL::GetDiffuseIBLCS()
@@ -425,4 +440,15 @@ ID3D11ComputeShader* IBL::GetDiffuseIBLCS()
 		diffuseIBLCS = static_cast<ID3D11ComputeShader*>(Util::CompileShader(L"Data\\Shaders\\IBL\\DiffuseIBLCS.hlsl", defines, "cs_5_0"));
 	}
 	return diffuseIBLCS;
+}
+
+ID3D11ComputeShader* IBL::GetAuroraIBLCS()
+{
+	if (!auroraIBLCS && globals::features::proceduralNightSky.loaded) {
+		std::vector<std::pair<const char*, const char*>> defines = { { "AURORA_SKY_LIGHT", nullptr } };
+		if (globals::features::dynamicCubemaps.loaded)
+			defines.push_back({ "DYNAMIC_CUBEMAPS", nullptr });
+		auroraIBLCS = static_cast<ID3D11ComputeShader*>(Util::CompileShader(L"Data\\Shaders\\IBL\\DiffuseIBLCS.hlsl", defines, "cs_5_0"));
+	}
+	return auroraIBLCS;
 }

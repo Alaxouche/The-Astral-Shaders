@@ -24,6 +24,7 @@
 #include "Features/HDRDisplay.h"
 #include "Features/HairSpecular.h"
 #include "Features/HeatHaze.h"
+#include "Features/Rainbows.h"
 #include "Features/HiZOcclusion.h"
 #include "Features/HorizonFix.h"
 #include "Features/IBL.h"
@@ -38,7 +39,6 @@
 #include "Features/PhysicalSky.h"
 #include "Features/PostProcessing.h"
 #include "Features/LivingWindows.h"
-#include "Features/ProceduralAurora.h"
 #include "Features/ProceduralLightning.h"
 #include "Features/ProceduralNightSky.h"
 #include "Features/RainRefraction.h"
@@ -68,6 +68,7 @@
 #include "Features/WaterEffects.h"
 #include "Features/ReverseZ.h"
 #include "Features/WetnessEffects.h"
+#include "HiZPyramid.h"
 #include "Menu.h"
 #include "ShaderCache.h"
 #include "State.h"
@@ -141,6 +142,7 @@ namespace globals
 		ProceduralLightning proceduralLightning{};
 		ProceduralNightSky proceduralNightSky{};
 		HeatHaze heatHaze{};
+		Rainbows rainbows{};
 		CameraFX cameraFX{};
 		CapsuleShadows capsuleShadows{};
 		HairBacklighting hairBacklighting{};
@@ -151,7 +153,6 @@ namespace globals
 		SnowDeformation snowDeformation{};
 		CausticLight causticLight{};
 		SceneManager sceneManager{};
-		ProceduralAurora proceduralAurora{};
 
 		namespace llf
 		{
@@ -224,6 +225,8 @@ namespace globals
 
 	static Profiler profilerInstance;
 	Profiler* profiler = &profilerInstance;
+	static HiZPyramid hiZPyramidInstance;
+	HiZPyramid* hiZPyramid = &hiZPyramidInstance;
 
 	void OnInit()
 	{

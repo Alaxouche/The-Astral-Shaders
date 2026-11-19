@@ -13,6 +13,7 @@
 #include <d3dcompiler.h>
 
 #include "Deferred.h"
+#include "HiZPyramid.h"
 #include "State.h"
 #include "Utils/D3D.h"
 
@@ -2173,7 +2174,12 @@ namespace SIE
 		managementJthread.request_stop();
 		if (managementJthread.joinable())
 			managementJthread.join();
-		compilationPool.wait();
+		// Only the permutation tasks write into the maps Clear() empties. Standalone (aux) compiles only
+		// hand their shader to a feature's AsyncShaderSet, whose ClearShaderCache() below cancels and requeues
+		// them, so their late results are dropped. Waiting for them froze the game at startup for as long as
+		// the slowest one took (Physical Sky's volumetric cloud shaders take minutes each on a cold cache).
+		while (compilationSet.matrixTasksInFlight.load(std::memory_order_acquire) != 0)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		activate();
 		Clear();
 		managementJthread = std::jthread([this](std::stop_token token) { ManageCompilationSet(token); });
@@ -2232,6 +2238,7 @@ namespace SIE
 		compilationSet.Clear();
 		Util::ClearShaderCompileFailures();
 		globals::deferred->ClearShaderCache();
+		globals::hiZPyramid->ClearShaderCache();
 		for (auto* feature : Feature::GetFeatureList()) {
 			if (feature->loaded) {
 				feature->ClearShaderCache();
@@ -3463,10 +3470,14 @@ namespace SIE
 			std::visit([this, stoken](auto&& work) {
 				using T = std::decay_t<decltype(work)>;
 				if constexpr (std::is_same_v<T, ShaderCompilationTask>) {
-					compilationPool.detach_task([this, stoken, t = work] { ProcessCompilationSet(stoken, t); });
+					compilationSet.matrixTasksInFlight.fetch_add(1, std::memory_order_acq_rel);
+					compilationPool.detach_task([this, stoken, t = work] {
+						const SKSE::stl::scope_exit done([this]() noexcept { compilationSet.matrixTasksInFlight.fetch_sub(1, std::memory_order_acq_rel); });
+						ProcessCompilationSet(stoken, t);
+					});
 				} else {
 					compilationPool.detach_task([this, work = std::move(work)]() mutable {
-						const SKSE::stl::scope_exit releaseSlot([this]() noexcept { compilationSet.ReleaseDispatchSlot(); });
+						const SKSE::stl::scope_exit releaseSlot([this]() noexcept { compilationSet.ReleaseAuxSlot(); });
 						work();
 					});
 				}
@@ -3689,7 +3700,7 @@ namespace SIE
 		auto shaderCache = globals::shaderCache;
 		if (!conditionVariable.wait(
 				lock, stoken,
-				[this, &shaderCache]() { return (!availableTasks.empty() || !demandedTasks.empty() || !pendingAuxTasks.empty()) &&
+				[this, &shaderCache]() { return (!availableTasks.empty() || !demandedTasks.empty() || (!pendingAuxTasks.empty() && auxTasksInFlight.load(std::memory_order_relaxed) < GetAuxBudget())) &&
 			                                    // Count matrix and auxiliary tasks; ReleaseDispatchSlot()
 			                                    // decrements under this mutex before notifying the waiter.
 			                                    static_cast<int32_t>(dispatchedTasksInFlight.load(std::memory_order_relaxed)) <
@@ -3726,14 +3737,31 @@ namespace SIE
 			return std::variant<ShaderCompilationTask, std::function<void()>>(std::in_place_index<0>, task);
 		}
 
-		if (!pendingAuxTasks.empty()) {
+		if (!pendingAuxTasks.empty() && auxTasksInFlight.load(std::memory_order_relaxed) < GetAuxBudget()) {
 			auto work = std::move(pendingAuxTasks.front());
 			pendingAuxTasks.pop_front();
+			auxTasksInFlight.fetch_add(1, std::memory_order_relaxed);
 			dispatchedTasksInFlight.fetch_add(1, std::memory_order_relaxed);
 			return std::variant<ShaderCompilationTask, std::function<void()>>(std::in_place_index<1>, std::move(work));
 		}
 
 		return std::nullopt;
+	}
+
+	uint32_t CompilationSet::GetAuxBudget() const
+	{
+		const auto* shaderCache = globals::shaderCache;
+		const int32_t budget = !shaderCache->backgroundCompilation ? shaderCache->compilationThreadCount : shaderCache->backgroundCompilationThreadCount;
+		return static_cast<uint32_t>(std::max(budget / 2, 1));
+	}
+
+	void CompilationSet::ReleaseAuxSlot()
+	{
+		{
+			std::scoped_lock lock(compilationMutex);
+			auxTasksInFlight.fetch_sub(1, std::memory_order_relaxed);
+		}
+		ReleaseDispatchSlot();
 	}
 
 	void CompilationSet::ReleaseDispatchSlot()

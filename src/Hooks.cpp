@@ -27,7 +27,7 @@
 #include "Features/LightLimitFix.h"
 #include "Features/NightEye.h"
 #include "Features/PostProcessing.h"
-#include "Features/ProceduralAurora.h"
+#include "Features/ProceduralNightSky.h"
 #include "Features/RainRefraction.h"
 #include "Features/RemoteControl/FrameRecorder.h"
 #include "Features/ReverseZ.h"
@@ -422,13 +422,14 @@ namespace WeatherExtensions
 			globals::features::volumetricLighting.DetectNightRenderData();
 			if (globals::features::effects11.loaded)
 				globals::features::effects11.OnSkyUpdateColors(sky);
+			const RE::NiColor undimmedSunlight = sky->skyColor[RE::TESWeather::ColorTypes::kSunlight];
 			globals::features::skySync.OnSkyUpdateColors(sky);
+			globals::features::proceduralNightSky.ApplyAuroraSunlight(sky, undimmedSunlight);
 			if (globals::features::effects11.loaded)
 				globals::features::effects11.FinishSkyUpdateColors(sky);
 			if (globals::features::volumetricLighting.loaded)
 				globals::features::volumetricLighting.ApplyGodRaySettings();
 			globals::features::volumetricLighting.FinishSkyUpdate(sky);
-			globals::features::proceduralAurora.OnSkyUpdate(sky);
 		}
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
@@ -778,18 +779,15 @@ struct BSInputDeviceManager_PollInputDevices
 			}
 		}
 
-		if (blockedDevice && menu->ShouldSwallowInput()) {  //the menu is open, eat all keypresses
-			// During active flying preview, let input reach the game for movement/camera
-			if (menu->IsPreviewFlying()) {
-				func(a_dispatcher, a_events);
-				return;
-			}
+		// The menu is open, eat all keypresses; during active flying preview, let input reach the game for movement/camera
+		if (blockedDevice && menu->ShouldSwallowInput() && !menu->IsPreviewFlying()) {
 			constexpr RE::InputEvent* const dummy[] = { nullptr };
 			func(a_dispatcher, dummy);
 			return;
 		}
 
 		func(a_dispatcher, a_events);
+		globals::features::screenshotFeature.SuppressVanillaMultiScreenshot();
 	}
 	static inline REL::Relocation<decltype(thunk)> func;
 };

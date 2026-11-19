@@ -274,6 +274,10 @@ namespace SIE
 		/** @brief Frees a dispatch slot and wakes TryTakeNext(). Call even on a stale-generation
 		 *  task -- it still held a real slot, and nothing else wakes a waiter blocked on it. */
 		void ReleaseDispatchSlot();
+		/** @brief Frees the dispatch slot of an aux task (see EnqueueAux). */
+		void ReleaseAuxSlot();
+		/** @brief Aux tasks allowed in flight at once: half the dispatch budget, at least one, so permutations keep slots. */
+		uint32_t GetAuxBudget() const;
 		/** @brief Queues a compile closure that isn't a ShaderCompilationTask (currently:
 		 *  standalone compute-shader compiles from PostProcessFeature::CompileComputeShadersAsync)
 		 *  to share the same dispatchedTasksInFlight budget as the main permutation matrix,
@@ -291,6 +295,8 @@ namespace SIE
 		std::atomic<uint64_t> totalTasks = 0;
 		std::atomic<uint64_t> failedTasks = 0;
 		std::atomic<uint32_t> dispatchedTasksInFlight = 0;  // Admission budget enforced by TryTakeNext()
+		std::atomic<uint32_t> auxTasksInFlight = 0;         // Aux share of the budget; capped so long standalone compiles cannot hold every slot
+		std::atomic<uint32_t> matrixTasksInFlight = 0;      // Permutation tasks running on the pool; Reload waits for these only
 		std::atomic<uint64_t> cacheHitTasks = 0;            // number of compiles of a previously seen shader combo
 		std::atomic<uint64_t> diskHitTasks = 0;             // tasks resolved from disk cache rather than compiled
 		std::atomic<uint64_t> diskHitPriorityWeight = 0;    // cumulative priority weight of disk-hit tasks

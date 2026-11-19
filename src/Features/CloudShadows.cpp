@@ -17,15 +17,15 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 
 void CloudShadows::DrawSettings()
 {
-	{
-		const Util::LockedSection enbLock(globals::features::effects11.OwnsFeature(E11Handoff::Feature::CloudShadows),
-			T("common.settings_managed_by_enb", "This setting is managed by Effects 11."));
+	const bool managedByEffects11 = globals::features::effects11.OwnsFeature(E11Handoff::Feature::CloudShadows);
+	const Util::LockedSection enbLock(managedByEffects11,
+		T("common.settings_managed_by_enb", "This setting is managed by Effects 11."));
+	const Util::DefaultsWhileActive<Settings> shownDefaults(settings, managedByEffects11);
 
-		ImGui::SliderFloat(T(TKEY("opacity"), "Opacity"), &settings.Opacity, 0.0f, 4.0f, "%.1f");
-		if (auto _tt = Util::HoverTooltipWrapper()) {
-			ImGui::Text("%s", T(TKEY("opacity_tooltip"),
-								  "Higher values make cloud shadows darker."));
-		}
+	ImGui::SliderFloat(T(TKEY("opacity"), "Opacity"), &settings.Opacity, 0.0f, 4.0f, "%.1f");
+	if (auto _tt = Util::HoverTooltipWrapper()) {
+		ImGui::Text("%s", T(TKEY("opacity_tooltip"),
+							  "Higher values make cloud shadows darker."));
 	}
 
 	ImGui::SliderFloat(T(TKEY("scattering"), "Scattering"), &settings.Scattering, 0.0f, 1.0f, "%.2f");
@@ -57,19 +57,10 @@ CloudShadows::Settings CloudShadows::GetCommonBufferData()
 	if (!loaded)
 		return settings;
 
-	auto data = settings;
+	const bool managedByEffects11 = globals::features::effects11.OwnsFeature(E11Handoff::Feature::CloudShadows);
+	Settings data = managedByEffects11 ? Settings{} : settings;
 
-	// The occlusion cubemap is drawn from the vanilla cloud decks. When Physical Sky hides them
-	// (volumetric clouds instead), their shadows would come from clouds nobody sees, and the
-	// cubemap's face-by-face refresh then shows up as a flickering square in the sky: the
-	// volumetric cloud shadow volume is the only cloud shadow in that mode.
-	const auto& physicalSky = globals::features::physicalSky;
-	if (physicalSky.loaded && physicalSky.cbData.enabled && !physicalSky.settings.enableVanillaClouds) {
-		data.Opacity = 0.0f;
-		return data;
-	}
-
-	if (globals::features::effects11.OwnsFeature(E11Handoff::Feature::CloudShadows)) {
+	if (managedByEffects11) {
 		auto& settingManager = SettingManager::GetSingleton();
 		if (settingManager.GetValue<bool>("EnableCloudShadows", "EFFECT")) {
 			data.Opacity = settingManager.GetInterpolatedTimeOfDayValue("Amount", "CLOUDSHADOWS");

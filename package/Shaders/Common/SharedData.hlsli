@@ -781,6 +781,11 @@ namespace SharedData
 		float4 lightningChannelEmitter;
 		float4 lightningPreparationPositionRadius;
 		float4 lightningPreparationControl;  // base mode, history valid, active mask lane, preparing
+		float4 diskAngularRadius;            // Sun, Masser, Secunda, directional light
+		float3 dirLightBodyDir;
+		uint dirLightDiskIndex;
+		float4 dirLightDisc;
+		float4 diskBillboardScale;
 	};
 
 	struct RainRefractionSettings
@@ -805,6 +810,15 @@ namespace SharedData
 		float starTwinkle;
 		float radianceLimit;
 
+		float3 auroraLowColor;
+		float auroraIntensity;
+
+		float3 auroraHighColor;
+		float auroraTime;
+
+		float auroraLighting;
+		float3 pad0;
+
 		float3 shootingStarHead;
 		float shootingStarIntensity;
 
@@ -819,25 +833,6 @@ namespace SharedData
 		float4 Enemy;
 		float4 Ally;
 		float4 Neutral;
-	};
-
-	struct ProceduralAuroraSettings
-	{
-		float4 FringeColor;  // xyz: lower edge color, w: lower edge amount
-		float4 BodyColor;    // xyz: main curtain color, w: storm level of the current night (0..1)
-		float4 CrownColor;   // xyz: top color in display space, w: height where the top color starts
-		float Brightness;
-		float Time;  // animation clock (speed and night strength already applied)
-		float RayDetail;
-		float Softness;  // 0 crisp .. 1 soft and see-through
-		float FoldStrength;
-		float RayStrength;
-		float Seed;
-		uint Enabled;
-		float3 Atmosphere;        // x: vanilla aurora visibility (0..1), y: haze amount, z: nebula glow
-		float CurtainSize;        // curtain width and height relative to the default
-		float CurtainCount;       // curtains drawn, 1 .. 7; a fraction fades the last one in or out
-		float3 BodyDisplayColor;  // main curtain color in display space
 	};
 
 	cbuffer FeatureData : register(b6)
@@ -872,7 +867,6 @@ namespace SharedData
 		SSGISettings ssgiSettings;
 		SSRSettings ssrSettings;
 		PostProcessingSettings postProcessingSettings;
-		ProceduralAuroraSettings proceduralAuroraSettings;
 		PhysSkyData physSkyData;
 		ViewAtmosphereSettings viewAtmosphereSettings;
 		LivingWindowsSettings livingWindowsSettings;  // fork: Living Windows last, as in FeatureBuffer.cpp

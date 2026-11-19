@@ -55,6 +55,7 @@ struct FootstepParticles;
 struct ProceduralLightning;
 struct ProceduralNightSky;
 struct HeatHaze;
+struct Rainbows;
 struct CameraFX;
 struct CapsuleShadows;
 struct HairBacklighting;
@@ -65,7 +66,6 @@ struct LandscapeSeams;
 struct SnowDeformation;
 struct CausticLight;
 struct SceneManager;
-struct ProceduralAurora;
 
 class State;
 class Deferred;
@@ -75,6 +75,7 @@ class RenderDoc;
 class RemoteControl;
 class Menu;
 class SceneSettingsManager;
+class HiZPyramid;
 
 namespace SIE
 {
@@ -168,13 +169,14 @@ namespace globals
 		extern CSEditor csEditor;
 		extern ExponentialHeightFog exponentialHeightFog;
 		extern TruePBR truePBR;
-	extern PostProcessing postProcessing;
+		extern PostProcessing postProcessing;
 		extern Skin skin;
 		extern SnowCover snowCover;
 		extern FootstepParticles footstepParticles;
 		extern ProceduralLightning proceduralLightning;
 		extern ProceduralNightSky proceduralNightSky;
 		extern HeatHaze heatHaze;
+		extern Rainbows rainbows;
 		extern CameraFX cameraFX;
 		extern CapsuleShadows capsuleShadows;
 		extern HairBacklighting hairBacklighting;
@@ -185,7 +187,6 @@ namespace globals
 		extern SnowDeformation snowDeformation;
 		extern CausticLight causticLight;
 		extern SceneManager sceneManager;
-		extern ProceduralAurora proceduralAurora;
 
 	}
 
@@ -302,6 +303,7 @@ namespace globals
 	extern Menu* menu;
 	extern SIE::ShaderCache* shaderCache;
 	extern Profiler* profiler;
+	extern HiZPyramid* hiZPyramid;
 	extern SceneSettingsManager* sceneSettingsManager;
 
 	/** @brief Initializes core singletons (ShaderCache, State, Menu, Deferred). Called once at plugin load. */
