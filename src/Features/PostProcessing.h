@@ -84,7 +84,8 @@ struct PostProcessing : Feature
 		float FireCurve;
 		float LightSpriteIntensity;
 		float LightSpriteCurve;
-		float pad0[3];
+		float FireColorPreservation;
+		float pad0[2];
 	};
 	STATIC_ASSERT_ALIGNAS_16(SharedData);
 

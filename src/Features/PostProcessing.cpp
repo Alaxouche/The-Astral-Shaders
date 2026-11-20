@@ -850,6 +850,7 @@ PostProcessing::SharedData PostProcessing::GetCommonBufferData() const
 	data.FireCurve = fire->settings.FireCurve;
 	data.LightSpriteIntensity = fire->settings.LightSpriteIntensity;
 	data.LightSpriteCurve = fire->settings.LightSpriteCurve;
+	data.FireColorPreservation = fire->settings.FireColorPreservation;
 	return data;
 }
 

@@ -3342,6 +3342,8 @@
     "feature.post_processing.enabled": "Enabled",
     "feature.post_processing.experimental_badge": "Experimental",
     "feature.post_processing.fire.description": "Brightness and contrast of flames, spell bolts and glowing light sprites, sorted the way Effects 11 sorts them.",
+    "feature.post_processing.fire.fire_color_preservation": "Fire Color Preservation",
+    "feature.post_processing.fire.fire_color_preservation_tooltip": "Keeps the hue and saturation a flame's texture shows in vanilla, where bright flames turn orange and yellow, at the same brightness. 0 lets bright fire drift toward a pale red.",
     "feature.post_processing.fire.fire_curve": "Fire Curve",
     "feature.post_processing.fire.fire_curve_tooltip": "Contrast of fire: above 1 darkens the dim parts of a flame and keeps its core, below 1 fills it out.",
     "feature.post_processing.fire.fire_intensity": "Fire Intensity",

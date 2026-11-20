@@ -460,7 +460,8 @@ namespace SharedData
 		float FireCurve;
 		float LightSpriteIntensity;
 		float LightSpriteCurve;
-		float3 pad0;
+		float FireColorPreservation;
+		float2 pad0;
 	};
 
 	struct ViewAtmosphereSettings
