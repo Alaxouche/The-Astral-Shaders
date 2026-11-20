@@ -4763,6 +4763,8 @@
     "feature.sss.blur_radius_tooltip": "Blur radius.",
     "feature.sss.burley": "Burley",
     "feature.sss.burley_samples": "Burley Samples",
+    "feature.sss.character_lighting_humanoid_only": "Humanoid Races Only",
+    "feature.sss.character_lighting_humanoid_only_tooltip": "Applies character lighting only to human, elf and beast races. Creatures such as Falmer and draugr stop glowing.",
     "feature.sss.enable_character_lighting": "Enable Character Lighting",
     "feature.sss.enable_character_lighting_tooltip": "Vanilla feature.",
     "feature.sss.enable_foliage_profile": "Foliage Profile",
