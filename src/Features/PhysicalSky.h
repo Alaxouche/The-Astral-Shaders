@@ -211,6 +211,7 @@ struct PhysicalSky final : public Feature
 		void ApplyAerosolOptics();
 		/// Validates the lightning controls after loading or scene interpolation.
 		void SanitizeLightning();
+		void SanitizePlanet();
 	} settings;
 
 	struct CbData
