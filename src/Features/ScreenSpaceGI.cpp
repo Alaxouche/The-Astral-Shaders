@@ -682,8 +682,9 @@ void ScreenSpaceGI::SetupNRDResources()
 		texNRDOutputSH1.reset();
 	}
 
-	auto denoiser = useSH ? nrd::Denoiser::REBLUR_DIFFUSE_SH : nrd::Denoiser::REBLUR_DIFFUSE;
-	nrdReblur.Init(fullW, fullH, denoiser, 0);
+	reblurInitAttempted = settings.Enabled && settings.EnableREBLUR;
+	if (reblurInitAttempted)
+		nrdReblur.Init(fullW, fullH, useSH ? nrd::Denoiser::REBLUR_DIFFUSE_SH : nrd::Denoiser::REBLUR_DIFFUSE, 0);
 	nrdReblurUsesSH = useSH;
 
 	if (modeChanged)
@@ -848,6 +849,16 @@ void ScreenSpaceGI::DrawSSGI()
 	GetNRDResourceSize(nrdWidth, nrdHeight);
 	if (nrdReblurUsesSH != useSH || !texNRDInput || texNRDInput->desc.Width != nrdWidth || texNRDInput->desc.Height != nrdHeight)
 		SetupNRDResources();
+
+	if (!settings.Enabled || !settings.EnableREBLUR) {
+		if (nrdReblur.IsValid()) {
+			nrdReblur.Shutdown();
+			resetReblurHistory = true;
+		}
+		reblurInitAttempted = false;
+	} else if (!reblurInitAttempted) {
+		SetupNRDResources();
+	}
 
 	if (const bool canDenoise = CanDenoise(); (settings.HalfRes && canDenoise) != tracedHalfRes || (settings.QuarterRes && canDenoise) != tracedQuarterRes) {
 		recompileFlag = true;

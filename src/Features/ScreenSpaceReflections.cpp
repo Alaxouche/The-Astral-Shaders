@@ -407,7 +407,14 @@ void ScreenSpaceReflections::SetupNRDResources(uint32_t a_width, uint32_t a_heig
 	texNRDSpecOutput->CreateUAV(uavDesc);
 
 	nrdReblurSpecular.Shutdown();
-	nrdReblurSpecular.Init(a_width, a_height, nrd::Denoiser::REBLUR_SPECULAR, 0);
+	reblurInitAttempted = WantsReblur();
+	if (reblurInitAttempted)
+		nrdReblurSpecular.Init(a_width, a_height, nrd::Denoiser::REBLUR_SPECULAR, 0);
+}
+
+bool ScreenSpaceReflections::WantsReblur() const
+{
+	return settings.Enabled && settings.EnableREBLUR && globals::features::dynamicCubemaps.loaded;
 }
 
 void ScreenSpaceReflections::ClearShaderCache()
@@ -510,6 +517,16 @@ void ScreenSpaceReflections::DrawSSR()
 		if (nrdSvc.loaded && nrdSvc.GetResourceExtent(nrdWidth, nrdHeight) &&
 			(texNRDSpecInput->desc.Width != nrdWidth || texNRDSpecInput->desc.Height != nrdHeight))
 			SetupNRDResources(nrdWidth, nrdHeight);
+
+		if (!WantsReblur()) {
+			if (nrdReblurSpecular.IsValid()) {
+				nrdReblurSpecular.Shutdown();
+				resetReblurHistory = true;
+			}
+			reblurInitAttempted = false;
+		} else if (!reblurInitAttempted) {
+			SetupNRDResources(texNRDSpecInput->desc.Width, texNRDSpecInput->desc.Height);
+		}
 	}
 
 	if ((settings.HalfRes && CanDenoise()) != tracedHalfRes) {
