@@ -540,6 +540,9 @@ void ScreenSpaceReflections::DrawSSR()
 	if (!(settings.Enabled && globals::features::dynamicCubemaps.loaded && ShadersOK() && texHiZDepth && texNRDSpecInput))
 		return;
 
+	if (globals::state->isMapMenuOpen)
+		return;
+
 	ZoneScoped;
 	TracyD3D11Zone(globals::state->tracyCtx, "SSR");
 
@@ -750,7 +753,7 @@ ID3D11ShaderResourceView* ScreenSpaceReflections::GetOutputTexture()
 ScreenSpaceReflections::SharedData ScreenSpaceReflections::GetCommonBufferData()
 {
 	SharedData data;
-	data.Enabled = (loaded && settings.Enabled && globals::features::dynamicCubemaps.loaded && !recompileFlag && ShadersOK() && texHiZDepth && texNRDSpecInput) ? 1u : 0u;
+	data.Enabled = (loaded && settings.Enabled && globals::features::dynamicCubemaps.loaded && !recompileFlag && ShadersOK() && texHiZDepth && texNRDSpecInput && !globals::state->isMapMenuOpen) ? 1u : 0u;
 	data.SpecularMult = settings.SpecularMult;
 	data.SpecCubemapMult = settings.UseDynamicCubemapsAsFallback && globals::features::dynamicCubemaps.loaded ? settings.SpecCubemapMult : 0.0f;
 	data.pad0 = 0;

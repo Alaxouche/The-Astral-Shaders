@@ -875,6 +875,11 @@ void ScreenSpaceGI::DrawSSGI()
 		return;
 	}
 
+	if (globals::state->isMapMenuOpen) {
+		queuedResetHistory = true;
+		return;
+	}
+
 	ZoneScoped;
 	TracyD3D11Zone(globals::state->tracyCtx, "SSGI");
 
@@ -1197,7 +1202,7 @@ bool ScreenSpaceGI::UsesCubemapFallback() const
 ScreenSpaceGI::SharedData ScreenSpaceGI::GetCommonBufferData()
 {
 	SharedData data{};
-	const bool enabled = loaded && settings.Enabled && !recompileFlag && ShadersOK();
+	const bool enabled = loaded && settings.Enabled && !recompileFlag && ShadersOK() && !globals::state->isMapMenuOpen;
 	data.Enabled = enabled ? 1u : 0u;
 	data.EnableIL = (enabled && settings.EnableGI) ? 1u : 0u;
 	data.ReplaceAmbient = (data.EnableIL && UsesCubemapFallback()) ? 1u : 0u;
