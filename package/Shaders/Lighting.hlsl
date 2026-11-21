@@ -3297,7 +3297,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #	if !defined(LANDSCAPE)
 	if (Permutation::PixelShaderDescriptor & Permutation::LightingFlags::CharacterLight) {
 		float charLightMul = saturate(dot(viewDirection, worldNormal.xyz)) * CharacterLightParams.x + CharacterLightParams.y * saturate(dot(float2(0.164398998, -0.986393988), worldNormal.yz));
-		float charLightColor = min(CharacterLightParams.w, max(0, CharacterLightParams.z * TexCharacterLightProjNoiseSampler.SampleLevel(SampCharacterLightProjNoiseSampler, float2(0.5, 0.5), 16).x));
+		float charLightColor = min(CharacterLightParams.w, max(0, CharacterLightParams.z));
 		diffuseColor += (charLightMul * charLightColor).xxx;
 	}
 #	endif

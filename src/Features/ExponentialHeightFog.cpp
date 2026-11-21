@@ -933,7 +933,9 @@ void ExponentialHeightFog::Prepass()
 		globals::state->frameCount == lastPrepassFrame + 1u;
 
 	auto computeGridZParams = [](double a_nearPlane, double a_farPlane, uint32_t a_gridZ, float a_distributionScale) {
-		const double nearWithOffset = a_nearPlane + 0.095 * 100.0;
+		constexpr double kNearOffset = 0.095 * 100.0;
+		// The offset must stay inside the slab: a fog start at or past Near Grid End leaves a 1-unit near slab.
+		const double nearWithOffset = a_nearPlane + std::min(kNearOffset, 0.5 * (a_farPlane - a_nearPlane));
 		const double depthDistributionScale = std::max(static_cast<double>(a_distributionScale), static_cast<double>(a_gridZ) / 120.0);
 		const double farExp = std::exp2(std::min(static_cast<double>(a_gridZ) / depthDistributionScale, 120.0));
 		const double gridZOffset = (a_farPlane - nearWithOffset * farExp) / (a_farPlane - nearWithOffset);
