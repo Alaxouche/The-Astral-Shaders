@@ -18,8 +18,8 @@
  * first stage that shows one names the culprit. Selected stages are also written as images next
  * to the log, so the defect can be looked at rather than inferred.
  *
- * It samples a handful of frames and then stays idle; the cost outside those frames is one branch
- * per call.
+ * It stays idle until Rearm() requests a round, samples a handful of frames, then goes idle again;
+ * the cost outside those frames is one branch per call.
  */
 namespace SeamProbe
 {
@@ -60,6 +60,6 @@ namespace SeamProbe
 	/** @brief Writes the sampled frame to the log. Safe to call when nothing was sampled. */
 	void EndFrame();
 
-	/** @brief Schedules another round of samples (settings panel). */
+	/** @brief Requests a round of samples (settings panel). Nothing is sampled without it. */
 	void Rearm();
 }

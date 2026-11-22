@@ -16,7 +16,7 @@ namespace SeamProbe
 		constexpr uint32_t kWarmupFrames = 600;
 		constexpr uint32_t kIntervalFrames = 240;
 		constexpr uint32_t kSamplesPerRound = 6;
-		// A changed render fraction, or a request from the panel, samples again after this delay.
+		// A request from the panel, or a render fraction that changes during its round, samples after this delay.
 		constexpr uint32_t kRearmFrames = 120;
 
 		// Strip layout, in texels relative to the strip origin: the seam line sits kLine texels
@@ -67,6 +67,8 @@ namespace SeamProbe
 
 		bool sampling = false;
 		bool armed = false;
+		// Only the panel sets this. Sampling reads textures back and writes images on the render thread.
+		bool requested = false;
 		float2 renderFraction{ 1.0f, 1.0f };
 		float2 lastEligibleFraction{ 1.0f, 1.0f };
 		uint32_t samplesTaken = 0;
@@ -488,7 +490,7 @@ namespace SeamProbe
 			nextSampleFrame = std::max(nextSampleFrame, frame + kRearmFrames);
 		}
 
-		if (samplesTaken >= kSamplesPerRound || frame < nextSampleFrame)
+		if (!requested || samplesTaken >= kSamplesPerRound || frame < nextSampleFrame)
 			return;
 
 		sampling = true;
@@ -580,6 +582,8 @@ namespace SeamProbe
 		sampling = false;
 
 		samplesTaken++;
+		if (samplesTaken >= kSamplesPerRound)
+			requested = false;
 		nextSampleFrame = sampledFrame + kIntervalFrames;
 
 		logger::info("[SeamProbe] sample {}/{} frame {} render fraction {:.4f}x{:.4f}",
@@ -613,6 +617,7 @@ namespace SeamProbe
 
 	void Rearm()
 	{
+		requested = true;
 		samplesTaken = 0;
 		nextSampleFrame = globals::state->frameCount + kRearmFrames;
 	}
