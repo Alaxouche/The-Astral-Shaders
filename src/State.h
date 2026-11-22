@@ -133,6 +133,8 @@ public:
 	/**
 	 * @brief Loads settings: the code's defaults, then enabled Baseline packs, then the user's edits
 	 *        from SettingsUser.json.
+	 *
+	 * The first call decides which features run. Later calls only reload the settings of those features.
 	 * @param a_allowReload If true, retries once after a parse error.
 	 */
 	void Load(bool a_allowReload = true);
@@ -687,6 +689,7 @@ private:
 	 *  The caller holds a SceneLayerGuard. */
 	void DropEditsUnder(Feature* feature, const nlohmann::json& packData);
 
+	bool featureSetResolved = false;  ///< The boot Load has run; see Load().
 	bool settingsChanged = false;
 	bool coreSettingsChanged = false;
 	/// The core sections as last saved or loaded; partial saves patch it.

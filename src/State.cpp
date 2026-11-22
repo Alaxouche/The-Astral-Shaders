@@ -667,7 +667,11 @@ void State::Load(bool a_allowReload)
 					logger::info("Feature '{}' is disabled by default", featureName);
 				}
 				bool isDisabled = !feature->IsAlwaysEnabled() && disabledFeatures.contains(featureName) && disabledFeatures[featureName];
-				if (!isDisabled) {
+				// Hooks and resources are only created at boot, so a later load must not turn on a feature that
+				// stood down or was disabled then: its first per-frame call would use resources it never created.
+				if (featureSetResolved && !feature->loaded) {
+					logger::info("Feature '{}' is not running in this session, not reloading it.", featureName);
+				} else if (!isDisabled) {
 					logger::info("Loading Feature: '{}'", featureName);
 
 					// Settings arrive already layered: defaults, Baseline packs, then the user's edits
@@ -705,6 +709,8 @@ void State::Load(bool a_allowReload)
 	}
 	if (errorDetected && a_allowReload)
 		Load(false);
+	// Set last, so the retry above can still load features at boot.
+	featureSetResolved = true;
 }
 
 void State::SaveToJson(nlohmann::json& settings)

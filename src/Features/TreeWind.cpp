@@ -288,6 +288,11 @@ float TreeWind::GetStorminess(const RE::TESWeather* a_weather) const
 void TreeWind::Reset()
 {
 	ZoneScoped;
+	// swayActive also gates the two draw paths, which read the same buffers.
+	if (!windOnCB || !windOffCB) {
+		swayActive = false;
+		return;
+	}
 	float windSpeed = 0.0f;
 	float windAngle = 0.0f;
 	float storminess = 0.0f;
