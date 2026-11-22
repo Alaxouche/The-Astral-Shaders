@@ -157,18 +157,7 @@ namespace PBR
 		float3 frontTransmissionAlbedo;
 		float3 backTransmissionAlbedo;
 		float3 specularAlbedo;
-		float3 shineThroughAlbedo;
 	};
-
-	// Grass also calls this for materials without the subsurface flag, because SSS Amount applies to all PBR grass.
-	void AddThinSurfaceSubsurface(inout ThinSurface surface, MaterialProperties material)
-	{
-		float reflectionWeight;
-		GetThinSurfaceSubsurfaceAlbedos(saturate(material.BaseColor), saturate(material.SubsurfaceColor), material.Thickness, material.SubsurfaceBalance,
-			reflectionWeight, surface.frontTransmissionAlbedo, surface.backTransmissionAlbedo);
-		surface.reflectionAlbedo *= reflectionWeight;
-		surface.shineThroughAlbedo = material.BaseColor;
-	}
 
 	ThinSurface CreateThinSurface(MaterialProperties material, float NdotV, bool doSpecular, bool reflectionIncludesBaseColor = true)
 	{
@@ -177,7 +166,10 @@ namespace PBR
 
 		[branch] if ((PBRFlags & Flags::Subsurface) != 0)
 		{
-			AddThinSurfaceSubsurface(surface, material);
+			float reflectionWeight;
+			GetThinSurfaceSubsurfaceAlbedos(saturate(material.BaseColor), saturate(material.SubsurfaceColor), material.Thickness, material.SubsurfaceBalance,
+				reflectionWeight, surface.frontTransmissionAlbedo, surface.backTransmissionAlbedo);
+			surface.reflectionAlbedo *= reflectionWeight;
 		}
 
 		[branch] if (doSpecular)
@@ -206,7 +198,9 @@ namespace PBR
 		float3 scatteringThroughput = (1.0f - surface.specularAlbedo) * Color::LinearToPBRMaterial(fuzzThroughput.xxx);
 
 		float3 irradiance = context.lightColor * BRDF::Diffuse_Lambert() * scatteringThroughput;
-		GetThinSurfaceDirectScattering(surface.reflectionAlbedo, surface.frontTransmissionAlbedo, surface.backTransmissionAlbedo, surface.shineThroughAlbedo,
+		float3 shineThroughAlbedo = (PBRFlags & Flags::Subsurface) != 0 ? material.BaseColor : 0.0f;
+
+		GetThinSurfaceDirectScattering(surface.reflectionAlbedo, surface.frontTransmissionAlbedo, surface.backTransmissionAlbedo, shineThroughAlbedo,
 			material.Thickness, irradiance, NdotL, wrap, context.detailedShadow, float2(context.softShadow, context.softShadow * context.backTransmissionVisibility),
 			lightingOutput.diffuse, lightingOutput.transmission, context.lightDisk);
 

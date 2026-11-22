@@ -705,19 +705,8 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 		SnowCover::ApplySnowFoliagePBR(material, float3(input.TexCoord.xy, normal.z * 0.5 + 0.5), input.WorldPosition.xyz + FrameBuffer::CameraPosAdjust.xyz, snowOcclusion, length(viewPosition.xyz));
 	}
 #				endif
-	// Generated PBR grass usually has no subsurface, or an opacity of 1 that blocks it, which leaves it an opaque sheet:
-	// blades facing away from the sun fall to ambient. SSS Amount sets the translucency every PBR grass gets at least.
-	const bool pbrSubsurface = (PBRFlags & PBR::Flags::Subsurface) != 0;
-	const float grassOpacity = 1.0 - 0.5 * saturate(SharedData::grassLightingSettings.SubsurfaceScatteringAmount);
-	material.Thickness = min(material.Thickness, grassOpacity);
-	if (!pbrSubsurface) {
-		material.SubsurfaceColor = material.BaseColor;
-		material.SubsurfaceBalance = SharedData::grassLightingSettings.SubsurfaceBalance;
-	}
 	const float grassNdotV = clamp(abs(dot(normal, viewDirection)), EPSILON_DOT_CLAMP, 1.0f);
 	PBR::ThinSurface grassSurface = PBR::CreateThinSurface(material, grassNdotV, pbrDetail);
-	[branch] if (!pbrSubsurface && grassOpacity < 1.0)
-		PBR::AddThinSurfaceSubsurface(grassSurface, material);
 	material.Fuzz = PBR::CreateFuzzLayer(material, grassNdotV, pbrDetail);
 	PBR::CacheFuzzLTC(material.Fuzz, normal, viewDirection, grassNdotV);
 
@@ -807,7 +796,7 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 	directionalAmbientColor *= outputAlbedo;
 #				if defined(SKYLIGHTING)
 	float skylightingDiffuse = Skylighting::GetSkylightingDiffuse(skylightingSH, input.WorldPosition.xyz, normal, vertexAO);
-	[branch] if (material.Thickness < 1.0)
+	[branch] if ((PBRFlags & PBR::Flags::Subsurface) != 0)
 		skylightingDiffuse = PBR::GetFoliageShadowVisibility(skylightingDiffuse, material.Thickness);
 	Skylighting::ApplySkylighting(directColor, directionalAmbientColor, outputAlbedo, skylightingDiffuse);
 	sh2 backSkylightingSH = skylightingSH;
