@@ -673,7 +673,8 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #				endif
 
 #				if defined(WETNESS_EFFECTS)
-	float wetnessPorosity = 1.0;
+	// Astral, keep on syncs (Grass Wet Darkening): at a porosity of 1 rain turns grass near black.
+	float wetnessPorosity = SharedData::wetnessEffectsSettings.GrassWetnessDarkening;
 	WetnessEffects::ApplySurfaceWetnessAlbedo(material.BaseColor, wetnessState, wetnessPorosity);
 #				endif
 
@@ -1031,7 +1032,8 @@ PS_OUTPUT main(PS_INPUT input, bool frontFace : SV_IsFrontFace)
 #				endif
 
 #				if defined(WETNESS_EFFECTS)
-	float wetnessPorosity = 1.0;
+	// Astral, keep on syncs (Grass Wet Darkening): at a porosity of 1 rain turns grass near black.
+	float wetnessPorosity = SharedData::wetnessEffectsSettings.GrassWetnessDarkening;
 	WetnessEffects::ApplySurfaceWetnessAlbedo(baseColor.xyz, wetnessState, wetnessPorosity);
 #				endif
 

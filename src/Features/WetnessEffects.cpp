@@ -47,7 +47,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
 	WallRainWetness,
 	WallRainDarkening,
 	EnableWallRain,
-	WallRainTrailLength)
+	WallRainTrailLength,
+	GrassWetnessDarkening)
 
 bool WetnessEffects::IsRainFlowCompiled()
 {
@@ -80,6 +81,11 @@ static void SanitizeWallRainSettings(WetnessEffects::Settings& settings)
 	settings.WallRainNormalStrength = clamp(settings.WallRainNormalStrength, defaults.WallRainNormalStrength, 0.0f, 4.0f);
 	settings.WallRainWetness = clamp(settings.WallRainWetness, defaults.WallRainWetness, 0.0f, 2.0f);
 	settings.WallRainDarkening = clamp(settings.WallRainDarkening, defaults.WallRainDarkening, 0.0f, 1.5f);
+}
+
+static void SanitizeGrassSettings(WetnessEffects::Settings& settings)
+{
+	settings.GrassWetnessDarkening = std::isfinite(settings.GrassWetnessDarkening) ? std::clamp(settings.GrassWetnessDarkening, 0.0f, 1.0f) : WetnessEffects::Settings{}.GrassWetnessDarkening;
 }
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(
@@ -512,6 +518,10 @@ void WetnessEffects::DrawSettings()
 		ImGui::SliderFloat(T(TKEY("rain_wetness"), "Rain Wetness"), &settings.MaxRainWetness, 0.0f, 2.5f);
 		if (ImGui::IsItemDeactivatedAfterEdit())
 			DetectCurrentPreset();
+
+		ImGui::SliderFloat(T(TKEY("grass_wet_darkening"), "Grass Wet Darkening"), &settings.GrassWetnessDarkening, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+		if (auto _tt = Util::HoverTooltipWrapper())
+			ImGui::Text("%s", T(TKEY("grass_wet_darkening_tooltip"), "How much rain darkens grass. 1 is the full darkening, 0 keeps its dry colour."));
 
 		ImGui::SliderFloat(T(TKEY("puddle_wetness"), "Puddle Wetness"), &settings.MaxPuddleWetness, 0.0f, 6.0f);
 		if (ImGui::IsItemDeactivatedAfterEdit())
@@ -1036,6 +1046,7 @@ WetnessEffects::PerFrame WetnessEffects::GetCommonBufferData() const
 
 	data.settings = settings;
 	SanitizeWallRainSettings(data.settings);
+	SanitizeGrassSettings(data.settings);
 	data.settings.MaxShoreWetness = settings.EnableWetnessEffects ? settings.MaxShoreWetness : 0.0f;
 	data.settings.RaindropChance *= data.Raining * data.Raining;
 	data.settings.RaindropGridSize = 1.0f / raindropGridSize;
@@ -1102,6 +1113,7 @@ void WetnessEffects::LoadSettings(json& o_json)
 {
 	settings = o_json;
 	SanitizeWallRainSettings(settings);
+	SanitizeGrassSettings(settings);
 
 	// Auto-detect which preset matches the loaded settings
 	DetectCurrentPreset();

@@ -76,6 +76,10 @@ public:
 		float WallRainDarkening = 0.65f;
 		uint EnableWallRain = false;
 		float WallRainTrailLength = 1.0f;
+
+		// Astral, keep on syncs: grass has no puddles, so the whole rain wetness darkens it and left it near black
+		// in a downpour. Scales that darkening; 1 is upstream's.
+		float GrassWetnessDarkening = 0.3f;
 	};
 
 	struct alignas(16) PerFrame
@@ -86,12 +90,12 @@ public:
 		float Wetness;
 		float PuddleWetness;
 		Settings settings;
-		uint pad0[3];
+		uint pad0[2];
 	};
 	STATIC_ASSERT_ALIGNAS_16(PerFrame);
 	bool rainFlowLatched = false;
 	bool rainFlowAtBoot = false;
-	static_assert(sizeof(Settings) == 148);
+	static_assert(sizeof(Settings) == 152);
 	static_assert(offsetof(PerFrame, settings) == 80);
 	static_assert(sizeof(PerFrame) == 240);
 
