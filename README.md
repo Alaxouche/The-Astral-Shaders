@@ -11,7 +11,7 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/doodlum/skyrim-community-shaders)
 
-# Bottled Shaders
+# The Astral Shaders
 
 SKSE core plugin for community-driven advanced graphics modifications.
 
