@@ -105,6 +105,9 @@ struct FurShells : Feature
 private:
 	struct Hooks;
 
+	/** @brief Gathers the bodies that press into fur. Called from the main update, after the frame's Present. */
+	void UpdateTouchBodies();
+
 	struct PerPass
 	{
 		float Length;

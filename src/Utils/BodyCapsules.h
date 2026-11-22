@@ -67,6 +67,7 @@ namespace Util::BodyCapsules
 		/**
 		 * @brief Rebuilds the capsule list for the actors within a_maxDistance of the camera and the player's VR hands.
 		 * @details Does nothing when the list was already rebuilt this frame, so the first caller of a frame sets the range.
+		 *          Walks actor skeletons: call it from Util::MainUpdateCallSite(), never from a Feature::Reset, which runs at Present.
 		 */
 		void Update(float a_maxDistance);
 		/** @brief Drops every capsule and the movement history; the next Update rebuilds them. */

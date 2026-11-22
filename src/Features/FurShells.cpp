@@ -667,13 +667,11 @@ void FurShells::Reset()
 	lastTouchNearestGap = touchNearestGap;
 	touchNearestGap = FLT_MAX;
 	maxTouchPerPass = 0;
-	if (!IsTouchActive()) {
+	// The bodies themselves are gathered in UpdateTouchBodies: this runs at Present, which is too early to walk skeletons.
+	if (!IsTouchActive())
 		dentMemory.Clear();
-	} else {
-		if (lastPassCount > 0)
-			bodies.Update(TouchActorRange);
+	else
 		dentMemory.Advance();
-	}
 	maxShells = 0;
 	minDensity = 1.0f;
 	stereoDraws = 0;
@@ -686,6 +684,12 @@ void FurShells::Reset()
 	deferredOverlayPasses.clear();
 	frameBodies.clear();
 	deferralClosed = false;
+}
+
+void FurShells::UpdateTouchBodies()
+{
+	if (IsTouchActive() && lastPassCount > 0)
+		Util::BodyCapsules::GetTracker().Update(TouchActorRange);
 }
 
 void FurShells::GenerateShaderPermutations(RE::BSShader* a_shader)
@@ -1297,6 +1301,20 @@ struct FurShells::Hooks
 		static inline REL::Relocation<decltype(thunk)> func;
 	};
 
+	// Present is called earlier in Main::Update, while actors' 3D can still change and free the node being read.
+	// Grass Collision and Snow Deformation gather actor collision at this same later call.
+	struct MainUpdate_UpdateTouchBodies
+	{
+		static void thunk()
+		{
+			func();
+			auto& furShells = globals::features::furShells;
+			if (furShells.loaded)
+				furShells.UpdateTouchBodies();
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
 	struct BSBatchRenderer_RenderPassImmediately
 	{
 		static void thunk(RE::BSRenderPass* a_pass, uint32_t a_technique, bool a_alphaTest, uint32_t a_renderFlags)
@@ -1488,6 +1506,7 @@ void FurShells::PostPostLoad()
 	stl::write_vfunc<0x6, Hooks::BSLightingShader_SetupGeometry>(RE::VTABLE_BSLightingShader[0]);
 	stl::write_vfunc<0x7, Hooks::BSLightingShader_RestoreGeometry>(RE::VTABLE_BSLightingShader[0]);
 	stl::write_thunk_call<Hooks::BSBatchRenderer_RenderPassImmediately>(REL::RelocationID(100852, 107642).address() + REL::Relocate(0x29E, 0x28F));
+	stl::write_thunk_call<Hooks::MainUpdate_UpdateTouchBodies>(Util::MainUpdateCallSite());
 	logger::info("[Fur Shells] Installed hooks");
 
 	std::thread([this] {

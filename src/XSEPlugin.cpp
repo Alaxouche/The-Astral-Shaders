@@ -87,7 +87,8 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_s
 		Plugin::BUILD_DESCRIBE,
 		Plugin::BUILD_HASH.empty() ? "unknown" : Plugin::BUILD_HASH,
 		Plugin::BUILD_DIRTY ? " (dirty)" : "");
-	SKSE::AllocTrampoline(1 << 10);
+	// 14 bytes per hooked call: the features' hooks fill nearly all of 1 KiB, and running out is fatal at launch.
+	SKSE::AllocTrampoline(1 << 11);
 	return Load();
 }
 

@@ -403,7 +403,7 @@ namespace Util::BodyCapsules
 
 		struct Candidate
 		{
-			RE::Actor* actor;
+			RE::ActorPtr actor;  // ForEachLoadedActor only holds its reference during the callback
 			float squaredDistance;
 		};
 		std::vector<Candidate> candidates;
@@ -412,14 +412,14 @@ namespace Util::BodyCapsules
 				return;
 			const float squaredDistance = camera.GetSquaredDistance(a_actor->GetPosition());
 			if (squaredDistance <= maxSquared)
-				candidates.push_back({ a_actor, squaredDistance });
+				candidates.push_back({ RE::ActorPtr(a_actor), squaredDistance });
 		});
 		std::ranges::sort(candidates, [](const auto& a, const auto& b) { return a.squaredDistance < b.squaredDistance; });
 		if (candidates.size() > MaxActors)
 			candidates.resize(MaxActors);
 
 		for (const auto& candidate : candidates)
-			AddActorCapsules(candidate.actor, camera);
+			AddActorCapsules(candidate.actor.get(), camera);
 
 		if (auto* player = globals::game::player; globals::game::isVR && player && player->Is3DLoaded()) {
 			RefreshHandNodes(player);
