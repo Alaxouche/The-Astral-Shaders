@@ -23,7 +23,7 @@ namespace Plugin
 	inline constexpr auto DISPLAY_NAME = "Astral Shaders"sv;
 
 	/// Fork build number, bumped on every shipped update. Shown as {Fork::Version}.{FORK_BUILD:03} (src/ForkVersion.h).
-	inline constexpr unsigned FORK_BUILD = 84u;
+	inline constexpr unsigned FORK_BUILD = 85u;
 
 	/// Full git describe string, e.g. "v1.4.11", "v1.4.11-3-gabcdef1", "v1.4.11-3-gabcdef1-dirty".
 	/// Matches "v{VERSION}" exactly on a clean tagged release build.

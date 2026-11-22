@@ -682,8 +682,9 @@ void ScreenSpaceGI::SetupNRDResources()
 		texNRDOutputSH1.reset();
 	}
 
-	auto denoiser = useSH ? nrd::Denoiser::REBLUR_DIFFUSE_SH : nrd::Denoiser::REBLUR_DIFFUSE;
-	nrdReblur.Init(fullW, fullH, denoiser, 0);
+	reblurInitAttempted = settings.Enabled && settings.EnableREBLUR;
+	if (reblurInitAttempted)
+		nrdReblur.Init(fullW, fullH, useSH ? nrd::Denoiser::REBLUR_DIFFUSE_SH : nrd::Denoiser::REBLUR_DIFFUSE, 0);
 	nrdReblurUsesSH = useSH;
 
 	if (modeChanged)
@@ -849,6 +850,16 @@ void ScreenSpaceGI::DrawSSGI()
 	if (nrdReblurUsesSH != useSH || !texNRDInput || texNRDInput->desc.Width != nrdWidth || texNRDInput->desc.Height != nrdHeight)
 		SetupNRDResources();
 
+	if (!settings.Enabled || !settings.EnableREBLUR) {
+		if (nrdReblur.IsValid()) {
+			nrdReblur.Shutdown();
+			resetReblurHistory = true;
+		}
+		reblurInitAttempted = false;
+	} else if (!reblurInitAttempted) {
+		SetupNRDResources();
+	}
+
 	if (const bool canDenoise = CanDenoise(); (settings.HalfRes && canDenoise) != tracedHalfRes || (settings.QuarterRes && canDenoise) != tracedQuarterRes) {
 		recompileFlag = true;
 		queuedResetHistory = true;
@@ -861,6 +872,11 @@ void ScreenSpaceGI::DrawSSGI()
 		ClearShaderCache();
 
 	if (!(settings.Enabled && ShadersOK())) {
+		return;
+	}
+
+	if (globals::state->isMapMenuOpen) {
+		queuedResetHistory = true;
 		return;
 	}
 
@@ -1029,6 +1045,7 @@ void ScreenSpaceGI::DrawSSGI()
 
 		envIBLSrv = nullptr;
 		context->CSSetShaderResources(76, 1, &envIBLSrv);
+		resetViews();
 	}
 
 	// REBLUR diffuse denoising via core NRD service
@@ -1121,12 +1138,13 @@ void ScreenSpaceGI::Composite()
 	auto& rts = renderer->GetRuntimeData().renderTargets;
 	auto& main = rts[globals::deferred->forwardRenderTargets[0]];
 
-	std::array<ID3D11ShaderResourceView*, 5> srvs = {
+	std::array<ID3D11ShaderResourceView*, 6> srvs = {
 		rts[ALBEDO].SRV,
 		rts[NORMALROUGHNESS].SRV,
 		Util::GetCurrentSceneDepthSRV(false),
 		GetDiffuseOutputTexture(),
-		GetDiffuseSH1Texture()
+		GetDiffuseSH1Texture(),
+		rts[MASKS].SRV
 	};
 
 	context->CSSetShaderResources(0, (uint)srvs.size(), srvs.data());
@@ -1185,7 +1203,7 @@ bool ScreenSpaceGI::UsesCubemapFallback() const
 ScreenSpaceGI::SharedData ScreenSpaceGI::GetCommonBufferData()
 {
 	SharedData data{};
-	const bool enabled = loaded && settings.Enabled && !recompileFlag && ShadersOK();
+	const bool enabled = loaded && settings.Enabled && !recompileFlag && ShadersOK() && !globals::state->isMapMenuOpen;
 	data.Enabled = enabled ? 1u : 0u;
 	data.EnableIL = (enabled && settings.EnableGI) ? 1u : 0u;
 	data.ReplaceAmbient = (data.EnableIL && UsesCubemapFallback()) ? 1u : 0u;

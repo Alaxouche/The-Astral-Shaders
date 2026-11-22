@@ -13,12 +13,20 @@ public:
 	/** @brief Releases the interior adaptation shader so it recompiles on the next frame it is needed. */
 	void ClearShaderCache();
 
+	/** @brief The adaptation texture the latest Execute wrote, or nullptr if it did not write one. */
+	ID3D11ShaderResourceView* GetOutputSRV() const;
+
 	TextureManager::Texture textureCurrent;
 
 protected:
 	void CreateEffectTextures() override;
 
 private:
+	/** @brief Names of the adaptation ping-pong pair for this frame: (previous, output). */
+	static std::pair<const char*, const char*> GetTextureNames();
+
+	const char* outputTextureName = nullptr;
+
 	// Two float4s: already a whole number of 16-byte registers, so no alignas (it would pad the effect object)
 	struct InteriorCB
 	{

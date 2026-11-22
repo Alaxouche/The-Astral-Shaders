@@ -339,6 +339,17 @@ State::TonemapOwner State::GetTonemapOwner()
 	return *tonemapOwner;
 }
 
+void State::SetPostProcessingFallback(bool fallback)
+{
+	postProcessingFallback = fallback;
+	const auto owner = static_cast<uint>(fallback ? TonemapOwner::kPostProcessingFallback : GetTonemapOwner());
+	if (sharedData.TonemapOwner == owner)
+		return;
+
+	sharedData.TonemapOwner = owner;
+	sharedDataCB->Update(sharedData);
+}
+
 bool State::HandlePostProcessing(RE::RENDER_TARGET a_input, RE::RENDER_TARGET a_output)
 {
 	if (GetTonemapOwner() != TonemapOwner::kEffects11)
@@ -412,6 +423,7 @@ void State::Reset()
 	std::memset(&permutationDataPrevious, 0xFF, sizeof(PermutationCB));
 	frameCount++;
 	tonemapOwner.reset();
+	postProcessingFallback = false;
 	// Publish for off-thread readers (e.g. the MCP listener thread).
 	frameCountAtomic.store(frameCount, std::memory_order_relaxed);
 
@@ -1597,7 +1609,8 @@ void State::UpdateSharedData([[maybe_unused]] bool a_inWorld, [[maybe_unused]] b
 		}
 	}
 	{
-		SharedDataCB data{};
+		auto& data = sharedData;
+		data = {};
 		data.PreExposure = preExposure;
 		data.RcpPreExposure = 1.0f / preExposure;
 		data.PreviousPreExposure = previousPreExposure;
@@ -1734,7 +1747,7 @@ void State::UpdateSharedData([[maybe_unused]] bool a_inWorld, [[maybe_unused]] b
 		data.SunColor = lighting.sun.GetColor();
 		data.MasserColor = lighting.masser.GetColor();
 		data.SecundaColor = lighting.secunda.GetColor();
-		data.TonemapOwner = static_cast<uint>(GetTonemapOwner());
+		data.TonemapOwner = static_cast<uint>(postProcessingFallback ? TonemapOwner::kPostProcessingFallback : GetTonemapOwner());
 		sharedDataCB->Update(data);
 	}
 

@@ -104,6 +104,10 @@ public:
 		float mistPad0 = 0.0f;
 
 		float4 originalFogColorOverride = { 1.0f, 1.0f, 1.0f, 0.0f };  // rgb = replaces the weather fog colour, a = blend amount
+		float interiorFogStrength = 1.0f;
+		float interiorFogBrightness = 1.0f;
+		float2 pad5 = {};
+		float4 interiorFogTint = { 1.0f, 1.0f, 1.0f, 0.0f };
 	} settings;
 	STATIC_ASSERT_ALIGNAS_16(Settings);
 	static_assert(offsetof(Settings, volumetricFogNoiseVelocity) == 176);
@@ -114,7 +118,8 @@ public:
 	static_assert(offsetof(Settings, mistsEnabled) == 272);
 	static_assert(offsetof(Settings, mistDriftSpeed) == 288);
 	static_assert(offsetof(Settings, originalFogColorOverride) == 304);
-	static_assert(sizeof(Settings) == 320);
+	static_assert(offsetof(Settings, interiorFogTint) == 336);
+	static_assert(sizeof(Settings) == 352);
 
 	static constexpr float kMaxMistDriftSpeed = 2000.0f;
 	/** @brief Initial pattern angle (radians), the heading of the manual drift direction (0.8, 0.6). */

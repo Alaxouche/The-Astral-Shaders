@@ -2321,8 +2321,6 @@ void Upscaling::Main_PostProcessing::thunk(RE::ImageSpaceManager* a_this, uint32
 	auto upscaleMethod = upscaling.GetUpscaleMethod();
 
 	const bool prepareFrameGeneration = upscaling.ShouldPrepareFrameGeneration();
-	if (prepareFrameGeneration && postProcessing.loaded)
-		postProcessing.ClearBorderMotionVectorsForFrameGen();
 	upscaling.frameGenerationPrepared = prepareFrameGeneration && upscaling.CopySharedD3D12Resources();
 
 	const bool worldRendered = globals::state->WorldRenderedThisFrame();
