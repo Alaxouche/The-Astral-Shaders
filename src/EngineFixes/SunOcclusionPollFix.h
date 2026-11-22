@@ -11,6 +11,7 @@
 struct SunOcclusionPollFix : EngineFix
 {
 	std::string GetName() override { return "Sun Occlusion Poll Fix"; }
+	const char* GetConflictingPlugin() const override;
 
 	void Install() override;
 };

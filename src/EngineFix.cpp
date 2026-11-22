@@ -62,6 +62,10 @@ void EngineFix::InstallFixes(const std::vector<EngineFix*>& fixes)
 			logger::info("[Engine Fixes] Skipped {} (Engine Fixes installed it)", fix->GetName());
 			continue;
 		}
+		if (const auto plugin = fix->GetConflictingPlugin()) {
+			logger::info("[Engine Fixes] Skipped {} ({} installed it)", fix->GetName(), plugin);
+			continue;
+		}
 		fix->Install();
 		logger::info("[Engine Fixes] Installed {}", fix->GetName());
 	}

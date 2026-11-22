@@ -15,6 +15,9 @@ struct EngineFix
 
 	virtual const char* GetEngineFixesName() const { return nullptr; }
 
+	/** @brief Returns the plugin that already applies this fix, or nullptr. Install() is skipped when one does. */
+	virtual const char* GetConflictingPlugin() const { return nullptr; }
+
 	/** @brief Applies the engine fix. Override in subclasses to perform patching. */
 	virtual void Install() {}
 
